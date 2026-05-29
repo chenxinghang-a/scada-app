@@ -97,6 +97,8 @@
               <el-select v-model="form.protocol" @change="onProtocolChange" style="width:100%">
                 <el-option label="Modbus TCP" value="modbus_tcp" />
                 <el-option label="Modbus RTU" value="modbus_rtu" />
+                <el-option label="三菱MC协议" value="mc" />
+                <el-option label="欧姆龙FINS" value="fins" />
                 <el-option label="OPC UA" value="opcua" />
                 <el-option label="MQTT" value="mqtt" />
                 <el-option label="REST HTTP" value="rest" />
@@ -153,6 +155,38 @@
           <el-form-item label="端点URL">
             <el-input v-model="form.host" placeholder="opc.tcp://192.168.1.100:4840" />
           </el-form-item>
+        </template>
+
+        <!-- MC/FINS 字段 -->
+        <template v-if="form.protocol === 'mc' || form.protocol === 'fins'">
+          <el-divider content-position="left">{{ form.protocol === 'mc' ? '三菱MC协议' : '欧姆龙FINS' }} 配置</el-divider>
+          <el-row :gutter="16">
+            <el-col :span="12">
+              <el-form-item label="IP地址">
+                <el-input v-model="form.host" :placeholder="form.protocol === 'mc' ? '192.168.1.100' : '192.168.1.200'" />
+              </el-form-item>
+            </el-col>
+            <el-col :span="12">
+              <el-form-item label="端口">
+                <el-input-number v-model="form.port" :min="1" :max="65535" style="width:100%" />
+              </el-form-item>
+            </el-col>
+          </el-row>
+          <el-divider content-position="left">寄存器配置</el-divider>
+          <div v-for="(reg, i) in form.registers" :key="i" class="register-row">
+            <el-input v-model="reg.name" placeholder="名称" style="width:120px" />
+            <el-input v-model="reg.description" placeholder="描述" style="width:150px" />
+            <el-input-number v-model="reg.address" placeholder="地址" :min="0" :max="65535" style="width:100px" />
+            <el-select v-model="reg.data_type" style="width:100px">
+              <el-option label="INT16" value="int16" />
+              <el-option label="UINT16" value="uint16" />
+              <el-option label="INT32" value="int32" />
+              <el-option label="FLOAT32" value="float32" />
+            </el-select>
+            <el-input v-model="reg.unit" placeholder="单位" style="width:60px" />
+            <el-button type="danger" :icon="Delete" circle size="small" @click="form.registers.splice(i, 1)" />
+          </div>
+          <el-button type="primary" link @click="addRegister"><el-icon><Plus /></el-icon> 添加寄存器</el-button>
         </template>
 
         <!-- MQTT 字段 -->
@@ -220,8 +254,9 @@ const form = reactive<any>({
 const testResult = reactive({ success: false, message: '' })
 
 // 预设设备
-const presetCategories = ['Modbus', 'OPC UA', 'MQTT', 'REST']
+const presetCategories = ['Modbus', 'MC协议', 'FINS', 'OPC UA', 'MQTT', 'REST']
 const presets = [
+  // Modbus
   { id: 'schneider_m340_01', name: '施耐德M340 PLC', protocol: 'modbus_tcp', category: 'Modbus', description: '施耐德M340 PLC - 水处理控制' },
   { id: 'abb_m4m_01', name: 'ABB M4M仪表', protocol: 'modbus_tcp', category: 'Modbus', description: 'ABB M4M电力监测仪表' },
   { id: 'turck_iolink_01', name: '图尔克IO-Link', protocol: 'modbus_tcp', category: 'Modbus', description: '图尔克IO-Link站点' },
@@ -230,9 +265,16 @@ const presets = [
   { id: 'siemens_1500_01', name: '西门子S7-1500', protocol: 'modbus_tcp', category: 'Modbus', description: '西门子S7-1500 PLC - 锅炉控制' },
   { id: 'hollysys_lk_01', name: '和利时LK PLC', protocol: 'modbus_tcp', category: 'Modbus', description: '和利时LK PLC - 化工流程' },
   { id: 'mitsubishi_fx5u_01', name: '三菱FX5U PLC', protocol: 'modbus_tcp', category: 'Modbus', description: '三菱FX5U PLC - 注塑机控制' },
+  // MC协议
+  { id: 'fx5u_mc', name: '三菱FX5U (MC协议)', protocol: 'mc', category: 'MC协议', description: '三菱FX5U SLMP/3E帧协议' },
+  // FINS
+  { id: 'nj501_fins', name: '欧姆龙NJ501 (FINS)', protocol: 'fins', category: 'FINS', description: '欧姆龙NJ系列FINS/TCP协议' },
+  // OPC UA
   { id: 'opcua_plc_01', name: 'OPC UA PLC', protocol: 'opcua', category: 'OPC UA', description: 'OPC UA PLC测试设备' },
+  // MQTT
   { id: 'vibration_sensor_01', name: 'MQTT振动传感器', protocol: 'mqtt', category: 'MQTT', description: 'MQTT振动监测节点' },
   { id: 'water_quality_01', name: 'MQTT水质传感器', protocol: 'mqtt', category: 'MQTT', description: 'MQTT水质监测终端' },
+  // REST
   { id: 'siemens_web_01', name: '西门子Web API', protocol: 'rest', category: 'REST', description: '西门子S7-1500 REST API' },
   { id: 'mes_api_01', name: 'MES系统API', protocol: 'rest', category: 'REST', description: 'MES制造执行系统' },
 ]
@@ -266,6 +308,8 @@ function onProtocolChange(protocol: string) {
   const defaults: Record<string, any> = {
     modbus_tcp: { host: '127.0.0.1', port: 502 },
     modbus_rtu: { host: 'COM1', port: 9600 },
+    mc: { host: '192.168.1.100', port: 5000 },
+    fins: { host: '192.168.1.200', port: 9600 },
     opcua: { host: 'opc.tcp://localhost:4840', port: 4840 },
     mqtt: { host: 'localhost', port: 1883 },
     rest: { host: 'http://localhost:8080', port: 8080 },
@@ -336,7 +380,7 @@ async function addAllPresets() {
 }
 
 function protocolColor(p: string) {
-  const map: Record<string, string> = { modbus_tcp: '', modbus_rtu: 'success', opcua: 'warning', mqtt: 'info', rest: 'danger' }
+  const map: Record<string, string> = { modbus_tcp: '', modbus_rtu: 'success', mc: 'warning', fins: 'warning', opcua: 'warning', mqtt: 'info', rest: 'danger' }
   return map[p] || ''
 }
 </script>
