@@ -2,13 +2,17 @@ import api from './request'
 
 export interface Alarm {
   id: string
+  alarm_id?: string
   device_id: string
   register_name: string
   alarm_level: 'critical' | 'warning' | 'info'
   alarm_message: string
   threshold: number
   actual_value: number
+  last_value?: number
   timestamp: string
+  last_trigger_time?: string
+  trigger_count?: number
   acknowledged: boolean
   acknowledged_by?: string
   acknowledged_at?: string
@@ -26,7 +30,7 @@ export interface AlarmRule {
 }
 
 export const alarmsApi = {
-  getAll(params?: { page?: number; per_page?: number; level?: string }) {
+  getAll(params?: { page?: number; per_page?: number; level?: string; limit?: number; device_id?: string; alarm_level?: string }) {
     return api.get('/alarms', { params }) as Promise<{
       alarms: Alarm[]
       total: number

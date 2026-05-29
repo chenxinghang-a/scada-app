@@ -37,7 +37,7 @@
     <div class="main-area">
       <!-- 设备卡片网格 -->
       <div class="device-grid">
-        <div v-for="d in deviceList" :key="d.device_id || d.id" class="dev-card" :class="getDeviceClass(d)" @click="selectDevice(d.device_id || d.id)">
+        <div v-for="d in deviceList" :key="getDeviceId(d)" class="dev-card" :class="getDeviceClass(d)" @click="selectDevice(getDeviceId(d))">
           <div class="dev-status" :class="getDeviceStatusClass(d)"></div>
           <div class="dev-info">
             <div class="dev-name">{{ d.name || d.device_id }} <span class="dev-state-tag" :class="getDeviceStatusClass(d)">{{ getDeviceStatusText(d) }}</span></div>
@@ -45,11 +45,11 @@
             <div class="dev-values">
               <span v-for="r in (d.registers || []).slice(0, 2)" :key="r.name" class="dev-val">
                 <span class="label">{{ getShortLabel(r.name) }}</span>
-                <span class="num">{{ getDeviceValue(d.device_id || d.id, r.name) }}</span>
+                <span class="num">{{ getDeviceValue(getDeviceId(d), r.name) }}</span>
               </span>
             </div>
           </div>
-          <button v-if="d.device_category === 'mechanical' && d.connected" class="dev-ctrl-btn" :class="d.stopped ? 'start' : 'stop'" @click.stop="toggleDevice(d.device_id || d.id, !d.stopped)" :title="d.stopped ? '启动' : '停止'">
+          <button v-if="d.device_category === 'mechanical' && d.connected" class="dev-ctrl-btn" :class="d.stopped ? 'start' : 'stop'" @click.stop="toggleDevice(getDeviceId(d), !d.stopped)" :title="d.stopped ? '启动' : '停止'">
             {{ d.stopped ? '▶' : '■' }}
           </button>
         </div>
@@ -67,14 +67,14 @@
         </div>
         <div class="alarm-list">
           <div v-if="alarms.length === 0" class="alarm-empty">暂无活动报警</div>
-          <div v-for="a in alarms.slice(0, 20)" :key="a.alarm_id" class="alarm-row" :class="{ unacked: !a.acknowledged }">
+          <div v-for="a in alarms.slice(0, 20)" :key="a.id || a.alarm_id" class="alarm-row" :class="{ unacked: !a.acknowledged }">
             <span class="alarm-prio" :class="getAlarmLevel(a.alarm_level)">{{ getAlarmPrioText(a.alarm_level) }}</span>
             <span class="alarm-time">{{ formatAlarmTime(a.last_trigger_time || a.timestamp) }}</span>
             <span class="alarm-device">{{ (a.device_id || '').substring(0, 12) }}</span>
-            <span class="alarm-msg">{{ a.alarm_message || a.alarm_id }}</span>
+            <span class="alarm-msg">{{ a.alarm_message || a.id }}</span>
             <span class="alarm-pv">{{ getAlarmPV(a) }}</span>
             <span v-if="(a.trigger_count || 1) > 1" class="alarm-count">×{{ a.trigger_count }}</span>
-            <button v-if="!a.acknowledged" class="alarm-ack-btn" @click="ackAlarm(a.alarm_id, a.device_id, a.register_name)">确认</button>
+            <button v-if="!a.acknowledged" class="alarm-ack-btn" @click="ackAlarm(a.id || a.alarm_id || '', a.device_id, a.register_name)">确认</button>
           </div>
         </div>
       </div>
@@ -84,7 +84,7 @@
     <div class="trend-area">
       <div class="trend-header">
         <select v-model="selectedDeviceId" @change="onDeviceChange" class="trend-device-select">
-          <option v-for="d in deviceList" :key="d.device_id || d.id" :value="d.device_id || d.id">{{ d.name || d.device_id }}</option>
+          <option v-for="d in deviceList" :key="getDeviceId(d)" :value="getDeviceId(d)">{{ d.name || d.device_id }}</option>
         </select>
       </div>
       <div ref="trendChartRef" class="trend-chart"></div>
@@ -202,6 +202,7 @@ function updateStatusBar(stats: SystemStatus) {
   statusText.value = '系统运行中'
 }
 
+function getDeviceId(d: DeviceStatus): string { return d.device_id || d.id || '' }
 function getDeviceClass(d: DeviceStatus) { return '' }
 function getDeviceStatusClass(d: DeviceStatus): string {
   if (!d.connected) return 'offline'
@@ -257,6 +258,7 @@ function getAlarmPV(a: any): string {
 }
 
 async function ackAlarm(alarmId: string, deviceId: string, regName: string) {
+  if (!alarmId) return
   try {
     await alarmsApi.acknowledge(alarmId, deviceId, regName)
     loadData()

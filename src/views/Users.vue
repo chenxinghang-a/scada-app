@@ -101,7 +101,7 @@
 <script setup lang="ts">
 import { ref, onMounted, reactive } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { authApi } from '@/api'
+import { authApi } from '@/api/auth'
 import api from '@/api/request'
 
 interface User { username: string; display_name: string; role: string }
