@@ -11,7 +11,11 @@
             <el-form-item label="Web端口"><el-input-number v-model="config.system.port" :min="1" :max="65535" /></el-form-item>
             <el-form-item label="Web地址"><el-input v-model="config.system.host" /></el-form-item>
             <el-form-item label="调试模式"><el-switch v-model="config.system.debug" /></el-form-item>
-            <el-form-item><el-button type="primary" @click="saveConfig('system')">保存</el-button></el-form-item>
+            <el-form-item>
+              <el-button type="primary" @click="saveConfig('system')">保存</el-button>
+              <el-button @click="exportConfig">导出配置</el-button>
+              <el-button @click="importConfig">导入配置</el-button>
+            </el-form-item>
           </el-form>
         </el-tab-pane>
 
@@ -222,6 +226,36 @@ async function saveRule() {
 
 async function deleteRule(id: string) {
   try { await api.delete(`/alarm-rules/${id}`); ElMessage.success('规则已删除'); loadAlarmRules() } catch { /* ignore */ }
+}
+
+function exportConfig() {
+  const blob = new Blob([JSON.stringify(config, null, 2)], { type: 'application/json' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = `smartscada-config-${new Date().toISOString().slice(0, 10)}.json`
+  a.click()
+  URL.revokeObjectURL(url)
+  ElMessage.success('配置已导出')
+}
+
+function importConfig() {
+  const input = document.createElement('input')
+  input.type = 'file'
+  input.accept = '.json'
+  input.onchange = async (e: Event) => {
+    const file = (e.target as HTMLInputElement).files?.[0]
+    if (!file) return
+    try {
+      const text = await file.text()
+      const imported = JSON.parse(text)
+      Object.assign(config, imported)
+      ElMessage.success('配置已导入，请点击各标签页的保存按钮生效')
+    } catch {
+      ElMessage.error('配置文件格式错误')
+    }
+  }
+  input.click()
 }
 </script>
 

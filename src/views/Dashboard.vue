@@ -29,7 +29,7 @@
       </div>
       <div class="kpi">
         <div class="kpi-label">模式</div>
-        <div class="kpi-value">{{ kpi.mode }}</div>
+        <div class="kpi-value mode-badge" :class="kpi.mode === '模拟模式' ? 'sim' : 'real'">{{ kpi.mode }}</div>
       </div>
     </div>
 
@@ -258,7 +258,7 @@ function getAlarmPV(a: any): string {
 
 async function ackAlarm(alarmId: string, deviceId: string, regName: string) {
   try {
-    await alarmsApi.acknowledge(alarmId)
+    await alarmsApi.acknowledge(alarmId, deviceId, regName)
     loadData()
   } catch { /* ignore */ }
 }
@@ -338,7 +338,20 @@ function updateTrendChart(data: any[]) {
 // ========== WebSocket ==========
 function connectSocket() {
   const socketUrl = import.meta.env.DEV ? window.location.origin : 'http://localhost:5000'
-  socket = io(socketUrl, { transports: ['websocket', 'polling'] })
+  socket = io(socketUrl, {
+    transports: ['websocket', 'polling'],
+    reconnection: true,
+    reconnectionDelay: 3000,
+    reconnectionAttempts: 10,
+  })
+  socket.on('connect', () => {
+    statusDotClass.value = 'status-dot green'
+    statusText.value = '系统运行中'
+  })
+  socket.on('disconnect', () => {
+    statusDotClass.value = 'status-dot yellow'
+    statusText.value = '连接断开，正在重连...'
+  })
   socket.on('data_update', (data: any) => {
     if (data?.device_id && data?.register_name && data.value !== null) {
       deviceValues[`${data.device_id}__${data.register_name}`] = parseFloat(data.value)
@@ -421,9 +434,14 @@ function connectSocket() {
 .trend-chart { height: 180px; }
 
 /* 状态栏 */
+.mode-badge { font-size: 14px !important; }
+.mode-badge.sim { color: #e6a23c; }
+.mode-badge.real { color: #67c23a; }
+
 .status-bar { display: flex; align-items: center; gap: 8px; padding: 4px 12px; background: #f9fafb; border-top: 1px solid #e2e5ea; font-size: 11px; color: #666; }
 .status-dot { width: 8px; height: 8px; border-radius: 50%; }
-.status-dot.green { background: #22c55e; }
-.status-dot.red { background: #ef4444; }
+.status-dot.green { background: #22c55e; box-shadow: 0 0 6px rgba(34, 197, 94, 0.6); }
+.status-dot.red { background: #ef4444; box-shadow: 0 0 6px rgba(239, 68, 68, 0.6); }
+.status-dot.yellow { background: #eab308; box-shadow: 0 0 6px rgba(234, 179, 8, 0.6); }
 .status-db { margin-left: auto; }
 </style>

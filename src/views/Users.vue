@@ -43,9 +43,10 @@
             </el-tag>
           </template>
         </el-table-column>
-        <el-table-column label="操作" width="150">
+        <el-table-column label="操作" width="200">
           <template #default="{ row }">
             <el-button type="primary" link size="small" @click="editUser(row)">编辑</el-button>
+            <el-button type="warning" link size="small" @click="resetPassword(row)" :disabled="row.username === 'admin'">重置密码</el-button>
             <el-popconfirm title="确定删除此用户？" @confirm="deleteUser(row.username)" :disabled="row.username === 'admin'">
               <template #reference>
                 <el-button type="danger" link size="small" :disabled="row.username === 'admin'">删除</el-button>
@@ -99,7 +100,7 @@
 
 <script setup lang="ts">
 import { ref, onMounted, reactive } from 'vue'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import { authApi } from '@/api'
 import api from '@/api/request'
 
@@ -154,6 +155,20 @@ async function saveUser() {
 
 async function deleteUser(username: string) {
   try { await api.delete(`/auth/users/${username}`); ElMessage.success('用户已删除'); refreshUsers() } catch { /* ignore */ }
+}
+
+async function resetPassword(user: User) {
+  try {
+    const { value: newPwd } = await ElMessageBox.prompt(`为 ${user.username} 设置新密码`, '重置密码', {
+      inputType: 'password',
+      confirmButtonText: '确认',
+      cancelButtonText: '取消',
+      inputValidator: (val) => (val && val.length >= 6) || '密码长度至少6位',
+    })
+    if (!newPwd) return
+    await api.put(`/auth/users/${user.username}`, { password: newPwd })
+    ElMessage.success(`用户 ${user.username} 密码已重置`)
+  } catch { /* cancelled */ }
 }
 
 function actionLabel(action: string) {

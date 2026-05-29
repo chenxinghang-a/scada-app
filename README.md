@@ -1,20 +1,43 @@
 # SmartSCADA
 
-工业数据采集与监控系统 - 桌面版
+工业数据采集与监控系统 — 桌面版
+
+## 功能概览
+
+| 模块 | 功能 | 状态 |
+|------|------|------|
+| 仪表盘 | 设备总览、KPI卡片、实时趋势、报警面板 | ✅ |
+| 设备管理 | CRUD、预设设备一键添加、连接测试、多协议支持 | ✅ |
+| 设备控制 | 寄存器/线圈写入、急停、安全联锁、批量控制 | ✅ |
+| 历史数据 | 时间范围查询、聚合统计、图表可视化、CSV导出 | ✅ |
+| 报警管理 | 报警记录、确认、筛选、统计 | ✅ |
+| 报警输出 | 信号灯塔可视化、手动控制、广播喊话 | ✅ |
+| 系统配置 | 系统/采集/数据库/报警规则/能源费率配置 | ✅ |
+| 用户管理 | 用户CRUD、角色权限、操作日志 | ✅ |
+
+## 支持的协议
+
+- Modbus TCP / RTU
+- OPC UA
+- MQTT
+- REST HTTP
+- 三菱 MC 协议 (SLMP/3E帧)
+- 欧姆龙 FINS/TCP
 
 ## 技术栈
 
-- **前端**: Vue 3 + TypeScript + Element Plus + ECharts
-- **桌面**: Electron
-- **后端**: Python Flask (SCADA毕业设计)
+- **前端**: Vue 3 + TypeScript + Element Plus + ECharts + Socket.IO
+- **桌面**: Electron 33
+- **后端**: Python Flask + SQLite
+- **通信**: REST API + WebSocket
 
-## 开发环境搭建
+## 开发环境
 
 ### 前置要求
 
 - Node.js 18+
-- Python 3.12+ (用于后端)
-- npm 或 yarn
+- Python 3.12+
+- npm
 
 ### 安装依赖
 
@@ -24,37 +47,37 @@ npm install
 
 ### 启动开发环境
 
-1. 先启动 Flask 后端：
+1. 启动 Flask 后端（模拟模式）：
 ```bash
-cd C:\Users\cxx\Desktop\SCADA毕业设计
+cd C:\Users\cxx\WorkBuddy\Claw\industrial_scada
 python run.py
 ```
 
-2. 启动 Electron + Vue 前端：
+2. 启动前端开发服务器：
 ```bash
 cd C:\Users\cxx\scada-app
-npm run electron:dev
-```
-
-### 仅前端开发（不启动 Electron）
-
-```bash
 npm run dev
 ```
 
 访问 http://localhost:5173
+
+### Electron 开发模式
+
+```bash
+npm run electron:dev
+```
 
 ## 打包发布
 
 ### 1. 打包 Python 后端
 
 ```bash
-cd C:\Users\cxx\Desktop\SCADA毕业设计
+cd C:\Users\cxx\WorkBuddy\Claw\industrial_scada
 pip install pyinstaller
-pyinstaller --name scada-backend --onefile --hidden-import=用户层 --hidden-import=用户层.auth run.py
+pyinstaller build.py
 ```
 
-将生成的 `dist/scada-backend.exe` 复制到 `scada-app/backend/`
+将 `dist/scada-backend.exe` 复制到 `scada-app/backend/`
 
 ### 2. 打包 Electron 应用
 
@@ -63,37 +86,57 @@ cd C:\Users\cxx\scada-app
 npm run electron:build
 ```
 
-生成的安装包在 `release/` 目录。
+安装包输出到 `release/` 目录。
 
 ## 项目结构
 
 ```
 scada-app/
-├── electron/          # Electron 主进程
-│   ├── main.js        # 主进程入口
-│   ├── preload.js     # 预加载脚本
-│   ├── updater.js     # 自动更新
-│   └── first-run.js   # 首次启动配置
-├── src/               # Vue 3 前端
-│   ├── api/           # API 请求
-│   ├── components/    # 组件
-│   ├── router/        # 路由
-│   ├── stores/        # 状态管理
-│   └── views/         # 页面
-├── backend/           # Python 后端 (打包产物)
-└── resources/         # 图标等资源
+├── electron/              # Electron 主进程
+│   ├── main.js            # 主进程入口（后端管理、窗口、托盘）
+│   ├── preload.js         # 预加载脚本（安全IPC）
+│   ├── updater.js         # 自动更新
+│   └── first-run.js       # 首次启动检测
+├── src/                   # Vue 3 前端
+│   ├── api/               # API 请求层
+│   │   ├── auth.ts        # 认证API
+│   │   ├── devices.ts     # 设备API
+│   │   ├── data.ts        # 数据API
+│   │   ├── alarms.ts      # 报警API
+│   │   ├── system.ts      # 系统API
+│   │   └── request.ts     # Axios 实例 + 拦截器
+│   ├── components/        # 公共组件
+│   │   └── MainLayout.vue # 主布局（侧边栏+顶栏）
+│   ├── router/            # 路由配置
+│   ├── stores/            # Pinia 状态管理
+│   │   ├── auth.ts        # 认证状态
+│   │   └── app.ts         # 应用状态
+│   ├── views/             # 页面
+│   │   ├── Login.vue      # 登录
+│   │   ├── Dashboard.vue  # 仪表盘
+│   │   ├── Devices.vue    # 设备管理
+│   │   ├── Control.vue    # 设备控制
+│   │   ├── History.vue    # 历史数据
+│   │   ├── Alarms.vue     # 报警管理
+│   │   ├── AlarmOutput.vue# 报警输出
+│   │   ├── Config.vue     # 系统配置
+│   │   └── Users.vue      # 用户管理
+│   ├── assets/            # 静态资源
+│   └── App.vue            # 根组件
+├── backend/               # Python 后端（打包产物）
+├── resources/             # 应用图标
+├── package.json           # 项目配置
+└── vite.config.ts         # Vite 构建配置
 ```
 
-## 自动更新
+## 默认账号
 
-使用 GitHub Releases 作为更新源：
+- **管理员**: admin / admin123
+- 首次登录后请修改密码
 
-1. 在 GitHub 创建 Release
-2. 上传打包产物（exe 安装包 + yml 文件）
-3. 应用启动时自动检查更新
+## 配置说明
 
-## 配置文件
-
-- `package.json` - Electron 配置
-- `vite.config.ts` - Vite 构建配置
-- `electron-builder.yml` - 打包配置（可选）
+后端配置文件位于 `配置/` 目录：
+- `system.yaml` — 系统配置
+- `devices_simulated.yaml` — 模拟设备配置
+- `alarms.yaml` — 报警规则配置

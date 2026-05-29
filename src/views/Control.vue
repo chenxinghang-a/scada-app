@@ -1,12 +1,19 @@
 <template>
   <div class="control-page">
     <!-- 急停横幅 -->
-    <el-alert v-if="eStop.active" type="error" :closable="false" class="mb-16">
+    <el-alert v-if="eStop.active" type="error" :closable="false" class="mb-16" effect="dark">
       <template #title>
         <div class="estop-banner">
           <span>⚠️ 紧急停止已激活 — {{ eStop.reason }} ({{ eStop.time }})</span>
           <el-button type="warning" size="small" @click="resetEStop">重置急停</el-button>
         </div>
+      </template>
+    </el-alert>
+
+    <!-- 安全提示 -->
+    <el-alert v-if="!canControl" type="warning" :closable="false" class="mb-16">
+      <template #title>
+        <span>当前角色无控制权限，仅管理员和工程师可执行控制操作</span>
       </template>
     </el-alert>
 
@@ -237,7 +244,14 @@ async function writeRegister() {
   if (!regForm.device_id || !regForm.register_name) { ElMessage.warning('请选择设备和寄存器'); return }
   try {
     await ElMessageBox.confirm(`确认写入 ${regForm.register_name} = ${regForm.value}？`, '确认操作', { type: 'warning' })
-    await api.post(`/devices/${regForm.device_id}/write-register`, regForm)
+    // 后端要求 address 字段，从寄存器列表中查找地址
+    const reg = currentRegisters.value.find(r => r.name === regForm.register_name)
+    const address = reg?.address ?? 0
+    await api.post(`/devices/${regForm.device_id}/write-register`, {
+      address,
+      value: regForm.value,
+      register_name: regForm.register_name,
+    })
     ElMessage.success('写入成功')
     loadLogs()
   } catch { /* handled */ }
@@ -247,7 +261,13 @@ async function writeCoil() {
   if (!coilForm.device_id || !coilForm.register_name) { ElMessage.warning('请选择设备和线圈'); return }
   try {
     await ElMessageBox.confirm(`确认写入 ${coilForm.register_name} = ${coilForm.value ? 'ON' : 'OFF'}？`, '确认操作', { type: 'warning' })
-    await api.post(`/devices/${coilForm.device_id}/write-coil`, coilForm)
+    const reg = currentRegisters.value.find(r => r.name === coilForm.register_name)
+    const address = reg?.address ?? 0
+    await api.post(`/devices/${coilForm.device_id}/write-coil`, {
+      address,
+      value: coilForm.value,
+      register_name: coilForm.register_name,
+    })
     ElMessage.success('写入成功')
     loadLogs()
   } catch { /* handled */ }

@@ -284,7 +284,13 @@ async function saveDevice() {
       await devicesApi.update(form.device_id, form)
       ElMessage.success('设备更新成功')
     } else {
-      await devicesApi.create(form)
+      // 后端要求 id/name 字段名
+      const payload = {
+        ...form,
+        id: form.device_id,
+        name: form.device_name,
+      }
+      await devicesApi.create(payload)
       ElMessage.success('设备添加成功')
     }
     dialogVisible.value = false

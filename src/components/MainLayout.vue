@@ -65,9 +65,18 @@
             <Expand v-else />
           </el-icon>
 
+          <!-- 面包屑导航 -->
+          <el-breadcrumb separator="/" class="ml-12 breadcrumb-nav">
+            <el-breadcrumb-item :to="{ path: '/dashboard' }">首页</el-breadcrumb-item>
+            <el-breadcrumb-item>{{ currentTitle }}</el-breadcrumb-item>
+          </el-breadcrumb>
+
           <!-- 模拟模式标签 -->
           <el-tag v-if="appStore.simulationMode" type="warning" size="small" effect="dark" class="ml-12">
             模拟模式
+          </el-tag>
+          <el-tag v-else type="success" size="small" effect="dark" class="ml-12">
+            实时模式
           </el-tag>
         </div>
 
@@ -125,6 +134,19 @@ const authStore = useAuthStore()
 const appStore = useAppStore()
 
 const currentRoute = computed(() => route.path)
+const currentTitle = computed(() => {
+  const titles: Record<string, string> = {
+    '/dashboard': '仪表盘',
+    '/devices': '设备管理',
+    '/control': '设备控制',
+    '/history': '历史数据',
+    '/alarms': '报警管理',
+    '/alarm-output': '报警输出',
+    '/config': '系统配置',
+    '/users': '用户管理',
+  }
+  return titles[route.path] || ''
+})
 
 let statusTimer: ReturnType<typeof setInterval>
 
@@ -286,5 +308,22 @@ async function changePassword() {
 
 .text-danger {
   color: #f56c6c;
+}
+
+.breadcrumb-nav {
+  font-size: 13px;
+}
+
+.breadcrumb-nav :deep(.el-breadcrumb__inner) {
+  color: #909399;
+}
+
+.breadcrumb-nav :deep(.el-breadcrumb__inner.is-link:hover) {
+  color: #409eff;
+}
+
+.breadcrumb-nav :deep(.el-breadcrumb__item:last-child .el-breadcrumb__inner) {
+  color: #303133;
+  font-weight: 600;
 }
 </style>

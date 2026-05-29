@@ -15,6 +15,12 @@
           </el-select>
         </el-form-item>
         <el-form-item label="时间范围">
+          <el-button-group class="mr-8">
+            <el-button size="small" :type="filter.quickRange === '1h' ? 'primary' : ''" @click="setQuickRange('1h')">1小时</el-button>
+            <el-button size="small" :type="filter.quickRange === '6h' ? 'primary' : ''" @click="setQuickRange('6h')">6小时</el-button>
+            <el-button size="small" :type="filter.quickRange === '24h' ? 'primary' : ''" @click="setQuickRange('24h')">24小时</el-button>
+            <el-button size="small" :type="filter.quickRange === '7d' ? 'primary' : ''" @click="setQuickRange('7d')">7天</el-button>
+          </el-button-group>
           <el-date-picker v-model="filter.timeRange" type="datetimerange" range-separator="至" start-placeholder="开始" end-placeholder="结束" />
         </el-form-item>
         <el-form-item label="聚合">
@@ -66,9 +72,17 @@ const loading = ref(false)
 const chartRef = ref<HTMLElement>()
 let chart: echarts.ECharts | null = null
 
-const filter = reactive({ device_id: '', register_name: '', timeRange: null as any, interval: '' })
+const filter = reactive({ device_id: '', register_name: '', timeRange: null as any, interval: '', quickRange: '1h' })
+
+function setQuickRange(range: string) {
+  filter.quickRange = range
+  const now = new Date()
+  const offsets: Record<string, number> = { '1h': 3600000, '6h': 21600000, '24h': 86400000, '7d': 604800000 }
+  filter.timeRange = [new Date(now.getTime() - (offsets[range] || 3600000)), now]
+}
 
 onMounted(async () => {
+  setQuickRange('1h')
   try { const data = await devicesApi.getAll(); devices.value = data.devices || [] } catch { /* ignore */ }
   if (chartRef.value) {
     chart = echarts.init(chartRef.value)
@@ -107,11 +121,21 @@ async function queryHistory() {
 async function exportData() {
   if (!filter.device_id) { ElMessage.warning('请先选择设备'); return }
   try {
-    const blob = await dataApi.exportDevice(filter.device_id) as any
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a'); a.href = url; a.download = `${filter.device_id}_history.csv`; a.click()
-    URL.revokeObjectURL(url)
-    ElMessage.success('导出成功')
+    const params: any = { format: 'csv' }
+    if (filter.timeRange?.length === 2) {
+      params.start_time = filter.timeRange[0].toISOString()
+      params.end_time = filter.timeRange[1].toISOString()
+    } else {
+      // 默认导出最近24小时
+      params.start_time = new Date(Date.now() - 86400000).toISOString()
+      params.end_time = new Date().toISOString()
+    }
+    const res = await dataApi.exportDevice(filter.device_id, params) as any
+    if (res?.success && res?.filename) {
+      ElMessage.success(`导出成功: ${res.filename}`)
+    } else {
+      ElMessage.success('导出成功')
+    }
   } catch { /* ignore */ }
 }
 </script>

@@ -107,7 +107,13 @@ async function refreshAlarms() {
 }
 
 async function acknowledge(id: string) {
-  try { await alarmsApi.acknowledge(id); ElMessage.success('报警已确认'); refreshAlarms() } catch { /* ignore */ }
+  try {
+    // 找到报警记录，传递 device_id 和 register_name 给后端
+    const alarm = alarms.value.find(a => a.id === id || a.alarm_id === id)
+    await alarmsApi.acknowledge(id, alarm?.device_id, alarm?.register_name)
+    ElMessage.success('报警已确认')
+    refreshAlarms()
+  } catch { /* ignore */ }
 }
 </script>
 

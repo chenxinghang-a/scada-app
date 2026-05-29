@@ -37,11 +37,10 @@ export const dataApi = {
     }) as Promise<{ data: HistoryRecord[] }>
   },
 
-  exportDevice(deviceId: string, format: string = 'csv') {
+  exportDevice(deviceId: string, params?: { format?: string; start_time?: string; end_time?: string }) {
     return api.post(
       `/export/device/${deviceId}`,
-      { format },
-      { responseType: 'blob' }
+      { format: 'csv', ...params },
     )
   },
 

@@ -1,8 +1,15 @@
 <template>
   <div class="login-container">
+    <div class="login-bg">
+      <div class="bg-grid"></div>
+      <div class="bg-glow bg-glow-1"></div>
+      <div class="bg-glow bg-glow-2"></div>
+    </div>
     <div class="login-card">
       <div class="login-header">
-        <el-icon :size="48" color="#409eff"><Monitor /></el-icon>
+        <div class="logo-icon">
+          <el-icon :size="48" color="#409eff"><Monitor /></el-icon>
+        </div>
         <h1>SmartSCADA</h1>
         <p>工业数据采集与监控系统</p>
       </div>
@@ -20,6 +27,7 @@
             placeholder="用户名"
             :prefix-icon="User"
             size="large"
+            @keyup.enter="handleLogin"
           />
         </el-form-item>
 
@@ -43,13 +51,17 @@
             @click="handleLogin"
             class="login-btn"
           >
-            登 录
+            {{ loading ? '登录中...' : '登 录' }}
           </el-button>
         </el-form-item>
       </el-form>
 
       <div class="login-footer">
-        <small>v1.0.0 | 基于Python开发</small>
+        <div class="footer-info">
+          <el-icon><Monitor /></el-icon>
+          <span>SmartSCADA v1.0.0</span>
+        </div>
+        <div class="footer-hint">默认账号: admin / admin123</div>
       </div>
     </div>
   </div>
@@ -74,7 +86,10 @@ const form = reactive({
 
 const rules = {
   username: [{ required: true, message: '请输入用户名', trigger: 'blur' }],
-  password: [{ required: true, message: '请输入密码', trigger: 'blur' }],
+  password: [
+    { required: true, message: '请输入密码', trigger: 'blur' },
+    { min: 4, message: '密码长度至少4位', trigger: 'blur' },
+  ],
 }
 
 async function handleLogin() {
@@ -104,26 +119,82 @@ async function handleLogin() {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
+  position: relative;
+  overflow: hidden;
+  background: #0a0e27;
+}
+
+.login-bg {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+}
+
+.bg-grid {
+  position: absolute;
+  inset: 0;
+  background-image:
+    linear-gradient(rgba(64, 158, 255, 0.03) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(64, 158, 255, 0.03) 1px, transparent 1px);
+  background-size: 60px 60px;
+}
+
+.bg-glow {
+  position: absolute;
+  border-radius: 50%;
+  filter: blur(80px);
+  opacity: 0.4;
+}
+
+.bg-glow-1 {
+  width: 400px;
+  height: 400px;
+  background: #409eff;
+  top: -100px;
+  right: -100px;
+}
+
+.bg-glow-2 {
+  width: 300px;
+  height: 300px;
+  background: #764ba2;
+  bottom: -80px;
+  left: -80px;
 }
 
 .login-card {
-  width: 400px;
-  padding: 40px;
-  background: #fff;
-  border-radius: 12px;
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+  width: 420px;
+  padding: 48px 40px;
+  background: rgba(255, 255, 255, 0.95);
+  backdrop-filter: blur(20px);
+  border-radius: 16px;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+  position: relative;
+  z-index: 1;
 }
 
 .login-header {
   text-align: center;
-  margin-bottom: 30px;
+  margin-bottom: 36px;
+}
+
+.logo-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 72px;
+  height: 72px;
+  border-radius: 16px;
+  background: linear-gradient(135deg, #e8f4fd 0%, #d6eaff 100%);
+  margin-bottom: 16px;
 }
 
 .login-header h1 {
-  margin: 12px 0 4px;
-  font-size: 24px;
-  color: #303133;
+  margin: 0 0 6px;
+  font-size: 28px;
+  font-weight: 700;
+  color: #1a1a2e;
+  letter-spacing: 1px;
 }
 
 .login-header p {
@@ -131,13 +202,51 @@ async function handleLogin() {
   font-size: 14px;
 }
 
+.login-form {
+  margin-bottom: 8px;
+}
+
+.login-form :deep(.el-input__wrapper) {
+  border-radius: 8px;
+  box-shadow: 0 0 0 1px #dcdfe6 inset;
+  padding: 4px 12px;
+}
+
+.login-form :deep(.el-input__wrapper:hover) {
+  box-shadow: 0 0 0 1px #c0c4cc inset;
+}
+
+.login-form :deep(.el-input__wrapper.is-focus) {
+  box-shadow: 0 0 0 1px #409eff inset;
+}
+
 .login-btn {
   width: 100%;
+  height: 44px;
+  font-size: 16px;
+  border-radius: 8px;
+  letter-spacing: 4px;
 }
 
 .login-footer {
   text-align: center;
-  margin-top: 16px;
+  margin-top: 24px;
+  padding-top: 16px;
+  border-top: 1px solid #f0f0f0;
+}
+
+.footer-info {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  color: #909399;
+  font-size: 13px;
+  margin-bottom: 8px;
+}
+
+.footer-hint {
   color: #c0c4cc;
+  font-size: 12px;
 }
 </style>

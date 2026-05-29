@@ -12,6 +12,7 @@ export default defineConfig({
   },
   server: {
     port: 5173,
+    host: '0.0.0.0',
     proxy: {
       '/api': {
         target: 'http://localhost:5000',
@@ -20,11 +21,29 @@ export default defineConfig({
       '/socket.io': {
         target: 'http://localhost:5000',
         ws: true,
+        changeOrigin: true,
       },
     },
   },
   build: {
     outDir: 'dist',
     emptyOutDir: true,
+    sourcemap: false,
+    minify: 'terser',
+    terserOptions: {
+      compress: {
+        drop_console: true,
+        drop_debugger: true,
+      },
+    },
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          'vendor-vue': ['vue', 'vue-router', 'pinia'],
+          'vendor-element': ['element-plus', '@element-plus/icons-vue'],
+          'vendor-echarts': ['echarts'],
+        },
+      },
+    },
   },
 })

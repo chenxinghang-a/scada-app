@@ -143,7 +143,11 @@ async function loadHistory() {
 
 function connectSocket() {
   const socketUrl = import.meta.env.DEV ? window.location.origin : 'http://localhost:5000'
-  socket = io(socketUrl, { transports: ['websocket', 'polling'] })
+  socket = io(socketUrl, {
+    transports: ['websocket', 'polling'],
+    reconnection: true,
+    reconnectionDelay: 3000,
+  })
   socket.on('alarm', () => loadStatus())
   socket.on('broadcast', (data: any) => { if (data) broadcastHistory.value.unshift(data) })
 }

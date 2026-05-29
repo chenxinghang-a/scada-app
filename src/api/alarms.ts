@@ -37,8 +37,12 @@ export const alarmsApi = {
     return api.get('/alarms/active') as Promise<{ alarms: Alarm[] }>
   },
 
-  acknowledge(id: string) {
-    return api.post(`/alarms/${id}/acknowledge`) as Promise<{ success: boolean }>
+  acknowledge(id: string, device_id?: string, register_name?: string) {
+    return api.post(`/alarms/${id}/acknowledge`, {
+      device_id,
+      register_name,
+      acknowledged_by: 'operator',
+    }) as Promise<{ success: boolean }>
   },
 
   getStatistics() {

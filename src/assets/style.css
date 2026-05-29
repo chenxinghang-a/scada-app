@@ -10,6 +10,8 @@ html, body, #app {
   height: 100%;
   font-family: 'Helvetica Neue', Helvetica, 'PingFang SC', 'Hiragino Sans GB',
     'Microsoft YaHei', '微软雅黑', Arial, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 
 /* 滚动条样式 */
@@ -34,11 +36,44 @@ html, body, #app {
 /* Element Plus 覆盖 */
 .el-card {
   border-radius: 8px;
+  transition: box-shadow 0.3s ease;
+}
+
+.el-card:hover {
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.08);
 }
 
 .el-card__header {
   padding: 12px 20px;
   font-weight: 600;
+  border-bottom: 1px solid #f0f0f0;
+}
+
+.el-table {
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.el-table th.el-table__cell {
+  background-color: #fafafa !important;
+  font-weight: 600;
+  color: #303133;
+}
+
+.el-button--primary {
+  box-shadow: 0 2px 6px rgba(64, 158, 255, 0.3);
+}
+
+.el-button--primary:hover {
+  box-shadow: 0 4px 12px rgba(64, 158, 255, 0.4);
+}
+
+.el-dialog {
+  border-radius: 12px;
+}
+
+.el-message-box {
+  border-radius: 12px;
 }
 
 /* 工具类 */
@@ -69,3 +104,70 @@ html, body, #app {
 .fade-leave-to {
   opacity: 0;
 }
+
+/* 页面切换动画 */
+.el-main {
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+/* 空状态美化 */
+.el-empty {
+  padding: 40px 0;
+}
+
+/* 标签样式增强 */
+.el-tag {
+  border-radius: 4px;
+}
+
+/* 表格行 hover 效果 */
+.el-table__row {
+  transition: background-color 0.2s ease;
+}
+
+/* 响应式断点 */
+@media (max-width: 1400px) {
+  .el-col-6 {
+    max-width: 25%;
+  }
+}
+
+@media (max-width: 1200px) {
+  .el-col-6 {
+    max-width: 50%;
+    flex: 0 0 50%;
+  }
+}
+
+/* 加载动画 */
+@keyframes pulse-glow {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(64, 158, 255, 0.4); }
+  50% { box-shadow: 0 0 0 8px rgba(64, 158, 255, 0); }
+}
+
+.pulse-glow {
+  animation: pulse-glow 2s infinite;
+}
+
+/* 工业风格卡片 */
+.industrial-card {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+  border-radius: 12px;
+  padding: 20px;
+}
+
+/* 状态指示灯 */
+.status-indicator {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  margin-right: 6px;
+}
+
+.status-indicator.online { background: #67c23a; box-shadow: 0 0 6px rgba(103, 194, 58, 0.6); }
+.status-indicator.offline { background: #909399; }
+.status-indicator.warning { background: #e6a23c; box-shadow: 0 0 6px rgba(230, 162, 60, 0.6); }
+.status-indicator.error { background: #f56c6c; box-shadow: 0 0 6px rgba(245, 108, 108, 0.6); }
