@@ -10,6 +10,12 @@ const router = createRouter({
       component: () => import('@/views/Login.vue'),
     },
     {
+      path: '/screen',
+      name: 'Screen',
+      component: () => import('@/views/Screen.vue'),
+      meta: { title: '数据大屏', screen: true },
+    },
+    {
       path: '/',
       component: MainLayout,
       redirect: '/dashboard',
@@ -49,6 +55,12 @@ const router = createRouter({
           name: 'AlarmOutput',
           component: () => import('@/views/AlarmOutput.vue'),
           meta: { title: '报警输出', icon: 'Lightning' },
+        },
+        {
+          path: 'industry40',
+          name: 'Industry40',
+          component: () => import('@/views/Industry40.vue'),
+          meta: { title: '工业4.0', icon: 'Cpu' },
         },
         {
           path: 'config',

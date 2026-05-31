@@ -40,6 +40,14 @@
           <el-icon><Lightning /></el-icon>
           <template #title>报警输出</template>
         </el-menu-item>
+        <el-menu-item index="/industry40">
+          <el-icon><Cpu /></el-icon>
+          <template #title>工业4.0</template>
+        </el-menu-item>
+        <el-menu-item index="/screen">
+          <el-icon><Monitor /></el-icon>
+          <template #title>数据大屏</template>
+        </el-menu-item>
         <el-menu-item index="/config">
           <el-icon><Setting /></el-icon>
           <template #title>系统配置</template>

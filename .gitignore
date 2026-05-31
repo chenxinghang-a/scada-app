@@ -2,6 +2,7 @@ node_modules/
 dist/
 dist-test/
 release/
+.vite/
 backend/*.exe
 backend/_internal/
 *.log
