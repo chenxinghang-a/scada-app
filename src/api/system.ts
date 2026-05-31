@@ -11,6 +11,7 @@ export interface DeviceStatus {
   device_category?: string // 'mechanical' | 'sensor'
   protocol?: string
   host?: string
+  zone?: string
   registers?: Array<{ name: string; [key: string]: any }>
 }
 

@@ -2,7 +2,7 @@
   <div class="dashboard">
     <!-- KPI 行 -->
     <div class="kpi-row">
-      <div class="kpi">
+      <div class="kpi" :class="{ warn: kpi.oee < 85 }">
         <div class="kpi-label">OEE 综合效率</div>
         <div class="kpi-value">{{ kpi.oee }}%</div>
         <div class="kpi-sub">目标 ≥85%</div>
@@ -15,7 +15,7 @@
       <div class="kpi" :class="{ alarm: kpi.alarmCount > 0 }">
         <div class="kpi-label">活动报警</div>
         <div class="kpi-value">{{ kpi.alarmCount }}</div>
-        <div class="kpi-sub">未确认: {{ kpi.crit }}</div>
+        <div class="kpi-sub">未确认: <span>{{ kpi.unacked }}</span></div>
       </div>
       <div class="kpi">
         <div class="kpi-label">采集吞吐</div>
@@ -34,23 +34,19 @@
     </div>
 
     <!-- 告警闪烁横幅 -->
-    <div v-if="latestAlarm" class="alarm-banner" @click="$router.push('/alarms')">
+    <div v-if="latestAlarm" class="alarm-banner" :style="bannerStyle" @click="$router.push('/alarms')">
       <div class="banner-content">
         <span class="banner-icon">⚠️</span>
         <span class="banner-text">{{ latestAlarm.alarm_message }}</span>
         <span class="banner-device">{{ latestAlarm.device_id }}</span>
-        <el-tag :type="latestAlarm.alarm_level==='critical'?'danger':'warning'" size="small" effect="dark">
-          {{ latestAlarm.alarm_level==='critical'?'严重':'警告' }}
-        </el-tag>
-        <button class="banner-close" @click.stop="latestAlarm=null">×</button>
+        <button class="banner-close" @click.stop="dismissBanner">×</button>
       </div>
     </div>
 
-    <!-- 主区域：设备网格 + 报警面板 -->
+    <!-- 主区域 -->
     <div class="main-area">
-      <!-- 设备卡片网格（带分类筛选 + 分页） -->
+      <!-- 设备卡片网格 -->
       <div class="device-panel">
-        <!-- 分类筛选栏 -->
         <div class="dev-filter-bar">
           <div class="dev-filter-tabs">
             <button class="dev-tab" :class="{ active: devFilter === 'all' }" @click="setDevFilter('all')">全部 {{ allDeviceList.length }}</button>
@@ -68,17 +64,17 @@
           </div>
         </div>
 
-        <!-- 设备卡片网格 -->
         <div class="device-grid">
-          <div v-for="d in pagedDeviceList" :key="getDeviceId(d)" class="dev-card" :class="getDeviceClass(d)" @click="selectDevice(getDeviceId(d))">
+          <div v-for="d in pagedDeviceList" :key="getDeviceId(d)" class="dev-card" @click="selectDevice(getDeviceId(d))">
             <div class="dev-status" :class="getDeviceStatusClass(d)"></div>
             <div class="dev-info">
-              <div class="dev-name">{{ d.name || d.device_id }} <span class="dev-state-tag" :class="getDeviceStatusClass(d)">{{ getDeviceStatusText(d) }}</span></div>
+              <div class="dev-name">{{ d.name || d.device_id }} <span class="dev-state-tag" :class="getDeviceStatusClass(d)">{{ getDeviceStatusText(d) }}</span><span v-if="d.zone" class="dev-zone-tag">{{ d.zone }}</span></div>
               <div class="dev-meta">{{ d.protocol || 'modbus_tcp' }} · {{ d.host || '' }}</div>
               <div class="dev-values">
-                <span v-for="r in (d.registers || []).slice(0, 3)" :key="r.name" class="dev-val">
+                <span v-for="r in (d.registers || []).slice(0, 2)" :key="r.name" class="dev-val">
                   <span class="label">{{ getShortLabel(r.name) }}</span>
-                  <span class="num">{{ getDeviceValue(getDeviceId(d), r.name) }}</span>
+                  <span class="num" :style="{ color: getDeviceValueColor(getDeviceId(d), r.name) }">{{ getDeviceValue(getDeviceId(d), r.name) }}</span>
+                  <span v-if="getDeviceQuality(getDeviceId(d), r.name) != null" class="quality-dot" :style="{ background: getQualityColor(getDeviceQuality(getDeviceId(d), r.name)) }" :title="getQualityLabel(getDeviceQuality(getDeviceId(d), r.name))"></span>
                 </span>
               </div>
             </div>
@@ -89,18 +85,20 @@
           <div v-if="pagedDeviceList.length === 0" class="dev-empty">暂无匹配设备</div>
         </div>
 
-        <!-- 分页控件 -->
+        <!-- 分页 -->
         <div v-if="filteredDeviceList.length > devPageSize" class="dev-pager">
-          <button class="pager-btn" :disabled="devPage <= 1" @click="devPage--">‹ 上一页</button>
-          <span class="pager-info">{{ devPage }} / {{ devTotalPages }}</span>
-          <button class="pager-btn" :disabled="devPage >= devTotalPages" @click="devPage++">下一页 ›</button>
+          <button class="pager-btn" :disabled="devPage <= 1" @click="devPage = 1" title="首页">«</button>
+          <button class="pager-btn" :disabled="devPage <= 1" @click="devPage--">‹</button>
+          <span class="pager-info">{{ (devPage-1)*devPageSize+1 }}-{{ Math.min(devPage*devPageSize, filteredDeviceList.length) }} / 共 {{ filteredDeviceList.length }} 台</span>
+          <button class="pager-btn" :disabled="devPage >= devTotalPages" @click="devPage++">›</button>
+          <button class="pager-btn" :disabled="devPage >= devTotalPages" @click="devPage = devTotalPages" title="末页">»</button>
         </div>
       </div>
 
       <!-- 报警面板 -->
       <div class="alarm-panel">
         <div class="alarm-header">
-          <span>报警</span>
+          <span>实时报警</span>
           <span class="alarm-badges">
             <span class="badge-crit">CRIT: {{ kpi.crit }}</span>
             <span class="badge-high">HIGH: {{ kpi.high }}</span>
@@ -130,8 +128,8 @@
           <select v-model="selectedDeviceId" @change="onDeviceChange" class="trend-device-select">
             <option v-for="d in allDeviceList" :key="getDeviceId(d)" :value="getDeviceId(d)">{{ d.name || d.device_id }}</option>
           </select>
-          <button class="trend-btn" @click="exportChartData" title="导出当前图表数据">📊 导出图表</button>
-          <button class="trend-btn" @click="exportAllData" title="导出全部设备数据">📥 导出全部</button>
+          <button class="trend-btn" @click="exportChartData">📊 导出图表</button>
+          <button class="trend-btn" @click="exportAllData">📥 导出全部</button>
         </div>
       </div>
       <div ref="trendChartRef" class="trend-chart"></div>
@@ -140,7 +138,7 @@
     <!-- 状态栏 -->
     <div class="status-bar">
       <span class="status-dot" :class="statusDotClass"></span>
-      <span id="status-text">{{ statusText }}</span>
+      <span>{{ statusText }}</span>
       <span class="status-db">DB: {{ kpi.dbRecords.toLocaleString() }} 条</span>
       <span class="status-right">
         <router-link to="/users" class="status-link">{{ userName }}</router-link>
@@ -158,6 +156,7 @@ import { systemApi, type DeviceStatus, type SystemStatus } from '@/api'
 import { alarmsApi, type Alarm } from '@/api'
 import api from '@/api/request'
 
+// ========== 状态 ==========
 const allDeviceList = ref<DeviceStatus[]>([])
 const alarms = ref<Alarm[]>([])
 const latestAlarm = ref<Alarm | null>(null)
@@ -167,28 +166,27 @@ const trendChartRef = ref<HTMLElement>()
 let trendChart: echarts.ECharts | null = null
 let socket: ReturnType<typeof io> | null = null
 let loadTimer: ReturnType<typeof setInterval>
+let clockTimer: ReturnType<typeof setInterval>
+let loadDataInProgress = false
+let loadGeneration = 0
 
 const deviceCache: Record<string, DeviceStatus> = {}
 const dataBuffers: Record<string, Array<{ t: string; v: number }>> = {}
 const deviceValues: Record<string, number> = {}
-const MAX_POINTS = 60
+const deviceQuality: Record<string, number> = {}
+const MAX_CHART_POINTS = 200
 
-// ========== 设备分类筛选 + 分页 ==========
+// ========== 筛选 + 分页 ==========
 const devFilter = ref('all')
 const devProtocolFilter = ref('')
 const devPage = ref(1)
-const devPageSize = 12
+const devPageSize = 50
 
 const onlineCount = computed(() => allDeviceList.value.filter(d => d.connected).length)
 const offlineCount = computed(() => allDeviceList.value.filter(d => !d.connected).length)
 const faultCount = computed(() => allDeviceList.value.filter(d => d.status === 'fault' || d.status === 'warning').length)
 const mechanicalCount = computed(() => allDeviceList.value.filter(d => d.device_category === 'mechanical').length)
-
-const protocolList = computed(() => {
-  const set = new Set(allDeviceList.value.map(d => d.protocol || 'modbus_tcp'))
-  return Array.from(set).sort()
-})
-
+const protocolList = computed(() => Array.from(new Set(allDeviceList.value.map(d => d.protocol || 'modbus_tcp'))).sort())
 const filteredDeviceList = computed(() => {
   let list = allDeviceList.value
   if (devFilter.value === 'online') list = list.filter(d => d.connected)
@@ -198,65 +196,97 @@ const filteredDeviceList = computed(() => {
   if (devProtocolFilter.value) list = list.filter(d => (d.protocol || 'modbus_tcp') === devProtocolFilter.value)
   return list
 })
-
 const devTotalPages = computed(() => Math.max(1, Math.ceil(filteredDeviceList.value.length / devPageSize)))
 const pagedDeviceList = computed(() => {
   const start = (devPage.value - 1) * devPageSize
   return filteredDeviceList.value.slice(start, start + devPageSize)
 })
+function setDevFilter(f: string) { devFilter.value = f; devPage.value = 1 }
 
-function setDevFilter(f: string) {
-  devFilter.value = f
-  devPage.value = 1
-}
-
+// ========== KPI ==========
 const kpi = reactive({
-  oee: 0, online: 0, total: 0, alarmCount: 0, crit: 0, high: 0, med: 0,
+  oee: 0, online: 0, total: 0, alarmCount: 0, unacked: 0, crit: 0, high: 0, med: 0,
   rate: 0, quality: 100, uptime: '-', mode: '模拟模式', dbRecords: 0,
 })
-
 const statusDotClass = ref('status-dot green')
 const statusText = ref('系统运行中')
 
+// ========== 报警横幅 ==========
+const bannerStyle = computed(() => {
+  if (!latestAlarm.value) return {}
+  const lvl = latestAlarm.value.alarm_level
+  const bg = lvl === 'critical' ? '#dc2626' : lvl === 'warning' ? '#ea580c' : '#ca8a04'
+  return { background: bg, color: '#fff' }
+})
+function dismissBanner() { latestAlarm.value = null }
+
+// ========== 生命周期 ==========
 onMounted(() => {
   initTrendChart()
   connectSocket()
   loadData()
   loadOEE()
   loadUserName()
-  loadTimer = setInterval(loadData, 10000)
+  loadTimer = setInterval(loadData, 5000)
+  clockTimer = setInterval(() => {
+    const el = document.getElementById('topbar-clock')
+    if (el) el.textContent = new Date().toTimeString().slice(0, 8)
+  }, 1000)
 })
 
 onUnmounted(() => {
   trendChart?.dispose()
   socket?.disconnect()
   clearInterval(loadTimer)
+  clearInterval(clockTimer)
 })
 
+// ========== 数据加载 ==========
 async function loadData() {
+  if (loadDataInProgress) return
+  loadDataInProgress = true
+  const gen = ++loadGeneration
   try {
-    const status = await systemApi.getStatus()
-    updateKPI(status)
-    updateDeviceGrid(status)
-    updateStatusBar(status)
-  } catch {
-    statusDotClass.value = 'status-dot red'
-    statusText.value = '连接异常'
-  }
+    // 1. 先加载 realtime 数据填充缓存（确保首次不显示 "--"）
+    try {
+      const data = await api.get('/data/realtime?limit=5000') as any
+      if (gen !== loadGeneration) return
+      if (data?.data) {
+        data.data.forEach((item: any) => {
+          if (item.device_id && item.register_name && item.value != null) {
+            deviceValues[`${item.device_id}:${item.register_name}`] = parseFloat(item.value)
+          }
+        })
+        updateTrendChart(data.data)
+      }
+    } catch { /* ignore */ }
 
-  // 独立 try-catch，一个失败不影响其他
-  try {
-    const data = await api.get('/data/realtime?limit=5000') as any
-    if (data?.data) updateTrendChart(data.data)
-  } catch { /* 趋势图数据获取失败不影响主界面 */ }
-
-  try {
-    const alarmData = await alarmsApi.getAll({ limit: 50 })
-    if (alarmData?.alarms) {
-      alarms.value = alarmData.alarms
-      latestAlarm.value = alarmData.alarms.find((a: Alarm) => !a.acknowledged) || null
+    // 2. 加载系统状态
+    try {
+      const status = await systemApi.getStatus()
+      if (gen !== loadGeneration) return
+      updateKPI(status)
+      updateDeviceGrid(status)
+      updateStatusBar(status)
+    } catch {
+      statusDotClass.value = 'status-dot red'
+      statusText.value = '连接异常'
     }
-  } catch { /* 报警数据获取失败不影响主界面 */ }
+
+    // 3. 加载报警
+    try {
+      const alarmData = await alarmsApi.getAll({ limit: 50 })
+      if (gen !== loadGeneration) return
+      if (alarmData?.alarms) {
+        alarms.value = alarmData.alarms
+        latestAlarm.value = alarmData.alarms.find((a: Alarm) => !a.acknowledged) || null
+        const unacked = alarmData.alarms.filter((a: Alarm) => !a.acknowledged).length
+        kpi.unacked = unacked
+      }
+    } catch { /* ignore */ }
+  } finally {
+    loadDataInProgress = false
+  }
 }
 
 async function loadOEE() {
@@ -275,22 +305,7 @@ function loadUserName() {
   } catch { /* ignore */ }
 }
 
-async function exportChartData() {
-  try {
-    const data = await api.get(`/data/export/${selectedDeviceId.value}?format=csv`) as any
-    if (data?.download_url) window.open(data.download_url)
-    else alert('导出功能需要后端支持')
-  } catch { alert('导出失败') }
-}
-
-async function exportAllData() {
-  try {
-    const data = await api.get('/data/export/all?format=csv') as any
-    if (data?.download_url) window.open(data.download_url)
-    else alert('导出功能需要后端支持')
-  } catch { alert('导出失败') }
-}
-
+// ========== KPI 更新 ==========
 function updateKPI(stats: SystemStatus) {
   if (stats.devices) {
     const devs = Array.isArray(stats.devices) ? stats.devices : Object.values(stats.devices)
@@ -314,9 +329,7 @@ function updateKPI(stats: SystemStatus) {
     kpi.uptime = formatUptime(stats.uptime_seconds)
     kpi.mode = stats.simulation_mode ? '模拟模式' : '真实设备'
   }
-  if (stats.database) {
-    kpi.dbRecords = stats.database.total_records || 0
-  }
+  if (stats.database) kpi.dbRecords = stats.database.total_records || 0
 }
 
 function updateDeviceGrid(stats: SystemStatus) {
@@ -324,23 +337,19 @@ function updateDeviceGrid(stats: SystemStatus) {
   const devs = Array.isArray(stats.devices) ? stats.devices : Object.values(stats.devices)
   devs.forEach(d => { deviceCache[d.device_id || d.id || ''] = d })
   allDeviceList.value = devs
-  if (!selectedDeviceId.value && devs.length > 0) {
-    selectedDeviceId.value = devs[0].device_id || devs[0].id || ''
+  if (!selectedDeviceId.value && devs.length > 0) selectedDeviceId.value = devs[0].device_id || devs[0].id || ''
+  if (socket?.connected) {
+    devs.forEach(d => { const id = d.device_id || d.id; if (id) socket!.emit('subscribe', { device_id: id }) })
   }
-  // 订阅所有设备的 WebSocket 推送（socket 未连接时 emit 会被忽略，connect handler 会重新订阅）
-  devs.forEach(d => {
-    const id = d.device_id || d.id
-    if (id && socket?.connected) socket.emit('subscribe', { device_id: id })
-  })
 }
 
-function updateStatusBar(stats: SystemStatus) {
+function updateStatusBar(_stats: SystemStatus) {
   statusDotClass.value = 'status-dot green'
   statusText.value = '系统运行中'
 }
 
+// ========== 设备卡片 ==========
 function getDeviceId(d: DeviceStatus): string { return d.device_id || d.id || '' }
-function getDeviceClass(d: DeviceStatus) { return '' }
 function getDeviceStatusClass(d: DeviceStatus): string {
   if (!d.connected) return 'offline'
   if (d.stopped) return 'stopped'
@@ -353,23 +362,21 @@ function getDeviceStatusText(d: DeviceStatus): string {
   if (d.status === 'fault' || d.status === 'warning') return '告警'
   return '运行中'
 }
-
 function getDeviceValue(deviceId: string, regName: string): string {
-  const key = `${deviceId}__${regName}`
-  return deviceValues[key] !== undefined ? deviceValues[key].toFixed(1) : '--'
+  const v = deviceValues[`${deviceId}:${regName}`]
+  return v !== undefined ? v.toFixed(1) : '--'
+}
+function getDeviceValueColor(deviceId: string, regName: string): string {
+  const q = deviceQuality[`${deviceId}:${regName}`]
+  if (q == null) return '#1a1a2e'
+  return q >= 192 ? '#22c55e' : q >= 64 ? '#f59e0b' : '#ef4444'
+}
+function getDeviceQuality(deviceId: string, regName: string): number | null {
+  const q = deviceQuality[`${deviceId}:${regName}`]
+  return q != null ? q : null
 }
 
-function selectDevice(id: string) {
-  selectedDeviceId.value = id
-  Object.keys(dataBuffers).forEach(k => delete dataBuffers[k])
-  trendChart?.clear()
-}
-
-function onDeviceChange() {
-  Object.keys(dataBuffers).forEach(k => delete dataBuffers[k])
-  trendChart?.clear()
-}
-
+// ========== 设备控制 ==========
 async function toggleDevice(deviceId: string, stop: boolean) {
   const action = stop ? 'stop' : 'start'
   if (!confirm(`确认${stop ? '停止' : '启动'}设备 ${deviceId}？`)) return
@@ -380,37 +387,21 @@ async function toggleDevice(deviceId: string, stop: boolean) {
   } catch (e: any) { alert('操作异常: ' + e.message) }
 }
 
-function getAlarmLevel(level: string): string {
-  return level === 'critical' ? 'critical' : level === 'warning' ? 'warning' : 'low'
-}
-function getAlarmPrioText(level: string): string {
-  return level === 'critical' ? 'CRIT' : level === 'warning' ? 'HIGH' : 'LOW'
-}
-function formatAlarmTime(t: string): string {
-  return t ? new Date(t).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', second: '2-digit' }) : '-'
-}
-function getAlarmPV(a: any): string {
-  const v = a.last_value != null ? a.last_value : a.actual_value
-  return v != null ? `PV:${parseFloat(v).toFixed(1)}` : ''
-}
-
+// ========== 报警 ==========
+function getAlarmLevel(level: string): string { return level === 'critical' ? 'critical' : level === 'warning' ? 'warning' : 'low' }
+function getAlarmPrioText(level: string): string { return level === 'critical' ? 'CRIT' : level === 'warning' ? 'HIGH' : 'LOW' }
+function formatAlarmTime(t: string): string { return t ? new Date(t).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', second: '2-digit' }) : '-' }
+function getAlarmPV(a: any): string { const v = a.last_value != null ? a.last_value : a.actual_value; return v != null ? `PV:${parseFloat(v).toFixed(1)}` : '' }
 async function ackAlarm(alarmId: string, deviceId: string, regName: string) {
   if (!alarmId) return
-  try {
-    await alarmsApi.acknowledge(alarmId, deviceId, regName)
-    loadData()
-  } catch { /* ignore */ }
+  try { await alarmsApi.acknowledge(alarmId, deviceId, regName); loadData() } catch { /* ignore */ }
 }
 
+// ========== 工具函数 ==========
 function formatUptime(s: number): string {
-  const d = Math.floor(s / 86400)
-  const h = Math.floor((s % 86400) / 3600)
-  const m = Math.floor((s % 3600) / 60)
-  if (d > 0) return `${d}天${h}时`
-  if (h > 0) return `${h}时${m}分`
-  return `${m}分`
+  const d = Math.floor(s / 86400), h = Math.floor((s % 86400) / 3600), m = Math.floor((s % 3600) / 60)
+  return d > 0 ? `${d}天${h}时` : h > 0 ? `${h}时${m}分` : `${m}分`
 }
-
 function getShortLabel(name: string): string {
   const map: Record<string, string> = {
     'boiler_temperature': '锅炉温度', 'boiler_pressure': '锅炉压力',
@@ -431,8 +422,19 @@ function getShortLabel(name: string): string {
   for (const [k, v] of Object.entries(map)) { if (lower.includes(k)) return v }
   return name.length > 6 ? name.slice(0, 6) : name
 }
+function getQualityColor(q: number | null): string {
+  if (q == null) return '#999'
+  return q >= 192 ? '#52c41a' : q >= 64 ? '#faad14' : '#ff4d4f'
+}
+function getQualityLabel(q: number | null): string {
+  if (q == null) return ''
+  return q >= 192 ? 'Good' : q >= 64 ? 'Uncertain' : 'Bad'
+}
 
 // ========== 趋势图 ==========
+function selectDevice(id: string) { selectedDeviceId.value = id; Object.keys(dataBuffers).forEach(k => delete dataBuffers[k]); trendChart?.clear() }
+function onDeviceChange() { Object.keys(dataBuffers).forEach(k => delete dataBuffers[k]); trendChart?.clear() }
+
 function initTrendChart() {
   if (!trendChartRef.value) return
   trendChart = echarts.init(trendChartRef.value)
@@ -448,17 +450,15 @@ function updateTrendChart(data: any[]) {
     const key = item.register_name
     if (!dataBuffers[key]) dataBuffers[key] = []
     dataBuffers[key].push({ t: now, v: parseFloat(item.value) })
-    if (dataBuffers[key].length > MAX_POINTS) dataBuffers[key].shift()
+    if (dataBuffers[key].length > MAX_CHART_POINTS) dataBuffers[key].shift()
     matched++
   })
   if (matched === 0) return
-
   const keys = Object.keys(dataBuffers)
   const timeSet = new Set<string>()
   keys.forEach(k => dataBuffers[k].forEach(d => timeSet.add(d.t)))
-  const times = Array.from(timeSet).sort().slice(-MAX_POINTS)
+  const times = Array.from(timeSet).sort().slice(-MAX_CHART_POINTS)
   const colors = ['#6366f1', '#06b6d4', '#f59e0b', '#ef4444', '#22c55e', '#ec4899']
-
   trendChart.setOption({
     backgroundColor: 'transparent',
     tooltip: { trigger: 'axis', backgroundColor: 'rgba(255,255,255,0.95)', borderColor: '#e2e5ea', textStyle: { color: '#1a1a2e', fontSize: 11 } },
@@ -466,7 +466,7 @@ function updateTrendChart(data: any[]) {
     grid: { left: 50, right: 10, top: 25, bottom: 20 },
     xAxis: { type: 'category', data: times, boundaryGap: false, axisLine: { lineStyle: { color: '#e2e5ea' } }, axisLabel: { color: '#999', fontSize: 10 }, splitLine: { show: false } },
     yAxis: { type: 'value', axisLine: { show: false }, axisLabel: { color: '#999', fontSize: 10 }, splitLine: { lineStyle: { color: '#f0f0f0' } } },
-    series: keys.slice(0, 4).map((key, i) => {
+    series: keys.map((key, i) => {
       const map: Record<string, number> = {}
       dataBuffers[key].forEach(d => { map[d.t] = d.v })
       return { name: getShortLabel(key), type: 'line', smooth: true, symbol: 'none', lineStyle: { width: 1.5, color: colors[i % colors.length] }, data: times.map(t => map[t] ?? null) }
@@ -474,55 +474,98 @@ function updateTrendChart(data: any[]) {
   })
 }
 
+// ========== CSV 导出（客户端生成） ==========
+function exportChartData() {
+  if (!selectedDeviceId.value || !Object.keys(dataBuffers).length) { alert('无数据可导出'); return }
+  const keys = Object.keys(dataBuffers)
+  const timeSet = new Set<string>()
+  keys.forEach(k => dataBuffers[k].forEach(d => timeSet.add(d.t)))
+  const times = Array.from(timeSet).sort()
+  let csv = '﻿时间,' + keys.map(k => getShortLabel(k)).join(',') + '\n'
+  times.forEach(t => {
+    csv += t + ',' + keys.map(k => { const d = dataBuffers[k].find(x => x.t === t); return d ? d.v.toFixed(2) : '' }).join(',') + '\n'
+  })
+  downloadCSV(csv, `trend_${selectedDeviceId.value}_${new Date().toISOString().slice(0,19).replace(/:/g,'-')}.csv`)
+}
+
+async function exportAllData() {
+  try {
+    const data = await api.get('/data/realtime?limit=10000') as any
+    if (!data?.data?.length) { alert('无数据可导出'); return }
+    let csv = '﻿设备ID,寄存器,值,单位,时间\n'
+    data.data.forEach((item: any) => {
+      csv += `${item.device_id},${item.register_name},${item.value},${item.unit||''},${item.timestamp}\n`
+    })
+    downloadCSV(csv, `all_devices_${new Date().toISOString().slice(0,19).replace(/:/g,'-')}.csv`)
+  } catch { alert('导出失败') }
+}
+
+function downloadCSV(csv: string, filename: string) {
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
+  const link = document.createElement('a')
+  link.href = URL.createObjectURL(blob)
+  link.download = filename
+  link.click()
+  URL.revokeObjectURL(link.href)
+}
+
 // ========== WebSocket ==========
 function connectSocket() {
   const socketUrl = import.meta.env.DEV ? window.location.origin : 'http://localhost:5000'
-  socket = io(socketUrl, {
-    transports: ['websocket', 'polling'],
-    reconnection: true,
-    reconnectionDelay: 3000,
-    reconnectionAttempts: Infinity,
-  })
+  socket = io(socketUrl, { transports: ['websocket', 'polling'], reconnection: true, reconnectionDelay: 3000, reconnectionAttempts: Infinity })
   socket.on('connect', () => {
     statusDotClass.value = 'status-dot green'
     statusText.value = '系统运行中'
-    // 重连后重新订阅所有设备房间
-    allDeviceList.value.forEach(d => {
-      const id = getDeviceId(d)
-      if (id) socket?.emit('subscribe', { device_id: id })
-    })
+    allDeviceList.value.forEach(d => { const id = getDeviceId(d); if (id) socket?.emit('subscribe', { device_id: id }) })
   })
   socket.on('disconnect', () => {
     statusDotClass.value = 'status-dot yellow'
     statusText.value = '连接断开，正在重连...'
   })
   socket.on('data_update', (data: any) => {
-    if (data?.device_id && data?.register_name && data.value !== null) {
-      deviceValues[`${data.device_id}__${data.register_name}`] = parseFloat(data.value)
-    }
-    // 同步更新设备列表中的 connected 状态
-    const dev = allDeviceList.value.find(d => getDeviceId(d) === data?.device_id)
-    if (dev && data?.connected !== undefined) {
-      dev.connected = data.connected
+    if (!data) return
+    // 兼容两种格式：单对象 或 {register_name: {device_id, ...}} 映射
+    if (data.device_id && data.register_name && data.value != null) {
+      // 单对象格式
+      deviceValues[`${data.device_id}:${data.register_name}`] = parseFloat(data.value)
+      if (data.quality != null) deviceQuality[`${data.device_id}:${data.register_name}`] = data.quality
+    } else {
+      // 映射格式：{register_name: {device_id, register_name, value, quality}}
+      Object.entries(data).forEach(([regName, info]: [string, any]) => {
+        if (!info || typeof info !== 'object') return
+        const devId = info.device_id
+        const val = info.value
+        if (!devId || val == null) return
+        deviceValues[`${devId}:${regName}`] = parseFloat(val)
+        if (info.quality != null) deviceQuality[`${devId}:${regName}`] = info.quality
+      })
     }
   })
   socket.on('device_status', (data: any) => {
-    if (data?.device_id) {
-      const dev = allDeviceList.value.find(d => getDeviceId(d) === data.device_id)
-      if (dev) {
-        dev.connected = data.status?.connected ?? dev.connected
-        dev.status = data.status?.status ?? dev.status
-      }
+    if (!data?.device_id) return
+    const dev = allDeviceList.value.find(d => getDeviceId(d) === data.device_id)
+    if (dev) {
+      dev.connected = data.status?.connected ?? dev.connected
+      dev.status = data.status?.status ?? dev.status
     }
   })
-  socket.on('alarm', () => loadData())
+  socket.on('alarm', (data: any) => {
+    if (data?.alarm_id) {
+      // 实时插入报警到列表顶部
+      alarms.value.unshift(data)
+      if (alarms.value.length > 50) alarms.value.pop()
+      latestAlarm.value = data
+    } else {
+      loadData()
+    }
+  })
 }
 </script>
 
 <style scoped>
 .dashboard { display: flex; flex-direction: column; height: calc(100vh - 60px); gap: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; }
 
-/* KPI 行 */
+/* KPI */
 .kpi-row { display: grid; grid-template-columns: repeat(6, 1fr); gap: 8px; padding: 8px 12px; background: #fff; border-bottom: 1px solid #e2e5ea; }
 .kpi { padding: 8px 12px; border-left: 3px solid transparent; border-radius: 4px; }
 .kpi.warn { border-left-color: #eab308; }
@@ -531,34 +574,18 @@ function connectSocket() {
 .kpi-value { font-size: 20px; font-weight: 600; color: #1a1a2e; }
 .kpi-value small { font-size: 11px; color: #999; }
 .kpi-sub { font-size: 10px; color: #999; margin-top: 2px; }
-.kpi-badges { display: flex; gap: 6px; margin-top: 2px; }
 
-/* 告警闪烁横幅 */
-.alarm-banner { background: linear-gradient(90deg, #fef3c7, #fee2e2); border-bottom: 2px solid #f59e0b; padding: 6px 16px; cursor: pointer; animation: banner-flash 2s infinite; }
+/* 报警横幅 */
+.alarm-banner { padding: 6px 16px; cursor: pointer; animation: banner-flash 2s infinite; }
 @keyframes banner-flash { 0%,100% { opacity: 1; } 50% { opacity: 0.85; } }
 .banner-content { display: flex; align-items: center; gap: 8px; font-size: 12px; }
 .banner-icon { font-size: 16px; }
-.banner-text { flex: 1; font-weight: 600; color: #92400e; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.banner-device { color: #666; font-size: 11px; }
-.banner-close { background: none; border: none; font-size: 16px; cursor: pointer; color: #999; padding: 0 4px; }
-
-/* 趋势图按钮 */
-.trend-title { font-size: 12px; font-weight: 600; color: #333; }
-.trend-btn { font-size: 11px; padding: 2px 8px; border: 1px solid #ddd; border-radius: 4px; background: #fff; cursor: pointer; }
-.trend-btn:hover { border-color: #6366f1; color: #6366f1; }
-
-/* 状态栏右侧 */
-.status-right { margin-left: auto; display: flex; gap: 12px; }
-.status-link { color: #6366f1; text-decoration: none; font-size: 11px; }
-.status-link:hover { text-decoration: underline; }
-.badge-crit { font-size: 10px; color: #ef4444; font-weight: 600; }
-.badge-high { font-size: 10px; color: #f59e0b; font-weight: 600; }
-.badge-med { font-size: 10px; color: #3b82f6; font-weight: 600; }
+.banner-text { flex: 1; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.banner-device { font-size: 11px; opacity: 0.8; }
+.banner-close { background: none; border: none; font-size: 16px; cursor: pointer; opacity: 0.7; padding: 0 4px; }
 
 /* 主区域 */
 .main-area { display: grid; grid-template-columns: 1fr 1fr; gap: 0; flex: 1; min-height: 0; overflow: auto; }
-
-/* 设备面板（含筛选栏 + 网格 + 分页） */
 .device-panel { display: flex; flex-direction: column; overflow: hidden; }
 
 /* 筛选栏 */
@@ -589,18 +616,20 @@ function connectSocket() {
 .dev-state-tag.warning { background: #fef3c7; color: #92400e; }
 .dev-state-tag.fault { background: #fee2e2; color: #991b1b; }
 .dev-state-tag.offline { background: #f3f4f6; color: #6b7280; }
+.dev-zone-tag { font-size: 9px; padding: 1px 4px; border-radius: 3px; background: #e0f2fe; color: #075985; margin-left: 4px; }
 .dev-meta { font-size: 10px; color: #999; margin-top: 1px; }
 .dev-values { display: flex; gap: 10px; margin-top: 3px; }
 .dev-val .label { font-size: 10px; color: #999; }
-.dev-val .num { font-size: 13px; font-weight: 600; color: #1a1a2e; margin-left: 2px; }
+.dev-val .num { font-size: 13px; font-weight: 600; margin-left: 2px; }
+.quality-dot { display: inline-block; width: 6px; height: 6px; border-radius: 50%; margin-left: 2px; vertical-align: middle; }
 .dev-ctrl-btn { width: 28px; height: 28px; border-radius: 50%; border: 2px solid; font-size: 12px; cursor: pointer; align-self: center; margin-right: 8px; display: flex; align-items: center; justify-content: center; }
 .dev-ctrl-btn.start { border-color: #22c55e; color: #22c55e; background: transparent; }
 .dev-ctrl-btn.stop { border-color: #ef4444; color: #ef4444; background: transparent; }
 .dev-empty { grid-column: 1 / -1; text-align: center; color: #999; padding: 40px 0; font-size: 13px; }
 
-/* 分页控件 */
-.dev-pager { display: flex; align-items: center; justify-content: center; gap: 12px; padding: 8px 10px; border-top: 1px solid #e2e5ea; background: #f8f9fa; }
-.pager-btn { padding: 4px 12px; border: 1px solid #ddd; border-radius: 4px; background: #fff; cursor: pointer; font-size: 12px; color: #555; }
+/* 分页 */
+.dev-pager { display: flex; align-items: center; justify-content: center; gap: 8px; padding: 8px 10px; border-top: 1px solid #e2e5ea; background: #f8f9fa; }
+.pager-btn { padding: 4px 10px; border: 1px solid #ddd; border-radius: 4px; background: #fff; cursor: pointer; font-size: 12px; color: #555; min-width: 28px; }
 .pager-btn:hover:not(:disabled) { border-color: #6366f1; color: #6366f1; }
 .pager-btn:disabled { opacity: 0.4; cursor: not-allowed; }
 .pager-info { font-size: 12px; color: #666; }
@@ -609,6 +638,9 @@ function connectSocket() {
 .alarm-panel { border-left: 1px solid #e2e5ea; display: flex; flex-direction: column; }
 .alarm-header { padding: 8px 12px; font-weight: 600; font-size: 13px; border-bottom: 1px solid #e2e5ea; display: flex; align-items: center; gap: 12px; }
 .alarm-badges { display: flex; gap: 8px; }
+.badge-crit { font-size: 10px; color: #ef4444; font-weight: 600; }
+.badge-high { font-size: 10px; color: #f59e0b; font-weight: 600; }
+.badge-med { font-size: 10px; color: #3b82f6; font-weight: 600; }
 .alarm-list { flex: 1; overflow-y: auto; padding: 4px; }
 .alarm-empty { padding: 20px; text-align: center; color: #999; font-size: 13px; }
 .alarm-row { display: flex; align-items: center; gap: 6px; padding: 5px 8px; border-bottom: 1px solid #f0f0f0; font-size: 11px; }
@@ -628,18 +660,20 @@ function connectSocket() {
 
 /* 趋势图 */
 .trend-area { background: #fff; border-top: 1px solid #e2e5ea; padding: 4px 12px 8px; }
-.trend-header { margin-bottom: 4px; }
+.trend-header { margin-bottom: 4px; display: flex; align-items: center; justify-content: space-between; }
+.trend-title { font-size: 12px; font-weight: 600; color: #333; }
 .trend-device-select { font-size: 12px; padding: 2px 8px; border: 1px solid #d1d5db; border-radius: 4px; }
+.trend-btn { font-size: 11px; padding: 2px 8px; border: 1px solid #ddd; border-radius: 4px; background: #fff; cursor: pointer; }
+.trend-btn:hover { border-color: #6366f1; color: #6366f1; }
 .trend-chart { height: 180px; }
 
 /* 状态栏 */
-.mode-badge { font-size: 14px !important; }
-.mode-badge.sim { color: #e6a23c; }
-.mode-badge.real { color: #67c23a; }
-
 .status-bar { display: flex; align-items: center; gap: 8px; padding: 4px 12px; background: #f9fafb; border-top: 1px solid #e2e5ea; font-size: 11px; color: #666; }
 .status-dot { width: 8px; height: 8px; border-radius: 50%; }
-.status-dot.green { background: #22c55e; box-shadow: 0 0 6px rgba(34, 197, 94, 0.6); }
-.status-dot.red { background: #ef4444; box-shadow: 0 0 6px rgba(239, 68, 68, 0.6); }
-.status-dot.yellow { background: #eab308; box-shadow: 0 0 6px rgba(234, 179, 8, 0.6); }
+.status-dot.green { background: #22c55e; box-shadow: 0 0 6px rgba(34,197,94,0.6); }
+.status-dot.red { background: #ef4444; box-shadow: 0 0 6px rgba(239,68,68,0.6); }
+.status-dot.yellow { background: #eab308; box-shadow: 0 0 6px rgba(234,179,8,0.6); }
+.status-right { margin-left: auto; display: flex; gap: 12px; }
+.status-link { color: #6366f1; text-decoration: none; font-size: 11px; }
+.status-link:hover { text-decoration: underline; }
 </style>
