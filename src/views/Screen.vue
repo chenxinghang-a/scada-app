@@ -2,7 +2,7 @@
   <div class="screen">
     <!-- 顶部 KPI -->
     <div class="screen-topbar">
-      <div class="topbar-title">🏭 工业数据大屏</div>
+      <div class="topbar-title"><router-link to="/dashboard" style="color:#fff;text-decoration:none;margin-right:12px">← 返回</router-link>🏭 工业数据大屏</div>
       <div class="topbar-kpi">
         <div class="kpi-item"><span class="kpi-label">设备在线</span><span class="kpi-val">{{ kpi.online }}/{{ kpi.total }}</span></div>
         <div class="kpi-item"><span class="kpi-label">活动报警</span><span class="kpi-val alarm">{{ kpi.alarms }}</span></div>

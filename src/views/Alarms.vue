@@ -3,16 +3,16 @@
     <!-- 统计卡片 -->
     <el-row :gutter="16" class="mb-16">
       <el-col :span="6">
-        <el-card shadow="hover"><div class="stat"><div class="stat-label">报警总数</div><div class="stat-value">{{ stats.total || 0 }}</div></div></el-card>
-      </el-col>
-      <el-col :span="6">
-        <el-card shadow="hover"><div class="stat"><div class="stat-label">未确认</div><div class="stat-value text-danger">{{ stats.active || 0 }}</div></div></el-card>
+        <el-card shadow="hover"><div class="stat"><div class="stat-label">活动报警</div><div class="stat-value">{{ stats.total_active_alarms || 0 }}</div></div></el-card>
       </el-col>
       <el-col :span="6">
         <el-card shadow="hover"><div class="stat"><div class="stat-label">严重报警</div><div class="stat-value text-danger">{{ stats.by_level?.critical || 0 }}</div></div></el-card>
       </el-col>
       <el-col :span="6">
-        <el-card shadow="hover"><div class="stat"><div class="stat-label">已确认</div><div class="stat-value text-success">{{ stats.acknowledged || 0 }}</div></div></el-card>
+        <el-card shadow="hover"><div class="stat"><div class="stat-label">警告</div><div class="stat-value text-warning">{{ stats.by_level?.warning || 0 }}</div></div></el-card>
+      </el-col>
+      <el-col :span="6">
+        <el-card shadow="hover"><div class="stat"><div class="stat-label">已确认</div><div class="stat-value text-success">{{ stats.dedup?.acknowledged_alarms || 0 }}</div></div></el-card>
       </el-col>
     </el-row>
 
@@ -123,6 +123,7 @@ async function acknowledge(id: string) {
 .stat-label { font-size: 14px; color: #909399; margin-bottom: 8px; }
 .stat-value { font-size: 28px; font-weight: bold; }
 .text-danger { color: #f56c6c; }
+.text-warning { color: #e6a23c; }
 .text-success { color: #67c23a; }
 .card-header { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; }
 .mr-8 { margin-right: 8px; }
