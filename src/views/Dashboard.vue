@@ -2,34 +2,47 @@
   <div class="dashboard">
     <!-- KPI 行 -->
     <div class="kpi-row">
+      <div class="kpi">
+        <div class="kpi-label">OEE 综合效率</div>
+        <div class="kpi-value">{{ kpi.oee }}%</div>
+        <div class="kpi-sub">目标 ≥85%</div>
+      </div>
       <div class="kpi" :class="{ warn: kpi.online < kpi.total }">
-        <div class="kpi-label">设备</div>
-        <div class="kpi-value"><span id="kpi-online">{{ kpi.online }}</span> / <span id="kpi-total">{{ kpi.total }}</span></div>
+        <div class="kpi-label">设备状态</div>
+        <div class="kpi-value"><span>{{ kpi.online }}</span>/<span>{{ kpi.total }}</span></div>
+        <div class="kpi-sub">在线/总数</div>
       </div>
       <div class="kpi" :class="{ alarm: kpi.alarmCount > 0 }">
-        <div class="kpi-label">报警</div>
+        <div class="kpi-label">活动报警</div>
         <div class="kpi-value">{{ kpi.alarmCount }}</div>
-        <div class="kpi-badges">
-          <span class="badge-crit">CRIT: {{ kpi.crit }}</span>
-          <span class="badge-high">HIGH: {{ kpi.high }}</span>
-          <span class="badge-med">MED: {{ kpi.med }}</span>
-        </div>
+        <div class="kpi-sub">未确认: {{ kpi.crit }}</div>
       </div>
       <div class="kpi">
-        <div class="kpi-label">采集率</div>
-        <div class="kpi-value">{{ kpi.rate }} <small>次/分</small></div>
+        <div class="kpi-label">采集吞吐</div>
+        <div class="kpi-value">{{ kpi.rate }} <small>条/分</small></div>
       </div>
       <div class="kpi">
         <div class="kpi-label">数据质量</div>
         <div class="kpi-value">{{ kpi.quality }}%</div>
+        <div class="kpi-sub">成功率</div>
       </div>
       <div class="kpi">
         <div class="kpi-label">运行时间</div>
         <div class="kpi-value">{{ kpi.uptime }}</div>
+        <div class="kpi-sub">{{ kpi.mode }}</div>
       </div>
-      <div class="kpi">
-        <div class="kpi-label">模式</div>
-        <div class="kpi-value mode-badge" :class="kpi.mode === '模拟模式' ? 'sim' : 'real'">{{ kpi.mode }}</div>
+    </div>
+
+    <!-- 告警闪烁横幅 -->
+    <div v-if="latestAlarm" class="alarm-banner" @click="$router.push('/alarms')">
+      <div class="banner-content">
+        <span class="banner-icon">⚠️</span>
+        <span class="banner-text">{{ latestAlarm.alarm_message }}</span>
+        <span class="banner-device">{{ latestAlarm.device_id }}</span>
+        <el-tag :type="latestAlarm.alarm_level==='critical'?'danger':'warning'" size="small" effect="dark">
+          {{ latestAlarm.alarm_level==='critical'?'严重':'警告' }}
+        </el-tag>
+        <button class="banner-close" @click.stop="latestAlarm=null">×</button>
       </div>
     </div>
 
@@ -112,9 +125,14 @@
     <!-- 趋势图 -->
     <div class="trend-area">
       <div class="trend-header">
-        <select v-model="selectedDeviceId" @change="onDeviceChange" class="trend-device-select">
-          <option v-for="d in allDeviceList" :key="getDeviceId(d)" :value="getDeviceId(d)">{{ d.name || d.device_id }}</option>
-        </select>
+        <span class="trend-title">实时趋势</span>
+        <div style="display:flex;gap:6px;align-items:center">
+          <select v-model="selectedDeviceId" @change="onDeviceChange" class="trend-device-select">
+            <option v-for="d in allDeviceList" :key="getDeviceId(d)" :value="getDeviceId(d)">{{ d.name || d.device_id }}</option>
+          </select>
+          <button class="trend-btn" @click="exportChartData" title="导出当前图表数据">📊 导出图表</button>
+          <button class="trend-btn" @click="exportAllData" title="导出全部设备数据">📥 导出全部</button>
+        </div>
       </div>
       <div ref="trendChartRef" class="trend-chart"></div>
     </div>
@@ -124,6 +142,10 @@
       <span class="status-dot" :class="statusDotClass"></span>
       <span id="status-text">{{ statusText }}</span>
       <span class="status-db">DB: {{ kpi.dbRecords.toLocaleString() }} 条</span>
+      <span class="status-right">
+        <router-link to="/users" class="status-link">{{ userName }}</router-link>
+        <router-link to="/screen" class="status-link">大屏</router-link>
+      </span>
     </div>
   </div>
 </template>
@@ -138,7 +160,9 @@ import api from '@/api/request'
 
 const allDeviceList = ref<DeviceStatus[]>([])
 const alarms = ref<Alarm[]>([])
+const latestAlarm = ref<Alarm | null>(null)
 const selectedDeviceId = ref('')
+const userName = ref('用户')
 const trendChartRef = ref<HTMLElement>()
 let trendChart: echarts.ECharts | null = null
 let socket: ReturnType<typeof io> | null = null
@@ -187,7 +211,7 @@ function setDevFilter(f: string) {
 }
 
 const kpi = reactive({
-  online: 0, total: 0, alarmCount: 0, crit: 0, high: 0, med: 0,
+  oee: 0, online: 0, total: 0, alarmCount: 0, crit: 0, high: 0, med: 0,
   rate: 0, quality: 100, uptime: '-', mode: '模拟模式', dbRecords: 0,
 })
 
@@ -198,6 +222,8 @@ onMounted(() => {
   initTrendChart()
   connectSocket()
   loadData()
+  loadOEE()
+  loadUserName()
   loadTimer = setInterval(loadData, 10000)
 })
 
@@ -226,8 +252,43 @@ async function loadData() {
 
   try {
     const alarmData = await alarmsApi.getAll({ limit: 50 })
-    if (alarmData?.alarms) alarms.value = alarmData.alarms
+    if (alarmData?.alarms) {
+      alarms.value = alarmData.alarms
+      latestAlarm.value = alarmData.alarms.find((a: Alarm) => !a.acknowledged) || null
+    }
   } catch { /* 报警数据获取失败不影响主界面 */ }
+}
+
+async function loadOEE() {
+  try {
+    const data = await api.get('/industry40/oee') as any
+    if (data?.devices?.length) {
+      kpi.oee = Math.round(data.devices.reduce((s: number, d: any) => s + d.oee_percent, 0) / data.devices.length)
+    }
+  } catch { /* ignore */ }
+}
+
+function loadUserName() {
+  try {
+    const u = JSON.parse(localStorage.getItem('scada_user') || '{}')
+    userName.value = u.display_name || u.username || '用户'
+  } catch { /* ignore */ }
+}
+
+async function exportChartData() {
+  try {
+    const data = await api.get(`/data/export/${selectedDeviceId.value}?format=csv`) as any
+    if (data?.download_url) window.open(data.download_url)
+    else alert('导出功能需要后端支持')
+  } catch { alert('导出失败') }
+}
+
+async function exportAllData() {
+  try {
+    const data = await api.get('/data/export/all?format=csv') as any
+    if (data?.download_url) window.open(data.download_url)
+    else alert('导出功能需要后端支持')
+  } catch { alert('导出失败') }
 }
 
 function updateKPI(stats: SystemStatus) {
@@ -469,13 +530,33 @@ function connectSocket() {
 .kpi-label { font-size: 11px; color: #999; text-transform: uppercase; }
 .kpi-value { font-size: 20px; font-weight: 600; color: #1a1a2e; }
 .kpi-value small { font-size: 11px; color: #999; }
+.kpi-sub { font-size: 10px; color: #999; margin-top: 2px; }
 .kpi-badges { display: flex; gap: 6px; margin-top: 2px; }
+
+/* 告警闪烁横幅 */
+.alarm-banner { background: linear-gradient(90deg, #fef3c7, #fee2e2); border-bottom: 2px solid #f59e0b; padding: 6px 16px; cursor: pointer; animation: banner-flash 2s infinite; }
+@keyframes banner-flash { 0%,100% { opacity: 1; } 50% { opacity: 0.85; } }
+.banner-content { display: flex; align-items: center; gap: 8px; font-size: 12px; }
+.banner-icon { font-size: 16px; }
+.banner-text { flex: 1; font-weight: 600; color: #92400e; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.banner-device { color: #666; font-size: 11px; }
+.banner-close { background: none; border: none; font-size: 16px; cursor: pointer; color: #999; padding: 0 4px; }
+
+/* 趋势图按钮 */
+.trend-title { font-size: 12px; font-weight: 600; color: #333; }
+.trend-btn { font-size: 11px; padding: 2px 8px; border: 1px solid #ddd; border-radius: 4px; background: #fff; cursor: pointer; }
+.trend-btn:hover { border-color: #6366f1; color: #6366f1; }
+
+/* 状态栏右侧 */
+.status-right { margin-left: auto; display: flex; gap: 12px; }
+.status-link { color: #6366f1; text-decoration: none; font-size: 11px; }
+.status-link:hover { text-decoration: underline; }
 .badge-crit { font-size: 10px; color: #ef4444; font-weight: 600; }
 .badge-high { font-size: 10px; color: #f59e0b; font-weight: 600; }
 .badge-med { font-size: 10px; color: #3b82f6; font-weight: 600; }
 
 /* 主区域 */
-.main-area { display: grid; grid-template-columns: 1fr 1fr; gap: 0; flex: 1; min-height: 0; overflow: hidden; }
+.main-area { display: grid; grid-template-columns: 1fr 1fr; gap: 0; flex: 1; min-height: 0; overflow: auto; }
 
 /* 设备面板（含筛选栏 + 网格 + 分页） */
 .device-panel { display: flex; flex-direction: column; overflow: hidden; }
@@ -491,7 +572,7 @@ function connectSocket() {
 .dev-count-badge { font-size: 11px; color: #666; background: #e8e8e8; padding: 2px 8px; border-radius: 10px; }
 
 /* 设备网格 */
-.device-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 6px; padding: 8px; overflow-y: auto; align-content: start; max-height: calc(100vh - 320px); }
+.device-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 6px; padding: 8px; overflow-y: auto; align-content: start; }
 .dev-card { display: flex; align-items: stretch; background: #fff; border: 1px solid #e2e5ea; border-radius: 6px; cursor: pointer; transition: border-color 0.2s; position: relative; min-height: 60px; }
 .dev-card:hover { border-color: #6366f1; }
 .dev-status { width: 6px; border-radius: 6px 0 0 6px; }
@@ -561,5 +642,4 @@ function connectSocket() {
 .status-dot.green { background: #22c55e; box-shadow: 0 0 6px rgba(34, 197, 94, 0.6); }
 .status-dot.red { background: #ef4444; box-shadow: 0 0 6px rgba(239, 68, 68, 0.6); }
 .status-dot.yellow { background: #eab308; box-shadow: 0 0 6px rgba(234, 179, 8, 0.6); }
-.status-db { margin-left: auto; }
 </style>
