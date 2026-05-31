@@ -41,11 +41,19 @@ export const useAuthStore = defineStore('auth', () => {
         user.value = data.user
         return true
       }
-    } catch {
-      // token 无效
+      // token 确实无效（服务端明确返回 invalid）
+      logout()
+      return false
+    } catch (err: any) {
+      // 网络错误 / 超时 / 500 等 → 不要清 token，只是验证失败
+      // 只有 401 才清 token（由 request.ts 拦截器处理）
+      const status = err?.response?.status
+      if (status === 401 || status === 403) {
+        logout()
+      }
+      // 其他错误保留 token，下次再试
+      return false
     }
-    logout()
-    return false
   }
 
   function logout() {

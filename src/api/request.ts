@@ -9,6 +9,9 @@ const api = axios.create({
   timeout: 30000,
 })
 
+// 防止 401 连锁跳转：标记正在跳转中，避免多个请求同时 401 导致反复刷新
+let isRedirectingToLogin = false
+
 // 请求拦截器 - 注入 JWT token
 api.interceptors.request.use((config) => {
   const token = localStorage.getItem('auth_token')
@@ -25,16 +28,24 @@ api.interceptors.response.use(
     if (error.response) {
       const { status, data } = error.response
       if (status === 401) {
-        localStorage.removeItem('auth_token')
-        localStorage.removeItem('scada_user')
-        router.push('/login')
-        ElMessage.error('登录已过期，请重新登录')
+        // 防止多个请求同时 401 导致反复跳转
+        if (!isRedirectingToLogin) {
+          isRedirectingToLogin = true
+          localStorage.removeItem('auth_token')
+          localStorage.removeItem('scada_user')
+          router.push('/login')
+          ElMessage.error('登录已过期，请重新登录')
+          // 2秒后重置标记，允许后续登录
+          setTimeout(() => { isRedirectingToLogin = false }, 2000)
+        }
       } else if (status === 403) {
         ElMessage.error('权限不足')
       } else {
+        // 非 401/403 错误不跳转，只提示
         ElMessage.error(data?.error || `请求失败 (${status})`)
       }
     } else {
+      // 网络错误不跳转，只提示
       ElMessage.error('网络连接失败，请检查后端服务是否启动')
     }
     return Promise.reject(error)

@@ -35,23 +35,52 @@
 
     <!-- 主区域：设备网格 + 报警面板 -->
     <div class="main-area">
-      <!-- 设备卡片网格 -->
-      <div class="device-grid">
-        <div v-for="d in deviceList" :key="getDeviceId(d)" class="dev-card" :class="getDeviceClass(d)" @click="selectDevice(getDeviceId(d))">
-          <div class="dev-status" :class="getDeviceStatusClass(d)"></div>
-          <div class="dev-info">
-            <div class="dev-name">{{ d.name || d.device_id }} <span class="dev-state-tag" :class="getDeviceStatusClass(d)">{{ getDeviceStatusText(d) }}</span></div>
-            <div class="dev-meta">{{ d.protocol || 'modbus_tcp' }} · {{ d.host || '' }}</div>
-            <div class="dev-values">
-              <span v-for="r in (d.registers || []).slice(0, 2)" :key="r.name" class="dev-val">
-                <span class="label">{{ getShortLabel(r.name) }}</span>
-                <span class="num">{{ getDeviceValue(getDeviceId(d), r.name) }}</span>
-              </span>
-            </div>
+      <!-- 设备卡片网格（带分类筛选 + 分页） -->
+      <div class="device-panel">
+        <!-- 分类筛选栏 -->
+        <div class="dev-filter-bar">
+          <div class="dev-filter-tabs">
+            <button class="dev-tab" :class="{ active: devFilter === 'all' }" @click="setDevFilter('all')">全部 {{ allDeviceList.length }}</button>
+            <button class="dev-tab" :class="{ active: devFilter === 'online' }" @click="setDevFilter('online')">在线 {{ onlineCount }}</button>
+            <button class="dev-tab" :class="{ active: devFilter === 'offline' }" @click="setDevFilter('offline')">离线 {{ offlineCount }}</button>
+            <button class="dev-tab" :class="{ active: devFilter === 'fault' }" @click="setDevFilter('fault')">告警 {{ faultCount }}</button>
+            <button class="dev-tab" :class="{ active: devFilter === 'mechanical' }" @click="setDevFilter('mechanical')">机械 {{ mechanicalCount }}</button>
           </div>
-          <button v-if="d.device_category === 'mechanical' && d.connected" class="dev-ctrl-btn" :class="d.stopped ? 'start' : 'stop'" @click.stop="toggleDevice(getDeviceId(d), !d.stopped)" :title="d.stopped ? '启动' : '停止'">
-            {{ d.stopped ? '▶' : '■' }}
-          </button>
+          <div class="dev-filter-right">
+            <select v-model="devProtocolFilter" class="dev-proto-select">
+              <option value="">全部协议</option>
+              <option v-for="p in protocolList" :key="p" :value="p">{{ p }}</option>
+            </select>
+            <span class="dev-count-badge">共 {{ filteredDeviceList.length }} 台</span>
+          </div>
+        </div>
+
+        <!-- 设备卡片网格 -->
+        <div class="device-grid">
+          <div v-for="d in pagedDeviceList" :key="getDeviceId(d)" class="dev-card" :class="getDeviceClass(d)" @click="selectDevice(getDeviceId(d))">
+            <div class="dev-status" :class="getDeviceStatusClass(d)"></div>
+            <div class="dev-info">
+              <div class="dev-name">{{ d.name || d.device_id }} <span class="dev-state-tag" :class="getDeviceStatusClass(d)">{{ getDeviceStatusText(d) }}</span></div>
+              <div class="dev-meta">{{ d.protocol || 'modbus_tcp' }} · {{ d.host || '' }}</div>
+              <div class="dev-values">
+                <span v-for="r in (d.registers || []).slice(0, 3)" :key="r.name" class="dev-val">
+                  <span class="label">{{ getShortLabel(r.name) }}</span>
+                  <span class="num">{{ getDeviceValue(getDeviceId(d), r.name) }}</span>
+                </span>
+              </div>
+            </div>
+            <button v-if="d.device_category === 'mechanical' && d.connected" class="dev-ctrl-btn" :class="d.stopped ? 'start' : 'stop'" @click.stop="toggleDevice(getDeviceId(d), !d.stopped)" :title="d.stopped ? '启动' : '停止'">
+              {{ d.stopped ? '▶' : '■' }}
+            </button>
+          </div>
+          <div v-if="pagedDeviceList.length === 0" class="dev-empty">暂无匹配设备</div>
+        </div>
+
+        <!-- 分页控件 -->
+        <div v-if="filteredDeviceList.length > devPageSize" class="dev-pager">
+          <button class="pager-btn" :disabled="devPage <= 1" @click="devPage--">‹ 上一页</button>
+          <span class="pager-info">{{ devPage }} / {{ devTotalPages }}</span>
+          <button class="pager-btn" :disabled="devPage >= devTotalPages" @click="devPage++">下一页 ›</button>
         </div>
       </div>
 
@@ -84,7 +113,7 @@
     <div class="trend-area">
       <div class="trend-header">
         <select v-model="selectedDeviceId" @change="onDeviceChange" class="trend-device-select">
-          <option v-for="d in deviceList" :key="getDeviceId(d)" :value="getDeviceId(d)">{{ d.name || d.device_id }}</option>
+          <option v-for="d in allDeviceList" :key="getDeviceId(d)" :value="getDeviceId(d)">{{ d.name || d.device_id }}</option>
         </select>
       </div>
       <div ref="trendChartRef" class="trend-chart"></div>
@@ -100,14 +129,14 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted, reactive } from 'vue'
+import { ref, computed, onMounted, onUnmounted, reactive } from 'vue'
 import * as echarts from 'echarts'
 import { io } from 'socket.io-client'
 import { systemApi, type DeviceStatus, type SystemStatus } from '@/api'
 import { alarmsApi, type Alarm } from '@/api'
 import api from '@/api/request'
 
-const deviceList = ref<DeviceStatus[]>([])
+const allDeviceList = ref<DeviceStatus[]>([])
 const alarms = ref<Alarm[]>([])
 const selectedDeviceId = ref('')
 const trendChartRef = ref<HTMLElement>()
@@ -120,6 +149,43 @@ const dataBuffers: Record<string, Array<{ t: string; v: number }>> = {}
 const deviceValues: Record<string, number> = {}
 const MAX_POINTS = 60
 
+// ========== 设备分类筛选 + 分页 ==========
+const devFilter = ref('all')
+const devProtocolFilter = ref('')
+const devPage = ref(1)
+const devPageSize = 12
+
+const onlineCount = computed(() => allDeviceList.value.filter(d => d.connected).length)
+const offlineCount = computed(() => allDeviceList.value.filter(d => !d.connected).length)
+const faultCount = computed(() => allDeviceList.value.filter(d => d.status === 'fault' || d.status === 'warning').length)
+const mechanicalCount = computed(() => allDeviceList.value.filter(d => d.device_category === 'mechanical').length)
+
+const protocolList = computed(() => {
+  const set = new Set(allDeviceList.value.map(d => d.protocol || 'modbus_tcp'))
+  return Array.from(set).sort()
+})
+
+const filteredDeviceList = computed(() => {
+  let list = allDeviceList.value
+  if (devFilter.value === 'online') list = list.filter(d => d.connected)
+  else if (devFilter.value === 'offline') list = list.filter(d => !d.connected)
+  else if (devFilter.value === 'fault') list = list.filter(d => d.status === 'fault' || d.status === 'warning')
+  else if (devFilter.value === 'mechanical') list = list.filter(d => d.device_category === 'mechanical')
+  if (devProtocolFilter.value) list = list.filter(d => (d.protocol || 'modbus_tcp') === devProtocolFilter.value)
+  return list
+})
+
+const devTotalPages = computed(() => Math.max(1, Math.ceil(filteredDeviceList.value.length / devPageSize)))
+const pagedDeviceList = computed(() => {
+  const start = (devPage.value - 1) * devPageSize
+  return filteredDeviceList.value.slice(start, start + devPageSize)
+})
+
+function setDevFilter(f: string) {
+  devFilter.value = f
+  devPage.value = 1
+}
+
 const kpi = reactive({
   online: 0, total: 0, alarmCount: 0, crit: 0, high: 0, med: 0,
   rate: 0, quality: 100, uptime: '-', mode: '模拟模式', dbRecords: 0,
@@ -130,9 +196,9 @@ const statusText = ref('系统运行中')
 
 onMounted(() => {
   initTrendChart()
-  loadData()
-  loadTimer = setInterval(loadData, 3000)
   connectSocket()
+  loadData()
+  loadTimer = setInterval(loadData, 10000)
 })
 
 onUnmounted(() => {
@@ -147,16 +213,21 @@ async function loadData() {
     updateKPI(status)
     updateDeviceGrid(status)
     updateStatusBar(status)
-
-    const data = await api.get('/data/realtime?limit=5000') as any
-    if (data?.data) updateTrendChart(data.data)
-
-    const alarmData = await alarmsApi.getAll({ limit: 50 })
-    if (alarmData?.alarms) alarms.value = alarmData.alarms
   } catch {
     statusDotClass.value = 'status-dot red'
     statusText.value = '连接异常'
   }
+
+  // 独立 try-catch，一个失败不影响其他
+  try {
+    const data = await api.get('/data/realtime?limit=5000') as any
+    if (data?.data) updateTrendChart(data.data)
+  } catch { /* 趋势图数据获取失败不影响主界面 */ }
+
+  try {
+    const alarmData = await alarmsApi.getAll({ limit: 50 })
+    if (alarmData?.alarms) alarms.value = alarmData.alarms
+  } catch { /* 报警数据获取失败不影响主界面 */ }
 }
 
 function updateKPI(stats: SystemStatus) {
@@ -191,10 +262,15 @@ function updateDeviceGrid(stats: SystemStatus) {
   if (!stats.devices) return
   const devs = Array.isArray(stats.devices) ? stats.devices : Object.values(stats.devices)
   devs.forEach(d => { deviceCache[d.device_id || d.id || ''] = d })
-  deviceList.value = devs
+  allDeviceList.value = devs
   if (!selectedDeviceId.value && devs.length > 0) {
     selectedDeviceId.value = devs[0].device_id || devs[0].id || ''
   }
+  // 订阅所有设备的 WebSocket 推送（socket 未连接时 emit 会被忽略，connect handler 会重新订阅）
+  devs.forEach(d => {
+    const id = d.device_id || d.id
+    if (id && socket?.connected) socket.emit('subscribe', { device_id: id })
+  })
 }
 
 function updateStatusBar(stats: SystemStatus) {
@@ -344,11 +420,16 @@ function connectSocket() {
     transports: ['websocket', 'polling'],
     reconnection: true,
     reconnectionDelay: 3000,
-    reconnectionAttempts: 10,
+    reconnectionAttempts: Infinity,
   })
   socket.on('connect', () => {
     statusDotClass.value = 'status-dot green'
     statusText.value = '系统运行中'
+    // 重连后重新订阅所有设备房间
+    allDeviceList.value.forEach(d => {
+      const id = getDeviceId(d)
+      if (id) socket?.emit('subscribe', { device_id: id })
+    })
   })
   socket.on('disconnect', () => {
     statusDotClass.value = 'status-dot yellow'
@@ -357,6 +438,20 @@ function connectSocket() {
   socket.on('data_update', (data: any) => {
     if (data?.device_id && data?.register_name && data.value !== null) {
       deviceValues[`${data.device_id}__${data.register_name}`] = parseFloat(data.value)
+    }
+    // 同步更新设备列表中的 connected 状态
+    const dev = allDeviceList.value.find(d => getDeviceId(d) === data?.device_id)
+    if (dev && data?.connected !== undefined) {
+      dev.connected = data.connected
+    }
+  })
+  socket.on('device_status', (data: any) => {
+    if (data?.device_id) {
+      const dev = allDeviceList.value.find(d => getDeviceId(d) === data.device_id)
+      if (dev) {
+        dev.connected = data.status?.connected ?? dev.connected
+        dev.status = data.status?.status ?? dev.status
+      }
     }
   })
   socket.on('alarm', () => loadData())
@@ -382,8 +477,21 @@ function connectSocket() {
 /* 主区域 */
 .main-area { display: grid; grid-template-columns: 1fr 1fr; gap: 0; flex: 1; min-height: 0; overflow: hidden; }
 
+/* 设备面板（含筛选栏 + 网格 + 分页） */
+.device-panel { display: flex; flex-direction: column; overflow: hidden; }
+
+/* 筛选栏 */
+.dev-filter-bar { display: flex; align-items: center; justify-content: space-between; padding: 6px 10px; background: #f8f9fa; border-bottom: 1px solid #e2e5ea; gap: 8px; flex-wrap: wrap; }
+.dev-filter-tabs { display: flex; gap: 4px; }
+.dev-tab { padding: 4px 10px; border: 1px solid #ddd; border-radius: 4px; background: #fff; cursor: pointer; font-size: 11px; color: #555; transition: all 0.15s; }
+.dev-tab:hover { border-color: #6366f1; color: #6366f1; }
+.dev-tab.active { background: #6366f1; color: #fff; border-color: #6366f1; }
+.dev-filter-right { display: flex; align-items: center; gap: 8px; }
+.dev-proto-select { padding: 3px 6px; border: 1px solid #ddd; border-radius: 4px; font-size: 11px; background: #fff; }
+.dev-count-badge { font-size: 11px; color: #666; background: #e8e8e8; padding: 2px 8px; border-radius: 10px; }
+
 /* 设备网格 */
-.device-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; padding: 8px; overflow-y: auto; align-content: start; }
+.device-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 6px; padding: 8px; overflow-y: auto; align-content: start; max-height: calc(100vh - 320px); }
 .dev-card { display: flex; align-items: stretch; background: #fff; border: 1px solid #e2e5ea; border-radius: 6px; cursor: pointer; transition: border-color 0.2s; position: relative; min-height: 60px; }
 .dev-card:hover { border-color: #6366f1; }
 .dev-status { width: 6px; border-radius: 6px 0 0 6px; }
@@ -407,6 +515,14 @@ function connectSocket() {
 .dev-ctrl-btn { width: 28px; height: 28px; border-radius: 50%; border: 2px solid; font-size: 12px; cursor: pointer; align-self: center; margin-right: 8px; display: flex; align-items: center; justify-content: center; }
 .dev-ctrl-btn.start { border-color: #22c55e; color: #22c55e; background: transparent; }
 .dev-ctrl-btn.stop { border-color: #ef4444; color: #ef4444; background: transparent; }
+.dev-empty { grid-column: 1 / -1; text-align: center; color: #999; padding: 40px 0; font-size: 13px; }
+
+/* 分页控件 */
+.dev-pager { display: flex; align-items: center; justify-content: center; gap: 12px; padding: 8px 10px; border-top: 1px solid #e2e5ea; background: #f8f9fa; }
+.pager-btn { padding: 4px 12px; border: 1px solid #ddd; border-radius: 4px; background: #fff; cursor: pointer; font-size: 12px; color: #555; }
+.pager-btn:hover:not(:disabled) { border-color: #6366f1; color: #6366f1; }
+.pager-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+.pager-info { font-size: 12px; color: #666; }
 
 /* 报警面板 */
 .alarm-panel { border-left: 1px solid #e2e5ea; display: flex; flex-direction: column; }

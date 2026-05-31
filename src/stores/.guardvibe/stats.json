@@ -1,0 +1,39 @@
+{
+  "version": 1,
+  "firstScan": "2026-05-31T12:24:46.246Z",
+  "lastScan": "2026-05-31T12:24:46.246Z",
+  "totals": {
+    "scans": 1,
+    "filesScanned": 1,
+    "findingsTotal": 3,
+    "findingsFixed": 0,
+    "critical": 0,
+    "high": 3,
+    "medium": 0,
+    "low": 0,
+    "autoFixesApplied": 0,
+    "secretsCaught": 0,
+    "dependencyCVEs": 0
+  },
+  "monthly": {
+    "2026-05": {
+      "scans": 1,
+      "filesScanned": 1,
+      "findingsTotal": 3,
+      "findingsFixed": 0,
+      "critical": 0,
+      "high": 3,
+      "medium": 0,
+      "low": 0
+    }
+  },
+  "tools": {
+    "scan_file": 1
+  },
+  "topRules": {
+    "VG424": 1,
+    "VG445": 1,
+    "VG148": 1
+  },
+  "grades": []
+}
