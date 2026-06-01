@@ -36,6 +36,7 @@
   "build": {
     "appId": "com.smartscada.app",
     "productName": "SmartSCADA",
+    "copyright": "Copyright © 2026 陈星行",
     "directories": {
       "output": "release"
     },
@@ -55,14 +56,19 @@
       "target": [
         "nsis"
       ],
-      "signAndEditExecutable": false
+      "signAndEditExecutable": false,
+      "requestedExecutionLevel": "requireAdministrator"
     },
     "nsis": {
       "oneClick": false,
       "allowToChangeInstallationDirectory": true,
+      "allowElevation": true,
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
-      "shortcutName": "SmartSCADA"
+      "shortcutName": "SmartSCADA",
+      "include": "electron/installer-check.nsh",
+      "runAfterFinish": true,
+      "deleteAppDataOnUninstall": false
     },
     "forceCodeSigning": false
   }
