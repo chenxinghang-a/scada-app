@@ -42,7 +42,9 @@
     <el-card shadow="hover">
       <el-table :data="devices" stripe v-loading="loading">
         <el-table-column prop="device_id" label="设备ID" width="160" show-overflow-tooltip />
-        <el-table-column prop="device_name" label="设备名称" show-overflow-tooltip />
+        <el-table-column label="设备名称" show-overflow-tooltip>
+          <template #default="{ row }">{{ row.name || row.device_name || row.device_id }}</template>
+        </el-table-column>
         <el-table-column prop="protocol" label="协议" width="100">
           <template #default="{ row }">
             <el-tag :type="protocolColor(row.protocol)" size="small">{{ row.protocol }}</el-tag>
@@ -87,7 +89,7 @@
           </el-col>
           <el-col :span="12">
             <el-form-item label="设备名称">
-              <el-input v-model="form.device_name" placeholder="如 施耐德M340 PLC" />
+              <el-input v-model="form.name" placeholder="如 施耐德M340 PLC" />
             </el-form-item>
           </el-col>
         </el-row>
@@ -247,7 +249,7 @@ const showPresets = ref(false)
 const presetCategory = ref('Modbus')
 
 const form = reactive<any>({
-  device_id: '', device_name: '', protocol: 'modbus_tcp', host: '127.0.0.1', port: 502, slave_id: 1,
+  device_id: '', name: '', protocol: 'modbus_tcp', host: '127.0.0.1', port: 502, slave_id: 1,
   collection_interval: 5, enabled: true, registers: [],
 })
 
@@ -294,7 +296,7 @@ async function refreshDevices() {
 
 function showAddDialog() {
   isEdit.value = false
-  Object.assign(form, { device_id: '', device_name: '', protocol: 'modbus_tcp', host: '127.0.0.1', port: 502, slave_id: 1, collection_interval: 5, enabled: true, registers: [] })
+  Object.assign(form, { device_id: '', name: '', protocol: 'modbus_tcp', host: '127.0.0.1', port: 502, slave_id: 1, collection_interval: 5, enabled: true, registers: [] })
   dialogVisible.value = true
 }
 
@@ -332,7 +334,6 @@ async function saveDevice() {
       const payload = {
         ...form,
         id: form.device_id,
-        name: form.device_name,
       }
       await devicesApi.create(payload)
       ElMessage.success('设备添加成功')

@@ -23,7 +23,7 @@
           <span>报警记录</span>
           <div>
             <el-select v-model="filter.device_id" placeholder="全部设备" clearable style="width:150px" class="mr-8">
-              <el-option v-for="d in devices" :key="d.device_id" :label="d.device_name" :value="d.device_id" />
+              <el-option v-for="d in devices" :key="d.device_id" :label="d.name || d.device_name || d.device_id" :value="d.device_id" />
             </el-select>
             <el-select v-model="filter.alarm_level" placeholder="全部等级" clearable style="width:120px" class="mr-8">
               <el-option label="严重" value="critical" />

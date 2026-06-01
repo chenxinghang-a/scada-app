@@ -212,7 +212,7 @@
         <el-form-item label="名称"><el-input v-model="ruleForm.name" /></el-form-item>
         <el-form-item label="设备">
           <el-select v-model="ruleForm.device_id" style="width:100%">
-            <el-option v-for="d in devices" :key="d.device_id" :label="d.device_name" :value="d.device_id" />
+            <el-option v-for="d in devices" :key="d.device_id" :label="d.name || d.device_name || d.device_id" :value="d.device_id" />
           </el-select>
         </el-form-item>
         <el-form-item label="条件">

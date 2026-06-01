@@ -1,25 +1,35 @@
 import api from './request'
 
+// 对齐后端实际返回的数据结构
 export interface Device {
   device_id: string
-  device_name: string
+  id?: string
+  name: string           // 后端返回 name，不是 device_name
+  device_name?: string   // 兼容旧字段
   protocol: string
   host?: string
   port?: number
   slave_id?: number
-  enabled: boolean
+  enabled?: boolean
   connected?: boolean
+  stopped?: boolean
+  status?: string        // 'fault' | 'online' | 'offline' | 'running' | 'idle'
+  zone?: string
+  device_category?: string
   registers?: Register[]
+  nodes?: any[]
+  topics?: any[]
+  endpoints?: any[]
 }
 
 export interface Register {
   name: string
-  address: number
-  data_type: string
-  scale: number
-  unit: string
-  description: string
-  rw: string
+  address?: number
+  data_type?: string
+  scale?: number
+  unit?: string
+  description?: string
+  rw?: string
 }
 
 export const devicesApi = {

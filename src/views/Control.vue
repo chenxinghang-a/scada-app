@@ -60,7 +60,7 @@
           <div class="health-list">
             <div v-for="h in deviceHealth" :key="h.device_id" class="health-item">
               <div class="h-info">
-                <span class="h-name">{{ h.device_name || h.device_id }}</span>
+                <span class="h-name">{{ h.name || h.device_name || h.device_id }}</span>
                 <span class="h-time">{{ h.response_time }}ms</span>
               </div>
               <el-tag :type="h.connected ? 'success' : 'danger'" size="small">{{ h.connected ? '在线' : '离线' }}</el-tag>
@@ -79,7 +79,7 @@
           <el-form :model="regForm" label-width="80px">
             <el-form-item label="设备">
               <el-select v-model="regForm.device_id" style="width:100%" @change="onDeviceChange">
-                <el-option v-for="d in devices" :key="d.device_id" :label="`${d.device_name} (${d.device_id})`" :value="d.device_id" />
+                <el-option v-for="d in devices" :key="d.device_id" :label="`${d.name || d.device_name || d.device_id} (${d.device_id})`" :value="d.device_id" />
               </el-select>
             </el-form-item>
             <el-form-item label="寄存器">
@@ -110,7 +110,7 @@
           <el-form :model="coilForm" label-width="80px">
             <el-form-item label="设备">
               <el-select v-model="coilForm.device_id" style="width:100%">
-                <el-option v-for="d in devices" :key="d.device_id" :label="`${d.device_name} (${d.device_id})`" :value="d.device_id" />
+                <el-option v-for="d in devices" :key="d.device_id" :label="`${d.name || d.device_name || d.device_id} (${d.device_id})`" :value="d.device_id" />
               </el-select>
             </el-form-item>
             <el-form-item label="线圈">
