@@ -33,8 +33,8 @@ export const controlApi = {
   },
 
   // 联锁旁路审批流程
-  requestBypass(ruleId: string, reason: string) {
-    return api.post('/control/interlocks/bypass-request', { rule_id: ruleId, reason }) as Promise<any>
+  requestBypass(interlockId: string, reason: string) {
+    return api.post('/control/interlocks/bypass-request', { interlock_id: interlockId, reason }) as Promise<any>
   },
 
   approveBypass(requestId: string) {
@@ -50,16 +50,21 @@ export const controlApi = {
   },
 
   // 设备写入
-  writeRegister(deviceId: string, registerName: string, value: number) {
-    return api.post(`/devices/${deviceId}/write-register`, { register_name: registerName, value }) as Promise<any>
+  writeRegister(deviceId: string, address: number, value: number) {
+    return api.post(`/devices/${deviceId}/write-register`, { address, value }) as Promise<any>
   },
 
-  writeCoil(deviceId: string, coilName: string, value: boolean) {
-    return api.post(`/devices/${deviceId}/write-coil`, { coil_name: coilName, value }) as Promise<any>
+  writeCoil(deviceId: string, address: number, value: boolean) {
+    return api.post(`/devices/${deviceId}/write-coil`, { address, value }) as Promise<any>
   },
 
   adjustDevice(deviceId: string, params: any) {
     return api.post(`/devices/${deviceId}/adjust`, params) as Promise<any>
+  },
+
+  // REST 端点写入
+  writeEndpoint(deviceId: string, endpoint: string, value?: any, method?: 'POST' | 'PUT') {
+    return api.post(`/devices/${deviceId}/write-endpoint`, { endpoint, value, method }) as Promise<any>
   },
 
   // 批量控制
@@ -86,8 +91,8 @@ export const controlApi = {
     return api.get('/control/recipe/list') as Promise<any>
   },
 
-  startRecipe(recipeId: string) {
-    return api.post('/control/recipe/start', { recipe_id: recipeId }) as Promise<any>
+  startRecipe(recipeName: string, deviceId?: string) {
+    return api.post('/control/recipe/start', { recipe_name: recipeName, device_id: deviceId }) as Promise<any>
   },
 
   stopRecipe() {

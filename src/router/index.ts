@@ -29,7 +29,7 @@ const router = createRouter({
           path: 'dashboard',
           name: 'Dashboard',
           component: () => import('@/views/Dashboard.vue'),
-          meta: { title: '仪表盘', icon: 'Odometer', roles: ['admin', 'engineer', 'viewer'] },
+          meta: { title: '仪表盘', icon: 'Odometer', roles: ['admin', 'engineer', 'operator', 'viewer'] },
         },
         {
           path: 'devices',
@@ -47,13 +47,13 @@ const router = createRouter({
           path: 'history',
           name: 'History',
           component: () => import('@/views/History.vue'),
-          meta: { title: '历史数据', icon: 'DataLine', roles: ['admin', 'engineer', 'viewer'] },
+          meta: { title: '历史数据', icon: 'DataLine', roles: ['admin', 'engineer', 'operator', 'viewer'] },
         },
         {
           path: 'alarms',
           name: 'Alarms',
           component: () => import('@/views/Alarms.vue'),
-          meta: { title: '报警管理', icon: 'Bell', roles: ['admin', 'engineer', 'viewer'] },
+          meta: { title: '报警管理', icon: 'Bell', roles: ['admin', 'engineer', 'operator', 'viewer'] },
         },
         {
           path: 'alarm-output',
@@ -65,7 +65,7 @@ const router = createRouter({
           path: 'industry40',
           name: 'Industry40',
           component: () => import('@/views/Industry40.vue'),
-          meta: { title: '工业4.0', icon: 'Cpu', roles: ['admin', 'engineer', 'viewer'] },
+          meta: { title: '工业4.0', icon: 'Cpu', roles: ['admin', 'engineer', 'operator', 'viewer'] },
         },
         {
           path: 'config',
@@ -106,9 +106,14 @@ router.beforeEach((to, _from, next) => {
     try {
       const user = JSON.parse(localStorage.getItem('scada_user') || '{}')
       const allowedRoles = to.meta.roles as string[]
-      // 无 role 或 role 不在允许列表中 → 拒绝访问
+      // 无 role 或 role 不在允许列表中 → 跳登录页（避免 /dashboard 无限循环）
       if (!user.role || !allowedRoles.includes(user.role)) {
-        next('/dashboard')
+        localStorage.removeItem('auth_token')
+        localStorage.removeItem('scada_refresh_token')
+        localStorage.removeItem('scada_user')
+        localStorage.removeItem('scada_must_change_password')
+        document.cookie = 'token=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT'
+        next('/login')
         return
       }
     } catch {

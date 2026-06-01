@@ -63,7 +63,7 @@ export const systemApi = {
   },
 
   getHealth() {
-    return api.get('/health') as Promise<{ status: string; checks: Record<string, boolean> }>
+    return api.get('/health/status') as Promise<{ status: string; checks: Record<string, boolean> }>
   },
 
   getHealthStatus() {
@@ -72,6 +72,26 @@ export const systemApi = {
 
   getHealthModules() {
     return api.get('/health/modules') as Promise<any>
+  },
+
+  getHealthModule(moduleName: string) {
+    return api.get(`/health/modules/${moduleName}`) as Promise<any>
+  },
+
+  getHealthChecks() {
+    return api.get('/health/checks') as Promise<any>
+  },
+
+  getHealthCheck(checkName: string) {
+    return api.get(`/health/checks/${checkName}`) as Promise<any>
+  },
+
+  getHealthAvailable() {
+    return api.get('/health/available') as Promise<any>
+  },
+
+  getHealthUnavailable() {
+    return api.get('/health/unavailable') as Promise<any>
   },
 
   getHAStatus() {

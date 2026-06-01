@@ -1,4 +1,4 @@
-<template>
+﻿<template>
   <div class="screen">
     <!-- 顶部 KPI -->
     <div class="screen-topbar">
@@ -84,7 +84,7 @@ let refreshTimer: ReturnType<typeof setInterval>
 let clockTimer: ReturnType<typeof setInterval>
 
 function getVal(deviceId: string, reg: string) {
-  const v = deviceValues[`${deviceId}__${reg}`]
+  const v = deviceValues[`${deviceId}:${reg}`]
   return v != null ? v.toFixed(1) : '--'
 }
 
@@ -109,24 +109,24 @@ async function loadData() {
     kpi.quality = total > 0 ? Math.round(c.successful_collections / total * 100) : 100
     kpi.uptime = formatUptime(status.uptime_seconds || 0)
     renderDevicePie(devs)
-  } catch { /* ignore */ }
+  } catch (e: any) { console.warn('[Screen] 加载失败:', e?.message || e) }
 
   try {
     const a = await alarmsApi.getAll({ limit: 30 })
     alarms.value = a?.alarms || []
-  } catch { /* ignore */ }
+  } catch (e: any) { console.warn('[Screen] 加载失败:', e?.message || e) }
 
   try {
     const data = await dataApi.getRealtime() as any
     if (data?.data) {
       data.data.forEach((item: any) => {
         if (item.device_id && item.register_name && item.value != null) {
-          deviceValues[`${item.device_id}__${item.register_name}`] = parseFloat(item.value)
+          deviceValues[`${item.device_id}:${item.register_name}`] = parseFloat(item.value)
         }
       })
       renderTrend(data.data)
     }
-  } catch { /* ignore */ }
+  } catch (e: any) { console.warn('[Screen] 加载失败:', e?.message || e) }
 }
 
 async function loadI40() {
@@ -148,9 +148,9 @@ async function loadI40() {
       try {
         const spcData = await industry40Api.getSPC(firstDev.device_id, firstReg)
         if (spcData?.chart_data) renderSPCChart(spcData.chart_data)
-      } catch { /* ignore */ }
+      } catch (e: any) { console.warn('[Screen] 加载失败:', e?.message || e) }
     }
-  } catch { /* ignore */ }
+  } catch (e: any) { console.warn('[Screen] 加载失败:', e?.message || e) }
 }
 
 function renderDevicePie(devs: any[]) {
@@ -271,20 +271,20 @@ function renderTrend(data: any[]) {
 }
 
 function connectSocket() {
-  const url = import.meta.env.DEV ? window.location.origin : 'http://localhost:5000'
+  const baseUrl = import.meta.env.DEV ? window.location.origin : 'http://localhost:5000'
   const token = getAuthToken()
+  const url = token ? `${baseUrl}?token=${encodeURIComponent(token)}` : baseUrl
   socket = io(url, {
     transports: ['websocket', 'polling'],
     reconnection: true,
     reconnectionDelay: 3000,
-    auth: token ? { token } : undefined,
   })
   socket.on('connect', () => {
     devices.value.forEach((d: any) => { if (d.device_id) socket.emit('subscribe', { device_id: d.device_id }) })
   })
   socket.on('data_update', (data: any) => {
     if (data?.device_id && data?.register_name && data.value != null) {
-      deviceValues[`${data.device_id}__${data.register_name}`] = parseFloat(data.value)
+      deviceValues[`${data.device_id}:${data.register_name}`] = parseFloat(data.value)
     }
   })
   socket.on('alarm', () => loadData())

@@ -1,4 +1,4 @@
-<template>
+﻿<template>
   <div class="alarms-page">
     <!-- 统计卡片 -->
     <el-row :gutter="16" class="mb-16">
@@ -87,7 +87,7 @@ const filter = reactive({ device_id: '', alarm_level: '', status: '' })
 onMounted(() => { refreshAlarms(); loadDevices() })
 
 async function loadDevices() {
-  try { const data = await devicesApi.getAll(); devices.value = data.devices || [] } catch { /* ignore */ }
+  try { const data = await devicesApi.getAll(); devices.value = data.devices || [] } catch (e: any) { console.warn('[Alarms] 加载失败:', e?.message || e) }
 }
 
 async function refreshAlarms() {
@@ -103,7 +103,7 @@ async function refreshAlarms() {
       return true
     })
     stats.value = statsData || {}
-  } catch { /* ignore */ }
+  } catch (e: any) { console.warn('[Alarms] 加载失败:', e?.message || e) }
   finally { loading.value = false }
 }
 
@@ -114,7 +114,7 @@ async function acknowledge(id: string) {
     await alarmsApi.acknowledge(id, alarm?.device_id, alarm?.register_name)
     ElMessage.success('报警已确认')
     refreshAlarms()
-  } catch { /* ignore */ }
+  } catch (e: any) { console.warn('[Alarms] 加载失败:', e?.message || e) }
 }
 
 async function exportAlarms() {

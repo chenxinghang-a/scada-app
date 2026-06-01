@@ -7,7 +7,7 @@
       </div>
       <el-form :model="form" :rules="rules" ref="formRef" label-width="0" class="change-form">
         <el-form-item prop="newPassword">
-          <el-input v-model="form.newPassword" type="password" show-password placeholder="新密码（至少6位）" size="large" prefix-icon="Lock" />
+          <el-input v-model="form.newPassword" type="password" show-password placeholder="新密码（至少8位，含大小写字母和数字）" size="large" prefix-icon="Lock" />
         </el-form-item>
         <el-form-item prop="confirmPassword">
           <el-input v-model="form.confirmPassword" type="password" show-password placeholder="确认新密码" size="large" prefix-icon="Lock" />
@@ -35,7 +35,17 @@ const form = reactive({ newPassword: '', confirmPassword: '' })
 const rules: FormRules = {
   newPassword: [
     { required: true, message: '请输入新密码', trigger: 'blur' },
-    { min: 6, message: '密码长度至少6位', trigger: 'blur' },
+    { min: 8, message: '密码长度至少8位', trigger: 'blur' },
+    {
+      validator: (_rule: any, value: string, callback: any) => {
+        if (!value) return callback()
+        if (!/[A-Z]/.test(value)) return callback(new Error('密码必须包含大写字母'))
+        if (!/[a-z]/.test(value)) return callback(new Error('密码必须包含小写字母'))
+        if (!/[0-9]/.test(value)) return callback(new Error('密码必须包含数字'))
+        callback()
+      },
+      trigger: 'blur',
+    },
   ],
   confirmPassword: [
     { required: true, message: '请确认新密码', trigger: 'blur' },
@@ -54,7 +64,18 @@ async function submit() {
   if (!valid) return
   loading.value = true
   try {
-    await authApi.changePassword('', form.newPassword)
+    // 获取当前用户名（从 store 或 localStorage）
+    let username = ''
+    try {
+      const stored = JSON.parse(localStorage.getItem('scada_user') || '{}')
+      username = stored.username || ''
+    } catch { /* ignore */ }
+    if (!username) {
+      ElMessage.error('无法获取用户名，请重新登录')
+      router.push('/login')
+      return
+    }
+    await authApi.forceChangePassword(username, form.newPassword)
     localStorage.removeItem('scada_must_change_password')
     ElMessage.success('密码修改成功，请重新登录')
     localStorage.removeItem('auth_token')

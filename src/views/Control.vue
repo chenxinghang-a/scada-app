@@ -1,4 +1,4 @@
-<template>
+﻿<template>
   <div class="control-page">
     <!-- 急停横幅 -->
     <el-alert v-if="eStop.active" type="error" :closable="false" class="mb-16" effect="dark">
@@ -191,6 +191,17 @@ const eStop = reactive({ active: false, reason: '', time: '' })
 const regForm = reactive({ device_id: '', register_name: '', value: 0 })
 const coilForm = reactive({ device_id: '', register_name: '', value: true })
 
+// 监听线圈表单设备变化，自动加载寄存器
+import { watch } from 'vue'
+watch(() => coilForm.device_id, async (deviceId) => {
+  if (deviceId) {
+    try {
+      const data = await devicesApi.getById(deviceId)
+      currentRegisters.value = data.device?.registers || []
+    } catch (e: any) { console.warn('[Control] 加载失败:', e?.message || e) }
+  }
+})
+
 const canControl = computed(() => {
   try {
     const user = JSON.parse(localStorage.getItem('scada_user') || '{}')
@@ -215,14 +226,14 @@ async function loadDevices() {
   try {
     const data = await devicesApi.getAll()
     devices.value = data.devices || []
-  } catch { /* ignore */ }
+  } catch (e: any) { console.warn('[Control] 加载失败:', e?.message || e) }
 }
 
 async function onDeviceChange(deviceId: string) {
   try {
     const data = await devicesApi.getById(deviceId)
     currentRegisters.value = data.device?.registers || []
-  } catch { /* ignore */ }
+  } catch (e: any) { console.warn('[Control] 加载失败:', e?.message || e) }
 }
 
 async function loadSafetyStatus() {
@@ -236,34 +247,45 @@ async function loadSafetyStatus() {
     }
     interlocks.value = Array.isArray(data.interlocks) ? data.interlocks : []
     deviceHealth.value = Array.isArray(data.health) ? data.health : []
-  } catch { /* ignore */ }
+  } catch (e: any) { console.warn('[Control] 加载失败:', e?.message || e) }
 }
 
 async function loadLogs() {
   try {
     const data = await controlApi.getLogs({ per_page: 20 })
     controlLogs.value = Array.isArray(data?.logs) ? data.logs : []
-  } catch { /* ignore */ }
+  } catch (e: any) { console.warn('[Control] 加载失败:', e?.message || e) }
+}
+
+// 根据寄存器名查找地址
+function findRegisterAddress(deviceId: string, registerName: string): number | undefined {
+  const dev = devices.value.find((d: any) => d.device_id === deviceId)
+  const reg = (dev?.registers || []).find((r: any) => r.name === registerName)
+  return reg?.address ?? undefined
 }
 
 async function writeRegister() {
   if (!regForm.device_id || !regForm.register_name) { ElMessage.warning('请选择设备和寄存器'); return }
+  const address = findRegisterAddress(regForm.device_id, regForm.register_name)
+  if (address === undefined) { ElMessage.error('无法找到寄存器地址'); return }
   try {
-    await ElMessageBox.confirm(`确认写入 ${regForm.register_name} = ${regForm.value}？`, '确认操作', { type: 'warning' })
-    await controlApi.writeRegister(regForm.device_id, regForm.register_name, regForm.value)
+    await ElMessageBox.confirm(`确认写入 ${regForm.register_name} (地址${address}) = ${regForm.value}？`, '确认操作', { type: 'warning' })
+    await controlApi.writeRegister(regForm.device_id, address, regForm.value)
     ElMessage.success('写入成功')
     loadLogs()
-  } catch { /* handled */ }
+  } catch (e: any) { if (e !== 'cancel') { console.error('[Control] 操作失败:', e); ElMessage.error('操作失败: ' + (e?.response?.data?.error || e?.message || '未知错误')) } }
 }
 
 async function writeCoil() {
   if (!coilForm.device_id || !coilForm.register_name) { ElMessage.warning('请选择设备和线圈'); return }
+  const address = findRegisterAddress(coilForm.device_id, coilForm.register_name)
+  if (address === undefined) { ElMessage.error('无法找到线圈地址'); return }
   try {
-    await ElMessageBox.confirm(`确认写入 ${coilForm.register_name} = ${coilForm.value ? 'ON' : 'OFF'}？`, '确认操作', { type: 'warning' })
-    await controlApi.writeCoil(coilForm.device_id, coilForm.register_name, coilForm.value)
+    await ElMessageBox.confirm(`确认写入 ${coilForm.register_name} (地址${address}) = ${coilForm.value ? 'ON' : 'OFF'}？`, '确认操作', { type: 'warning' })
+    await controlApi.writeCoil(coilForm.device_id, address, coilForm.value)
     ElMessage.success('写入成功')
     loadLogs()
-  } catch { /* handled */ }
+  } catch (e: any) { if (e !== 'cancel') { console.error('[Control] 操作失败:', e); ElMessage.error('操作失败: ' + (e?.response?.data?.error || e?.message || '未知错误')) } }
 }
 
 async function triggerEStop() {
@@ -272,7 +294,7 @@ async function triggerEStop() {
     await controlApi.eStop()
     ElMessage.success('急停已执行')
     loadSafetyStatus()
-  } catch { /* cancelled */ }
+  } catch (e: any) { if (e !== 'cancel') { console.error('[Control] 操作失败:', e); ElMessage.error('操作失败: ' + (e?.response?.data?.error || e?.message || '未知错误')) } }
 }
 
 async function resetEStop() {
@@ -280,7 +302,7 @@ async function resetEStop() {
     await controlApi.eStopReset()
     ElMessage.success('急停已重置')
     loadSafetyStatus()
-  } catch { /* ignore */ }
+  } catch (e: any) { console.error('[Control] 操作失败:', e); ElMessage.error('操作失败: ' + (e?.response?.data?.error || e?.message || '未知错误')) }
 }
 
 async function bypassInterlock(id: string) {
@@ -288,7 +310,7 @@ async function bypassInterlock(id: string) {
     await controlApi.bypassInterlock(id)
     ElMessage.success('联锁已旁路')
     loadSafetyStatus()
-  } catch { /* ignore */ }
+  } catch (e: any) { console.error('[Control] 操作失败:', e); ElMessage.error('操作失败: ' + (e?.response?.data?.error || e?.message || '未知错误')) }
 }
 
 async function restoreInterlock(id: string) {
@@ -296,7 +318,7 @@ async function restoreInterlock(id: string) {
     await controlApi.restoreInterlock(id)
     ElMessage.success('联锁已恢复')
     loadSafetyStatus()
-  } catch { /* ignore */ }
+  } catch (e: any) { console.error('[Control] 操作失败:', e); ElMessage.error('操作失败: ' + (e?.response?.data?.error || e?.message || '未知错误')) }
 }
 
 async function batchControl(action: string) {
@@ -305,7 +327,7 @@ async function batchControl(action: string) {
     await controlApi.batchControl(action)
     ElMessage.success('指令已发送')
     loadLogs()
-  } catch { /* cancelled */ }
+  } catch (e: any) { if (e !== 'cancel') { console.error('[Control] 操作失败:', e); ElMessage.error('操作失败: ' + (e?.response?.data?.error || e?.message || '未知错误')) } }
 }
 </script>
 

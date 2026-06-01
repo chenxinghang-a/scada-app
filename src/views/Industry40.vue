@@ -1,4 +1,4 @@
-<template>
+﻿<template>
   <div class="industry40">
     <el-tabs v-model="activeTab" @tab-change="onTabChange" type="border-card">
       <!-- 总览 -->
@@ -225,6 +225,53 @@
           </el-col>
         </el-row>
       </el-tab-pane>
+
+      <!-- 振动分析 -->
+      <el-tab-pane label="振动分析" name="vibration">
+        <el-row :gutter="12">
+          <el-col :span="8">
+            <el-card shadow="hover" header="设备振动数据">
+              <el-table :data="vibrationData" stripe size="small" max-height="500" @row-click="onVibrationDeviceClick">
+                <el-table-column prop="device_id" label="设备" width="160" />
+                <el-table-column label="振动值" width="100">
+                  <template #default="{row}">{{ row.vibration_value?.toFixed(2) ?? '-' }} mm/s</template>
+                </el-table-column>
+                <el-table-column label="ISO等级" width="80">
+                  <template #default="{row}">
+                    <el-tag :type="isoGradeType(row.iso_grade)" size="small">{{ row.iso_grade || '-' }}</el-tag>
+                  </template>
+                </el-table-column>
+                <el-table-column label="轴承状态" width="80">
+                  <template #default="{row}">
+                    <el-tag :type="row.bearing_status === 'normal' ? 'success' : 'danger'" size="small">{{ row.bearing_status || '-' }}</el-tag>
+                  </template>
+                </el-table-column>
+                <el-table-column prop="updated_at" label="更新时间" />
+              </el-table>
+            </el-card>
+          </el-col>
+          <el-col :span="8">
+            <el-card shadow="hover" header="频谱分析">
+              <div ref="vibrationSpectrumRef" class="chart-box"></div>
+              <el-empty v-if="!vibrationSelectedDevice" description="选择设备查看频谱" :image-size="60" />
+            </el-card>
+          </el-col>
+          <el-col :span="8">
+            <el-card shadow="hover" header="轴承分析">
+              <div v-if="vibrationBearing">
+                <div class="detail-row"><span>设备</span><span>{{ vibrationSelectedDevice }}</span></div>
+                <div class="detail-row"><span>轴承型号</span><span>{{ vibrationBearing.bearing_type || '-' }}</span></div>
+                <div class="detail-row"><span>BPFO</span><span>{{ vibrationBearing.bpfo?.toFixed(2) || '-' }} Hz</span></div>
+                <div class="detail-row"><span>BPFI</span><span>{{ vibrationBearing.bpfi?.toFixed(2) || '-' }} Hz</span></div>
+                <div class="detail-row"><span>BSF</span><span>{{ vibrationBearing.bsf?.toFixed(2) || '-' }} Hz</span></div>
+                <div class="detail-row"><span>FTF</span><span>{{ vibrationBearing.ftf?.toFixed(2) || '-' }} Hz</span></div>
+                <div class="detail-row"><span>健康状态</span><el-tag :type="vibrationBearing.status === 'normal' ? 'success' : 'danger'" size="small">{{ vibrationBearing.status || '-' }}</el-tag></div>
+              </div>
+              <el-empty v-else description="选择设备查看轴承数据" :image-size="60" />
+            </el-card>
+          </el-col>
+        </el-row>
+      </el-tab-pane>
     </el-tabs>
   </div>
 </template>
@@ -325,7 +372,7 @@ async function loadOverview() {
     overview.carbon = Number(data?.energy?.carbon_emission_kg?.toFixed(1)) || 0
     overview.alerts = data?.alerts || []
     renderProcessFlow(data)
-  } catch { /* ignore */ }
+  } catch (e: any) { console.warn('[Industry40] 加载失败:', e?.message || e) }
 }
 
 function renderProcessFlow(data: any) {
@@ -357,7 +404,7 @@ async function loadPredictive() {
     const [h, a] = await Promise.all([industry40Api.getHealthScores(), industry40Api.getMaintenanceAlerts()])
     healthScores.value = h?.health_scores || []
     maintenanceAlerts.value = a?.alerts || []
-  } catch { /* ignore */ }
+  } catch (e: any) { console.warn('[Industry40] 加载失败:', e?.message || e) }
 }
 
 async function loadOEE() {
@@ -365,7 +412,7 @@ async function loadOEE() {
     const data = await industry40Api.getOEE()
     oeeRecords.value = data?.devices || []
     renderOEECharts()
-  } catch { /* ignore */ }
+  } catch (e: any) { console.warn('[Industry40] 加载失败:', e?.message || e) }
 }
 
 function renderOEECharts() {
@@ -416,7 +463,7 @@ async function loadSPC() {
     spc.capability = chart?.chart_data?.capability || null
     spc.violations = v?.violations || []
     renderSPCCharts(chart?.chart_data)
-  } catch { /* ignore */ }
+  } catch (e: any) { console.warn('[Industry40] 加载失败:', e?.message || e) }
 }
 
 function renderSPCCharts(data: any) {
@@ -460,7 +507,7 @@ async function loadEnergy() {
     energy.flat_kwh = s.flat_kwh || 0
     energy.valley_kwh = s.valley_kwh || 0
     renderEnergyCharts()
-  } catch { /* ignore */ }
+  } catch (e: any) { console.warn('[Industry40] 加载失败:', e?.message || e) }
 }
 
 function renderEnergyCharts() {
@@ -506,7 +553,7 @@ async function loadEdge() {
       ...Object.entries(interlocks).map(([id, v]: any) => ({ ...v, rule_id: id, type: '联锁' })),
     ]
     edgeLog.value = l?.log || []
-  } catch { /* ignore */ }
+  } catch (e: any) { console.warn('[Industry40] 加载失败:', e?.message || e) }
 }
 
 async function loadTwin() {
@@ -548,7 +595,7 @@ async function loadTwin() {
         power: (powerMap.get(d.device_id) || 0).toFixed(1),
       }
     })
-  } catch { /* ignore */ }
+  } catch (e: any) { console.warn('[Industry40] 加载失败:', e?.message || e) }
 }
 
 async function loadSPCTab() {
@@ -567,20 +614,50 @@ async function loadSPCTab() {
 // ========== 振动分析 ==========
 const vibrationData = ref<any[]>([])
 const vibrationSpectrum = ref<any[]>([])
+const vibrationSelectedDevice = ref('')
+const vibrationBearing = ref<any>(null)
+const vibrationSpectrumRef = ref<HTMLElement>()
 
 async function loadVibration() {
   try {
     const data = await industry40Api.getVibrationAll()
     vibrationData.value = data?.vibrations || data?.devices || []
-    if (vibrationData.value.length) {
-      renderVibrationChart()
-    }
-  } catch { /* ignore */ }
+  } catch (e: any) { console.warn('[Industry40] 加载失败:', e?.message || e) }
 }
 
-function renderVibrationChart() {
-  // 振动分析在 Industry40 页面没有独立 tab，数据通过 overview 展示
-  // 此函数预留用于未来扩展
+async function onVibrationDeviceClick(row: any) {
+  vibrationSelectedDevice.value = row.device_id
+  // 加载频谱
+  try {
+    const specData = await industry40Api.getVibrationSpectrum(row.device_id)
+    vibrationSpectrum.value = specData?.spectrum || []
+    renderVibrationSpectrum(specData)
+  } catch (e: any) { console.warn('[Industry40] 加载失败:', e?.message || e) }
+  // 加载轴承数据
+  try {
+    const bearingData = await industry40Api.getVibrationBearing(row.device_id)
+    vibrationBearing.value = bearingData?.bearing || bearingData || null
+  } catch (e: any) { console.warn('[Industry40] 加载失败:', e?.message || e); vibrationBearing.value = null }
+}
+
+function renderVibrationSpectrum(data: any) {
+  if (!vibrationSpectrumRef.value || !data) return
+  if (!charts.vibrationSpectrum) charts.vibrationSpectrum = echarts.init(vibrationSpectrumRef.value)
+  const freqs = data?.frequencies || data?.spectrum?.frequencies || []
+  const amps = data?.amplitudes || data?.spectrum?.amplitudes || []
+  charts.vibrationSpectrum.setOption({
+    tooltip: { trigger: 'axis' },
+    xAxis: { type: 'category', data: freqs.map((f: number) => f.toFixed(1)), name: 'Hz', axisLabel: { fontSize: 10 } },
+    yAxis: { type: 'value', name: 'g', axisLabel: { fontSize: 10 } },
+    series: [{ type: 'line', data: amps, smooth: true, lineStyle: { width: 1.5, color: '#4f46e5' }, areaStyle: { color: 'rgba(79,70,229,0.1)' } }],
+    grid: { left: 50, right: 20, top: 30, bottom: 40 },
+  })
+}
+
+function isoGradeType(grade: string) {
+  if (!grade) return 'info'
+  const map: Record<string, string> = { A: 'success', B: 'success', C: 'warning', D: 'danger' }
+  return map[grade] || 'info'
 }
 
 function selectTwinDevice(d: any) { twinSelected.value = d }
@@ -590,7 +667,7 @@ async function loadDeviceList() {
   try {
     const data = await devicesApi.getAll()
     deviceList.value = data?.devices || []
-  } catch { /* ignore */ }
+  } catch (e: any) { console.warn('[Industry40] 加载失败:', e?.message || e) }
 }
 
 function onSpcDeviceChange(deviceId: string) {

@@ -1,17 +1,20 @@
-<template>
+﻿<template>
   <div class="users-page">
     <!-- 统计卡片 -->
     <el-row :gutter="16" class="mb-16">
-      <el-col :span="6">
+      <el-col :span="4">
         <el-card shadow="hover"><div class="stat"><div class="stat-label">用户总数</div><div class="stat-value">{{ users.length }}</div></div></el-card>
       </el-col>
-      <el-col :span="6">
+      <el-col :span="4">
         <el-card shadow="hover"><div class="stat"><div class="stat-label">管理员</div><div class="stat-value">{{ users.filter(u => u.role === 'admin').length }}</div></div></el-card>
       </el-col>
-      <el-col :span="6">
+      <el-col :span="4">
         <el-card shadow="hover"><div class="stat"><div class="stat-label">工程师</div><div class="stat-value">{{ users.filter(u => u.role === 'engineer').length }}</div></div></el-card>
       </el-col>
-      <el-col :span="6">
+      <el-col :span="4">
+        <el-card shadow="hover"><div class="stat"><div class="stat-label">操作员</div><div class="stat-value">{{ users.filter(u => u.role === 'operator').length }}</div></div></el-card>
+      </el-col>
+      <el-col :span="4">
         <el-card shadow="hover"><div class="stat"><div class="stat-label">观察者</div><div class="stat-value">{{ users.filter(u => u.role === 'viewer').length }}</div></div></el-card>
       </el-col>
     </el-row>
@@ -38,8 +41,8 @@
         </el-table-column>
         <el-table-column prop="role" label="角色" width="120">
           <template #default="{ row }">
-            <el-tag :type="row.role === 'admin' ? 'danger' : row.role === 'engineer' ? 'warning' : 'info'" size="small">
-              {{ row.role === 'admin' ? '管理员' : row.role === 'engineer' ? '工程师' : '观察者' }}
+            <el-tag :type="row.role === 'admin' ? 'danger' : row.role === 'engineer' ? 'warning' : row.role === 'operator' ? 'success' : 'info'" size="small">
+              {{ row.role === 'admin' ? '管理员' : row.role === 'engineer' ? '工程师' : row.role === 'operator' ? '操作员' : '观察者' }}
             </el-tag>
           </template>
         </el-table-column>
@@ -86,6 +89,7 @@
           <el-select v-model="form.role" style="width:100%">
             <el-option label="管理员" value="admin"><span>管理员</span><small style="color:#909399;margin-left:8px">完全访问权限</small></el-option>
             <el-option label="工程师" value="engineer"><span>工程师</span><small style="color:#909399;margin-left:8px">设备管理+数据导出</small></el-option>
+            <el-option label="操作员" value="operator"><span>操作员</span><small style="color:#909399;margin-left:8px">读取+报警确认</small></el-option>
             <el-option label="观察者" value="viewer"><span>观察者</span><small style="color:#909399;margin-left:8px">只读权限</small></el-option>
           </el-select>
         </el-form-item>
@@ -117,13 +121,13 @@ onMounted(() => { refreshUsers(); refreshLogs() })
 
 async function refreshUsers() {
   loading.value = true
-  try { const data = await authApi.getUsers(); users.value = data.users || [] } catch { /* ignore */ }
+  try { const data = await authApi.getUsers(); users.value = data.users || [] } catch (e: any) { console.warn('[Users] 加载失败:', e?.message || e) }
   finally { loading.value = false }
 }
 
 async function refreshLogs() {
   logsLoading.value = true
-  try { const data = await authApi.getLogs({ per_page: 50 }) as any; logs.value = data.logs || data.items || [] } catch { /* ignore */ }
+  try { const data = await authApi.getLogs({ per_page: 50 }) as any; logs.value = data.logs || data.items || [] } catch (e: any) { console.warn('[Users] 加载失败:', e?.message || e) }
   finally { logsLoading.value = false }
 }
 
@@ -149,11 +153,11 @@ async function saveUser() {
     ElMessage.success(isEdit.value ? '用户已更新' : '用户已添加')
     dialogVisible.value = false
     refreshUsers()
-  } catch { /* handled */ }
+  } catch (e: any) { console.error('[Users] 操作失败:', e); ElMessage.error('操作失败: ' + (e?.response?.data?.error || e?.message || '未知错误')) }
 }
 
 async function deleteUser(username: string) {
-  try { await authApi.deleteUser(username); ElMessage.success('用户已删除'); refreshUsers() } catch { /* ignore */ }
+  try { await authApi.deleteUser(username); ElMessage.success('用户已删除'); refreshUsers() } catch (e: any) { console.error('[Users] 操作失败:', e); ElMessage.error('操作失败: ' + (e?.response?.data?.error || e?.message || '未知错误')) }
 }
 
 async function resetPassword(user: User) {
@@ -162,7 +166,13 @@ async function resetPassword(user: User) {
       inputType: 'password',
       confirmButtonText: '确认',
       cancelButtonText: '取消',
-      inputValidator: (val) => (val && val.length >= 6) || '密码长度至少6位',
+      inputValidator: (val) => {
+        if (!val || val.length < 8) return '密码长度至少8位'
+        if (!/[A-Z]/.test(val)) return '密码必须包含大写字母'
+        if (!/[a-z]/.test(val)) return '密码必须包含小写字母'
+        if (!/[0-9]/.test(val)) return '密码必须包含数字'
+        return true
+      },
     })
     if (!newPwd) return
     await authApi.updateUser(user.username, { password: newPwd })

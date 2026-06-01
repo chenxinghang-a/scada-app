@@ -2,6 +2,7 @@ import axios from 'axios'
 import type { AxiosRequestConfig } from 'axios'
 import { ElMessage } from 'element-plus'
 import router from '@/router'
+import { useAuthStore } from '@/stores/auth'
 
 // 生产模式（Electron 打包后）直接请求后端，开发模式走 Vite proxy
 const isDev = import.meta.env.DEV
@@ -19,16 +20,23 @@ let refreshQueue: Array<{ resolve: (token: string) => void; reject: (err: any) =
 // CSRF token 缓存
 let csrfToken: string | null = null
 let csrfAttempted = false
+let csrfLastAttempt = 0
+const CSRF_RETRY_INTERVAL = 30000 // 30秒后重试
 
 async function ensureCsrfToken(): Promise<string | null> {
-  if (csrfAttempted) return csrfToken
+  const now = Date.now()
+  // 如果已获取到token，直接返回
+  if (csrfToken) return csrfToken
+  // 如果上次尝试失败且未超过重试间隔，返回null
+  if (csrfAttempted && (now - csrfLastAttempt) < CSRF_RETRY_INTERVAL) return null
   csrfAttempted = true
+  csrfLastAttempt = now
   try {
     const resp = await axios.get(`${isDev ? '/api' : 'http://localhost:5000/api'}/csrf-token`, { timeout: 5000 })
     csrfToken = resp.data?.csrf_token || null
     return csrfToken
   } catch {
-    // CSRF 端点不存在（后端未启用），不再重试
+    // CSRF 端点不存在（后端未启用），允许后续重试
     return null
   }
 }
@@ -65,12 +73,25 @@ async function doRefreshToken(): Promise<string> {
   if (resp.data?.refresh_token) {
     localStorage.setItem('scada_refresh_token', resp.data.refresh_token)
   }
+  // 更新cookie对齐原项目
+  document.cookie = `token=${encodeURIComponent(newToken)}; path=/; SameSite=Lax`
+  // 同步 Pinia store，避免响应式状态过期
+  try {
+    const authStore = useAuthStore()
+    authStore.token = newToken
+  } catch { /* store 未初始化时忽略 */ }
   return newToken
 }
 
 // 获取认证 token（供外部如 WebSocket 使用）
 export function getAuthToken(): string | null {
   return localStorage.getItem('auth_token')
+}
+
+// 登录/登出时调用，清除 CSRF 缓存
+export function resetCsrfToken() {
+  csrfToken = null
+  csrfAttempted = false
 }
 
 // 响应拦截器 - 统一错误处理 + token 自动刷新
@@ -103,11 +124,16 @@ api.interceptors.response.use(
             refreshQueue = []
             if (!isRedirectingToLogin) {
               isRedirectingToLogin = true
+              // 同步清理 Pinia store
+              try { const store = useAuthStore(); store.token = null; store.user = null } catch {}
               localStorage.removeItem('auth_token')
               localStorage.removeItem('scada_refresh_token')
               localStorage.removeItem('scada_user')
               localStorage.removeItem('scada_must_change_password')
-              router.push('/login')
+              document.cookie = 'token=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT'
+              const currentPath = router.currentRoute.value.fullPath
+              const redirect = currentPath && currentPath !== '/login' ? currentPath : '/dashboard'
+              router.push({ path: '/login', query: { redirect } })
               ElMessage.error('登录已过期，请重新登录')
               setTimeout(() => { isRedirectingToLogin = false }, 2000)
             }

@@ -1,6 +1,4 @@
-{"device_id": "relay_output_01", "register_name": "relay_1", "value": 0, "timestamp": "2026-06-01 18:23:24.026527", "unit": ""}
-{"device_id": "relay_output_01", "register_name": "relay_2", "value": 0, "timestamp": "2026-06-01 18:23:24.026527", "unit": ""}
-{"device_id": "signal_tower_01", "register_name": "red_light", "value": 0, "timestamp": "2026-06-01 18:23:24.041613", "unit": ""}
-{"device_id": "signal_tower_01", "register_name": "yellow_light", "value": 0, "timestamp": "2026-06-01 18:23:24.041613", "unit": ""}
-{"device_id": "hollysys_lk_01", "register_name": "distill_temperature", "value": 81.67, "timestamp": "2026-06-01 18:23:24.120410", "unit": "°C"}
-{"device_id": "schneider_m340_01", "register_name": "inlet_flow", "value": 15.8, "timestamp": "2026-06-01 18:23:24.216392", "unit": "m³/h"}
+{"device_id": "opcua_plc_01", "register_name": "temperature", "value": 46.71, "timestamp": "2026-06-01 18:26:50.710828", "unit": "°C"}
+{"device_id": "opcua_plc_01", "register_name": "pressure", "value": 0.52, "timestamp": "2026-06-01 18:26:50.711297", "unit": "MPa"}
+{"device_id": "opcua_plc_01", "register_name": "motor_speed", "value": 1517.4, "timestamp": "2026-06-01 18:26:50.711508", "unit": "RPM"}
+{"device_id": "opcua_plc_01", "register_name": "running_status", "value": 2.0, "timestamp": "2026-06-01 18:26:50.711669", "unit": ""}

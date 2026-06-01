@@ -7,5 +7,14 @@ contextBridge.exposeInMainWorld('electronAPI', {
   runDiagnostics: () => ipcRenderer.invoke('run-diagnostics'),
   getAutoLaunch: () => ipcRenderer.invoke('get-auto-launch'),
   setAutoLaunch: (enabled) => ipcRenderer.invoke('set-auto-launch', enabled),
-  onBackendLog: (callback) => ipcRenderer.on('backend-log', (_event, data) => callback(data)),
+  onBackendLog: (callback) => {
+    const handler = (_event, data) => callback(data)
+    ipcRenderer.on('backend-log', handler)
+    return () => ipcRenderer.removeListener('backend-log', handler)
+  },
+  onBackendStatusChanged: (callback) => {
+    const handler = (_event, data) => callback(data)
+    ipcRenderer.on('backend-status-changed', handler)
+    return () => ipcRenderer.removeListener('backend-status-changed', handler)
+  },
 })

@@ -16,7 +16,7 @@
         active-text-color="#409eff"
         class="sidebar-menu"
       >
-        <el-menu-item index="/dashboard" v-if="canAccess(['admin','engineer','viewer'])">
+        <el-menu-item index="/dashboard" v-if="canAccess(['admin','engineer','operator','viewer'])">
           <el-icon><Odometer /></el-icon>
           <template #title>仪表盘</template>
         </el-menu-item>
@@ -28,11 +28,11 @@
           <el-icon><Switch /></el-icon>
           <template #title>设备控制</template>
         </el-menu-item>
-        <el-menu-item index="/history" v-if="canAccess(['admin','engineer','viewer'])">
+        <el-menu-item index="/history" v-if="canAccess(['admin','engineer','operator','viewer'])">
           <el-icon><DataLine /></el-icon>
           <template #title>历史数据</template>
         </el-menu-item>
-        <el-menu-item index="/alarms" v-if="canAccess(['admin','engineer','viewer'])">
+        <el-menu-item index="/alarms" v-if="canAccess(['admin','engineer','operator','viewer'])">
           <el-icon><Bell /></el-icon>
           <template #title>报警管理</template>
         </el-menu-item>
@@ -40,11 +40,11 @@
           <el-icon><Lightning /></el-icon>
           <template #title>报警输出</template>
         </el-menu-item>
-        <el-menu-item index="/industry40" v-if="canAccess(['admin','engineer','viewer'])">
+        <el-menu-item index="/industry40" v-if="canAccess(['admin','engineer','operator','viewer'])">
           <el-icon><Cpu /></el-icon>
           <template #title>工业4.0</template>
         </el-menu-item>
-        <el-menu-item index="/screen" v-if="canAccess(['admin','engineer','viewer'])">
+        <el-menu-item index="/screen" v-if="canAccess(['admin','engineer','operator','viewer'])">
           <el-icon><Monitor /></el-icon>
           <template #title>数据大屏</template>
         </el-menu-item>
@@ -94,9 +94,11 @@
             <el-icon :size="18" class="header-icon"><Bell /></el-icon>
           </el-badge>
 
-          <el-icon :size="18" class="header-icon system-status-dot" :class="{ online: appStore.systemStatus }">
-            <CircleCheckFilled />
-          </el-icon>
+          <el-tooltip :content="appStore.backendOnline ? '后端在线' : (appStore.connectionRetries <= 2 ? '正在连接...' : '后端离线')" placement="bottom">
+            <el-icon :size="18" class="header-icon system-status-dot" :class="{ online: appStore.backendOnline, connecting: !appStore.backendOnline && appStore.connectionRetries <= 2 }">
+              <CircleCheckFilled />
+            </el-icon>
+          </el-tooltip>
 
           <!-- 用户菜单 -->
           <el-dropdown trigger="click" @command="handleUserCommand">
@@ -110,7 +112,7 @@
                 <el-dropdown-item disabled>
                   <small>{{ authStore.roleName }}</small>
                 </el-dropdown-item>
-                <el-dropdown-item divided command="users">用户管理</el-dropdown-item>
+                <el-dropdown-item v-if="authStore.isAdmin" divided command="users">用户管理</el-dropdown-item>
                 <el-dropdown-item command="password">修改密码</el-dropdown-item>
                 <el-dropdown-item divided command="logout" class="text-danger">
                   退出登录
@@ -123,6 +125,16 @@
 
       <!-- 页面内容 -->
       <el-main class="layout-main">
+        <!-- 后端连接中遮罩 -->
+        <div v-if="!appStore.backendOnline && appStore.connectionRetries <= 2 && !appStore.backendFirstCheck" class="connecting-overlay">
+          <div class="connecting-content">
+            <div class="connecting-spinner"></div>
+            <div class="connecting-text">正在连接后端服务...</div>
+            <div class="connecting-sub">端口 5000 · 请稍候</div>
+          </div>
+        </div>
+        <!-- 后端离线提示（非首次连接） -->
+        <el-alert v-if="!appStore.backendOnline && appStore.connectionRetries > 2" title="后端服务离线" type="warning" description="部分功能可能不可用，请检查后端服务是否正常运行。" show-icon :closable="false" style="margin-bottom:12px" />
         <router-view />
       </el-main>
     </el-container>
@@ -130,7 +142,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted } from 'vue'
+import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { ElMessageBox, ElMessage } from 'element-plus'
 import { useAuthStore } from '@/stores/auth'
@@ -141,12 +153,10 @@ const route = useRoute()
 const authStore = useAuthStore()
 const appStore = useAppStore()
 
-// 角色权限检查
+// 角色权限检查（响应式 — 基于 store 而非 localStorage）
+const userRole = computed(() => authStore.user?.role || '')
 function canAccess(roles: string[]): boolean {
-  try {
-    const user = JSON.parse(localStorage.getItem('scada_user') || '{}')
-    return !user.role || roles.includes(user.role)
-  } catch { return true }
+  return !!userRole.value && roles.includes(userRole.value)
 }
 
 const currentRoute = computed(() => route.path)
@@ -159,6 +169,7 @@ const currentTitle = computed(() => {
     '/alarms': '报警管理',
     '/alarm-output': '报警输出',
     '/industry40': '工业4.0',
+    '/screen': '数据大屏',
     '/config': '系统配置',
     '/users': '用户管理',
   }
@@ -166,23 +177,84 @@ const currentTitle = computed(() => {
 })
 
 let statusTimer: ReturnType<typeof setInterval>
+let idleTimer: ReturnType<typeof setTimeout>
+let lastActivityTime = 0
+let cleanupBackendListener: (() => void) | null = null
+const IDLE_TIMEOUT = 15 * 60 * 1000 // 15分钟空闲超时（对齐原项目）
+const ACTIVITY_THROTTLE = 5000 // 5秒节流，避免mousemove每秒触发60+次
+
+// 重置空闲计时器
+function resetIdleTimer() {
+  clearTimeout(idleTimer)
+  idleTimer = setTimeout(handleIdleTimeout, IDLE_TIMEOUT)
+}
+
+// 空闲超时处理
+let idleDialogVisible = false
+async function handleIdleTimeout() {
+  if (idleDialogVisible) return
+  idleDialogVisible = true
+  try {
+    await ElMessageBox.confirm('会话已空闲15分钟，是否继续使用？', '会话超时', {
+      confirmButtonText: '继续使用',
+      cancelButtonText: '退出登录',
+      type: 'warning',
+    })
+    idleDialogVisible = false
+    resetIdleTimer()
+  } catch (err: any) {
+    idleDialogVisible = false
+    if (err === 'cancel' || err?.message === 'cancel') {
+      await authStore.logout()
+      router.push('/login')
+    }
+  }
+}
+
+// 监听用户活动（带节流）
+const activityEvents = ['mousedown', 'mousemove', 'keypress', 'scroll', 'touchstart']
+function handleActivity() {
+  const now = Date.now()
+  if (now - lastActivityTime < ACTIVITY_THROTTLE) return
+  lastActivityTime = now
+  resetIdleTimer()
+}
 
 onMounted(async () => {
-  // 验证登录状态
-  await authStore.verify()
+  // 验证登录状态 — 失败则跳登录页
+  const valid = await authStore.verify()
+  if (!valid && authStore.token) {
+    // verify 失败但 token 还在（store 内 logout 可能未完成），强制跳转
+    await authStore.logout()
+    router.push('/login')
+    return
+  }
   // 获取系统状态
   appStore.fetchSystemStatus()
   // 定时刷新状态
   statusTimer = setInterval(() => {
     appStore.fetchSystemStatus()
   }, 10000)
+  // 启动空闲超时检测
+  resetIdleTimer()
+  activityEvents.forEach(event => document.addEventListener(event, handleActivity))
+  // 监听 Electron 后端状态变更（实时推送）
+  const win = window as any
+  if (win.electronAPI?.onBackendStatusChanged) {
+    cleanupBackendListener = win.electronAPI.onBackendStatusChanged((data: { healthy: boolean }) => {
+      appStore.backendOnline = data.healthy
+    })
+  }
 })
 
 onUnmounted(() => {
   clearInterval(statusTimer)
+  clearTimeout(idleTimer)
+  activityEvents.forEach(event => document.removeEventListener(event, handleActivity))
+  if (cleanupBackendListener) { cleanupBackendListener(); cleanupBackendListener = null }
 })
 
-function handleUserCommand(command: string) {
+async function handleUserCommand(command: string) {
   switch (command) {
     case 'users':
       router.push('/users')
@@ -191,7 +263,7 @@ function handleUserCommand(command: string) {
       changePassword()
       break
     case 'logout':
-      authStore.logout()
+      await authStore.logout()
       router.push('/login')
       break
   }
@@ -206,11 +278,17 @@ async function changePassword() {
     })
     if (!oldPwd) return
 
-    const { value: newPwd } = await ElMessageBox.prompt('请输入新密码（至少6位）', '修改密码', {
+    const { value: newPwd } = await ElMessageBox.prompt('请输入新密码（至少8位，含大小写字母和数字）', '修改密码', {
       inputType: 'password',
       confirmButtonText: '确认修改',
       cancelButtonText: '取消',
-      inputValidator: (val) => (val && val.length >= 6) || '密码长度至少6位',
+      inputValidator: (val) => {
+        if (!val || val.length < 8) return '密码长度至少8位'
+        if (!/[A-Z]/.test(val)) return '密码必须包含大写字母'
+        if (!/[a-z]/.test(val)) return '密码必须包含小写字母'
+        if (!/[0-9]/.test(val)) return '密码必须包含数字'
+        return true
+      },
     })
     if (!newPwd) return
 
@@ -218,7 +296,8 @@ async function changePassword() {
     const data = await authApi.changePassword(oldPwd, newPwd)
     if (data.success) {
       ElMessage.success('密码修改成功，请重新登录')
-      authStore.logout()
+      // 原项目要求：密码修改后撤销所有token
+      await authStore.logout()
       router.push('/login')
     } else {
       ElMessage.error(data.message || '修改失败')
@@ -302,7 +381,18 @@ async function changePassword() {
 }
 
 .system-status-dot {
+  color: #909399;
+}
+.system-status-dot.online {
   color: #67c23a;
+}
+.system-status-dot.connecting {
+  color: #e6a23c;
+  animation: pulse-connecting 1.5s ease-in-out infinite;
+}
+@keyframes pulse-connecting {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
 }
 
 .user-dropdown {
@@ -342,5 +432,38 @@ async function changePassword() {
 .breadcrumb-nav :deep(.el-breadcrumb__item:last-child .el-breadcrumb__inner) {
   color: #303133;
   font-weight: 600;
+}
+
+.connecting-overlay {
+  position: absolute;
+  inset: 0;
+  background: rgba(255,255,255,0.92);
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.connecting-content {
+  text-align: center;
+}
+.connecting-spinner {
+  width: 40px;
+  height: 40px;
+  border: 3px solid #e5e7eb;
+  border-top-color: #409eff;
+  border-radius: 50%;
+  margin: 0 auto 16px;
+  animation: spin 0.8s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg) } }
+.connecting-text {
+  font-size: 16px;
+  color: #303133;
+  font-weight: 600;
+  margin-bottom: 6px;
+}
+.connecting-sub {
+  font-size: 13px;
+  color: #909399;
 }
 </style>

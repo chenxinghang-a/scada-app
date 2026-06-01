@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import { authApi, type UserInfo } from '@/api'
+import { resetCsrfToken } from '@/api/request'
 
 export const useAuthStore = defineStore('auth', () => {
   const user = ref<UserInfo | null>(null)
@@ -15,6 +16,7 @@ export const useAuthStore = defineStore('auth', () => {
     const roles: Record<string, string> = {
       admin: '管理员',
       engineer: '工程师',
+      operator: '操作员',
       viewer: '观察者',
     }
     return roles[user.value?.role || ''] || user.value?.role || '-'
@@ -28,8 +30,11 @@ export const useAuthStore = defineStore('auth', () => {
       refreshToken.value = data.refresh_token
       user.value = data.user
       localStorage.setItem('auth_token', data.token)
-      localStorage.setItem('scada_refresh_token', data.refresh_token)
+      if (data.refresh_token) localStorage.setItem('scada_refresh_token', data.refresh_token)
+      else localStorage.removeItem('scada_refresh_token')
       localStorage.setItem('scada_user', JSON.stringify(data.user))
+      // 设置cookie对齐原项目（httponly由后端设置，前端设置SameSite=Lax）
+      document.cookie = `token=${encodeURIComponent(data.token)}; path=/; SameSite=Lax`
     }
     return data
   }
@@ -43,21 +48,27 @@ export const useAuthStore = defineStore('auth', () => {
         return true
       }
       // token 确实无效（服务端明确返回 invalid）
-      logout()
+      await logout()
       return false
     } catch (err: any) {
-      // 网络错误 / 超时 / 500 等 → 不要清 token，只是验证失败
-      // 只有 401 才清 token（由 request.ts 拦截器处理）
       const status = err?.response?.status
       if (status === 401 || status === 403) {
-        logout()
+        await logout()
       }
       // 其他错误保留 token，下次再试
       return false
     }
   }
 
-  function logout() {
+  async function logout() {
+    // 调用后端API撤销token（原项目要求）
+    try {
+      if (token.value) {
+        await authApi.logout()
+      }
+    } catch {
+      // 即使后端调用失败，也要清除本地状态
+    }
     token.value = null
     refreshToken.value = null
     user.value = null
@@ -65,6 +76,8 @@ export const useAuthStore = defineStore('auth', () => {
     localStorage.removeItem('scada_refresh_token')
     localStorage.removeItem('scada_user')
     localStorage.removeItem('scada_must_change_password')
+    // 清除cookie（对齐原项目）
+    document.cookie = 'token=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT'
   }
 
   // 从 localStorage 恢复用户信息

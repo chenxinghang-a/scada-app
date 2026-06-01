@@ -1,4 +1,4 @@
-<template>
+﻿<template>
   <div class="dashboard">
     <!-- KPI 行 -->
     <div class="kpi-row">
@@ -149,7 +149,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted, reactive } from 'vue'
+import { ref, computed, onMounted, onUnmounted, reactive, watch } from 'vue'
 import * as echarts from 'echarts'
 import { io } from 'socket.io-client'
 import { ElMessage, ElMessageBox } from 'element-plus'
@@ -179,6 +179,8 @@ const MAX_CHART_POINTS = 200
 const devFilter = ref('all')
 const devProtocolFilter = ref('')
 const devPage = ref(1)
+// 监听协议筛选变化时重置分页
+watch(devProtocolFilter, () => { devPage.value = 1 })
 const devPageSize = 50
 
 const onlineCount = computed(() => allDeviceList.value.filter(d => d.connected).length)
@@ -253,7 +255,7 @@ async function loadData() {
         })
         updateTrendChart(data.data)
       }
-    } catch { /* ignore */ }
+    } catch (e: any) { console.warn('[Dashboard] 加载失败:', e?.message || e) }
 
     // 2. 加载系统状态
     try {
@@ -262,7 +264,8 @@ async function loadData() {
       updateKPI(status)
       updateDeviceGrid(status)
       updateStatusBar(status)
-    } catch {
+    } catch (e: any) {
+      console.warn('[Dashboard] 系统状态加载失败:', e?.message || e)
       statusDotClass.value = 'status-dot red'
       statusText.value = '连接异常'
     }
@@ -277,7 +280,7 @@ async function loadData() {
         const unacked = alarmData.alarms.filter((a: Alarm) => !a.acknowledged).length
         kpi.unacked = unacked
       }
-    } catch { /* ignore */ }
+    } catch (e: any) { console.warn('[Dashboard] 加载失败:', e?.message || e) }
   } finally {
     loadDataInProgress = false
   }
@@ -289,14 +292,14 @@ async function loadOEE() {
     if (data?.devices?.length) {
       kpi.oee = Math.round(data.devices.reduce((s: number, d: any) => s + d.oee_percent, 0) / data.devices.length)
     }
-  } catch { /* ignore */ }
+  } catch (e: any) { console.warn('[Dashboard] 加载失败:', e?.message || e) }
 }
 
 function loadUserName() {
   try {
     const u = JSON.parse(localStorage.getItem('scada_user') || '{}')
     userName.value = u.display_name || u.username || '用户'
-  } catch { /* ignore */ }
+  } catch (e: any) { console.warn('[Dashboard] 加载失败:', e?.message || e) }
 }
 
 // ========== KPI 更新 ==========
@@ -330,8 +333,10 @@ function updateDeviceGrid(stats: SystemStatus) {
   if (!stats.devices) return
   const devs = Array.isArray(stats.devices) ? stats.devices : Object.values(stats.devices)
   // 合并而非覆盖：保留已有的 host、port 等静态字段
+  const activeIds = new Set<string>()
   devs.forEach(d => {
     const id = d.device_id || d.id || ''
+    activeIds.add(id)
     const existing = deviceCache[id]
     if (existing) {
       // 合并：新数据覆盖旧数据，但保留旧数据中有而新数据中没有的字段
@@ -342,6 +347,10 @@ function updateDeviceGrid(stats: SystemStatus) {
     } else {
       deviceCache[id] = d
     }
+  })
+  // 清除已删除的设备
+  Object.keys(deviceCache).forEach(id => {
+    if (!activeIds.has(id)) delete deviceCache[id]
   })
   allDeviceList.value = Object.values(deviceCache)
   if (!selectedDeviceId.value && allDeviceList.value.length > 0) selectedDeviceId.value = allDeviceList.value[0].device_id || allDeviceList.value[0].id || ''
@@ -403,7 +412,7 @@ function formatAlarmTime(t: string): string { return t ? new Date(t).toLocaleTim
 function getAlarmPV(a: any): string { const v = a.last_value != null ? a.last_value : a.actual_value; return v != null ? `PV:${parseFloat(v).toFixed(1)}` : '' }
 async function ackAlarm(alarmId: string, deviceId: string, regName: string) {
   if (!alarmId) return
-  try { await alarmsApi.acknowledge(alarmId, deviceId, regName); loadData() } catch { /* ignore */ }
+  try { await alarmsApi.acknowledge(alarmId, deviceId, regName); loadData() } catch (e: any) { console.error('[Dashboard] 操作失败:', e); ElMessage.error('操作失败: ' + (e?.response?.data?.error || e?.message || '未知错误')) }
 }
 
 // ========== 工具函数 ==========
@@ -485,7 +494,7 @@ function updateTrendChart(data: any[]) {
 
 // ========== CSV 导出（客户端生成） ==========
 function exportChartData() {
-  if (!selectedDeviceId.value || !Object.keys(dataBuffers).length) { alert('无数据可导出'); return }
+  if (!selectedDeviceId.value || !Object.keys(dataBuffers).length) { ElMessage.error('无数据可导出'); return }
   const keys = Object.keys(dataBuffers)
   const timeSet = new Set<string>()
   keys.forEach(k => dataBuffers[k].forEach(d => timeSet.add(d.t)))
@@ -500,13 +509,13 @@ function exportChartData() {
 async function exportAllData() {
   try {
     const data = await dataApi.getRealtime() as any
-    if (!data?.data?.length) { alert('无数据可导出'); return }
+    if (!data?.data?.length) { ElMessage.error('无数据可导出'); return }
     let csv = '﻿设备ID,寄存器,值,单位,时间\n'
     data.data.forEach((item: any) => {
       csv += `${item.device_id},${item.register_name},${item.value},${item.unit||''},${item.timestamp}\n`
     })
     downloadCSV(csv, `all_devices_${new Date().toISOString().slice(0,19).replace(/:/g,'-')}.csv`)
-  } catch { alert('导出失败') }
+  } catch (e: any) { console.error('[Dashboard] 操作失败:', e); ElMessage.error('导出失败') }
 }
 
 function downloadCSV(csv: string, filename: string) {
@@ -520,14 +529,15 @@ function downloadCSV(csv: string, filename: string) {
 
 // ========== WebSocket ==========
 function connectSocket() {
-  const socketUrl = import.meta.env.DEV ? window.location.origin : 'http://localhost:5000'
+  const baseUrl = import.meta.env.DEV ? window.location.origin : 'http://localhost:5000'
   const token = getAuthToken()
+  // token 通过 query 传递 — 后端从 request.args.get('token') 读取
+  const socketUrl = token ? `${baseUrl}?token=${encodeURIComponent(token)}` : baseUrl
   socket = io(socketUrl, {
     transports: ['websocket', 'polling'],
     reconnection: true,
     reconnectionDelay: 3000,
     reconnectionAttempts: Infinity,
-    auth: token ? { token } : undefined,
   })
   socket.on('connect', () => {
     statusDotClass.value = 'status-dot green'

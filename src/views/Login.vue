@@ -90,7 +90,17 @@ const rules = {
   username: [{ required: true, message: '请输入用户名', trigger: 'blur' }],
   password: [
     { required: true, message: '请输入密码', trigger: 'blur' },
-    { min: 6, message: '密码长度至少6位', trigger: 'blur' },
+    { min: 8, message: '密码长度至少8位', trigger: 'blur' },
+    {
+      validator: (_rule: any, value: string, callback: any) => {
+        if (!value) return callback()
+        if (!/[A-Z]/.test(value)) return callback(new Error('密码必须包含大写字母'))
+        if (!/[a-z]/.test(value)) return callback(new Error('密码必须包含小写字母'))
+        if (!/[0-9]/.test(value)) return callback(new Error('密码必须包含数字'))
+        callback()
+      },
+      trigger: 'blur',
+    },
   ],
 }
 
@@ -110,7 +120,10 @@ async function handleLogin() {
         router.push('/force-change-password')
       } else {
         ElMessage.success('登录成功')
-        router.push('/dashboard')
+        // 登录后跳回之前被拦截的页面（防 open redirect）
+        const redirect = router.currentRoute.value.query.redirect as string
+        const safeRedirect = redirect && redirect.startsWith('/') && !redirect.startsWith('//') ? redirect : '/dashboard'
+        router.push(safeRedirect)
       }
     } else {
       ElMessage.error('登录失败')

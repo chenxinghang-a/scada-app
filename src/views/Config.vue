@@ -1,4 +1,4 @@
-<template>
+﻿<template>
   <div class="config-page">
     <el-card shadow="hover">
       <template #header><span>系统配置</span></template>
@@ -7,7 +7,7 @@
         <el-tab-pane label="系统设置" name="system">
           <el-form label-width="120px" style="max-width:600px">
             <el-form-item label="系统名称"><el-input v-model="config.system.name" /></el-form-item>
-            <el-form-item label="版本"><el-input value="v1.0.0" disabled /></el-form-item>
+            <el-form-item label="版本"><el-input :value="appVersion" disabled /></el-form-item>
             <el-form-item label="Web端口"><el-input-number v-model="config.system.port" :min="1" :max="65535" /></el-form-item>
             <el-form-item label="Web地址"><el-input v-model="config.system.host" /></el-form-item>
             <el-form-item label="调试模式"><el-switch v-model="config.system.debug" /></el-form-item>
@@ -55,7 +55,7 @@
               </template>
             </el-table-column>
             <el-table-column prop="enabled" label="启用" width="60">
-              <template #default="{ row }"><el-switch v-model="row.enabled" size="small" /></template>
+              <template #default="{ row }"><el-switch v-model="row.enabled" size="small" @change="toggleRule(row)" /></template>
             </el-table-column>
             <el-table-column label="操作" width="120">
               <template #default="{ row }">
@@ -106,6 +106,59 @@
             <el-table-column prop="rows" label="记录数" width="120" />
             <el-table-column prop="size" label="大小" width="120" />
           </el-table>
+        </el-tab-pane>
+
+        <!-- 报警输出硬件配置 -->
+        <el-tab-pane label="报警输出硬件" name="alarm-hardware">
+          <el-row :gutter="16">
+            <el-col :span="12">
+              <el-card shadow="hover" header="Patlite LR7 光柱配置 (Modbus)">
+                <el-form label-width="120px">
+                  <el-form-item label="启用声光报警器"><el-switch v-model="signalTower.enabled" /></el-form-item>
+                  <el-form-item label="Modbus IP"><el-input v-model="signalTower.host" placeholder="192.168.1.70" /></el-form-item>
+                  <el-form-item label="端口"><el-input-number v-model="signalTower.port" :min="1" :max="65535" /></el-form-item>
+                  <el-form-item label="从站ID"><el-input-number v-model="signalTower.slave_id" :min="1" :max="247" /></el-form-item>
+                  <el-divider>DO 线圈映射</el-divider>
+                  <el-form-item label="红灯 DO"><el-input-number v-model="signalTower.do_mapping.red_light" :min="0" /></el-form-item>
+                  <el-form-item label="黄灯 DO"><el-input-number v-model="signalTower.do_mapping.yellow_light" :min="0" /></el-form-item>
+                  <el-form-item label="绿灯 DO"><el-input-number v-model="signalTower.do_mapping.green_light" :min="0" /></el-form-item>
+                  <el-form-item label="蜂鸣器 DO"><el-input-number v-model="signalTower.do_mapping.buzzer" :min="0" /></el-form-item>
+                  <el-form-item><el-button type="primary" @click="saveSignalTower">保存</el-button></el-form-item>
+                </el-form>
+              </el-card>
+            </el-col>
+            <el-col :span="12">
+              <el-card shadow="hover" header="广播系统配置 (MQTT)">
+                <el-form label-width="120px">
+                  <el-form-item label="启用广播系统"><el-switch v-model="broadcastConfig.enabled" /></el-form-item>
+                  <el-form-item label="MQTT Broker"><el-input v-model="broadcastConfig.mqtt.broker" placeholder="192.168.1.200" /></el-form-item>
+                  <el-form-item label="端口"><el-input-number v-model="broadcastConfig.mqtt.port" :min="1" :max="65535" /></el-form-item>
+                  <el-form-item label="主题前缀"><el-input v-model="broadcastConfig.mqtt.topic_prefix" placeholder="pa/" /></el-form-item>
+                  <el-form-item label="用户名"><el-input v-model="broadcastConfig.mqtt.username" placeholder="可选" /></el-form-item>
+                  <el-form-item label="密码"><el-input v-model="broadcastConfig.mqtt.password" type="password" placeholder="可选" show-password /></el-form-item>
+                  <el-form-item label="广播区域"><el-input v-model="broadcastAreasStr" placeholder="车间A,车间B,仓库,办公楼" /></el-form-item>
+                  <el-form-item><el-button type="primary" @click="saveBroadcastHardware">保存</el-button></el-form-item>
+                </el-form>
+              </el-card>
+            </el-col>
+          </el-row>
+        </el-tab-pane>
+
+        <!-- 日志设置 -->
+        <el-tab-pane label="日志设置" name="logging">
+          <el-form label-width="140px" style="max-width:600px">
+            <el-form-item label="日志级别">
+              <el-select v-model="loggingConfig.level" style="width:100%">
+                <el-option label="DEBUG" value="DEBUG" />
+                <el-option label="INFO" value="INFO" />
+                <el-option label="WARNING" value="WARNING" />
+                <el-option label="ERROR" value="ERROR" />
+              </el-select>
+            </el-form-item>
+            <el-form-item label="日志文件最大(MB)"><el-input-number v-model="loggingConfig.file.max_size_mb" :min="1" /></el-form-item>
+            <el-form-item label="日志备份数"><el-input-number v-model="loggingConfig.file.backup_count" :min="0" /></el-form-item>
+            <el-form-item><el-button type="primary" @click="saveLoggingConfig">保存</el-button></el-form-item>
+          </el-form>
         </el-tab-pane>
 
         <!-- 运维管理 -->
@@ -247,6 +300,9 @@ import { ref, onMounted, reactive, computed } from 'vue'
 import { ElMessage } from 'element-plus'
 import { systemApi, devicesApi, alarmsApi, type Device } from '@/api'
 
+// 从 package.json 读取版本号
+const appVersion = __APP_VERSION__ || 'v1.0.0'
+
 const activeTab = ref('system')
 const devices = ref<Device[]>([])
 const alarmRules = ref<any[]>([])
@@ -260,6 +316,29 @@ const alarmOutputConfig = reactive({ mode: 'auto', buzzer_enabled: true, auto_si
 const alarmEscalation = reactive({ enabled: false, timeout_minutes: 30, escalate_to: 'critical', notify_methods: ['sound'] as string[] })
 const archiveConfig = reactive({ auto_archive: true, archive_interval_days: 7, retention_days: 90, compress_archived: true })
 const archiveLoading = ref(false)
+
+// 报警输出硬件配置 (Patlite LR7 Modbus)
+const signalTower = reactive({
+  enabled: true,
+  host: '192.168.1.70',
+  port: 502,
+  slave_id: 1,
+  do_mapping: { red_light: 0, yellow_light: 1, green_light: 2, buzzer: 5 },
+})
+
+// 广播系统配置 (MQTT)
+const broadcastConfig = reactive({
+  enabled: true,
+  mqtt: { broker: '192.168.1.200', port: 1883, topic_prefix: 'pa/', username: '', password: '' },
+  areas: [] as string[],
+})
+const broadcastAreasStr = ref('车间A,车间B,仓库,办公楼')
+
+// 日志设置
+const loggingConfig = reactive({
+  level: 'INFO',
+  file: { enabled: true, path: 'logs/scada.log', max_size_mb: 50, backup_count: 5 },
+})
 
 const config = reactive({
   system: { name: 'SmartSCADA', port: 5000, host: '127.0.0.1', debug: false },
@@ -276,7 +355,7 @@ const dbTables = computed(() => {
 })
 
 onMounted(async () => {
-  try { const data = await devicesApi.getAll(); devices.value = data.devices || [] } catch { /* ignore */ }
+  try { const data = await devicesApi.getAll(); devices.value = data.devices || [] } catch (e: any) { console.warn('[Config] 加载设备列表失败:', e?.message || e) }
   loadConfig()
   loadSystemStatus()
   loadAlarmRules()
@@ -285,6 +364,9 @@ onMounted(async () => {
   loadAlarmOutputConfig()
   loadAlarmEscalation()
   loadArchiveConfig()
+  loadSignalTowerConfig()
+  loadBroadcastHardwareConfig()
+  loadLoggingConfig()
 })
 
 async function loadConfig() {
@@ -297,7 +379,7 @@ async function loadConfig() {
       if (c.database) Object.assign(config.database, c.database)
       if (c.energy) Object.assign(config.energy, c.energy)
     }
-  } catch { /* 使用默认值 */ }
+  } catch (e: any) { console.warn('[Config] 加载系统配置失败:', e?.message || e) }
 }
 
 async function loadSystemStatus() {
@@ -305,18 +387,18 @@ async function loadSystemStatus() {
     const [s, d] = await Promise.all([systemApi.getStatus(), systemApi.getDatabase()])
     systemStatus.value = s
     dbInfo.value = d
-  } catch { /* ignore */ }
+  } catch (e: any) { console.warn('[Config] 加载系统状态失败:', e?.message || e) }
 }
 
 async function loadAlarmRules() {
-  try { const data = await alarmsApi.getRules(); alarmRules.value = data.rules || [] } catch { /* ignore */ }
+  try { const data = await alarmsApi.getRules(); alarmRules.value = data.rules || [] } catch (e: any) { console.warn('[Config] 加载报警规则失败:', e?.message || e) }
 }
 
 async function saveConfig(section: string) {
   try {
     await systemApi.saveConfig(section, (config as any)[section])
     ElMessage.success('配置已保存')
-  } catch { /* ignore */ }
+  } catch (e: any) { console.error('[Config] 操作失败:', e); ElMessage.error('操作失败: ' + (e?.response?.data?.error || e?.message || '未知错误')) }
 }
 
 function showRuleDialog() {
@@ -341,26 +423,38 @@ async function saveRule() {
     ElMessage.success('规则已保存')
     ruleDialogVisible.value = false
     loadAlarmRules()
-  } catch { /* ignore */ }
+  } catch (e: any) { console.error('[Config] 操作失败:', e); ElMessage.error('操作失败: ' + (e?.response?.data?.error || e?.message || '未知错误')) }
 }
 
 async function deleteRule(id: string) {
-  try { await alarmsApi.deleteRule(id); ElMessage.success('规则已删除'); loadAlarmRules() } catch { /* ignore */ }
+  try { await alarmsApi.deleteRule(id); ElMessage.success('规则已删除'); loadAlarmRules() } catch (e: any) { console.error('[Config] 操作失败:', e); ElMessage.error('操作失败: ' + (e?.response?.data?.error || e?.message || '未知错误')) }
+}
+
+async function toggleRule(rule: any) {
+  try {
+    await alarmsApi.updateRule(rule.id, { enabled: rule.enabled })
+    ElMessage.success(rule.enabled ? '规则已启用' : '规则已禁用')
+  } catch (e: any) {
+    rule.enabled = !rule.enabled
+    console.error('[Config] 操作失败:', e); ElMessage.error('操作失败: ' + (e?.response?.data?.error || e?.message || '未知错误'))
+  }
 }
 
 async function loadSimulationMode() {
   try {
     const data = await systemApi.getSimulationMode()
     simulationMode.value = data.simulation_mode
-  } catch { /* ignore */ }
+  } catch (e: any) { console.warn('[Config] 加载模拟模式失败:', e?.message || e) }
 }
 
 async function toggleSimulationMode(val: boolean) {
   try {
     await systemApi.setSimulationMode(val)
     ElMessage.success(`已切换为${val ? '模拟模式' : '实时模式'}`)
-  } catch {
+  } catch (e: any) {
+    console.error('[Config] 切换模式失败:', e)
     simulationMode.value = !val
+    ElMessage.error('切换模式失败: ' + (e?.response?.data?.error || e?.message || '未知错误'))
   }
 }
 
@@ -368,49 +462,49 @@ async function loadHealthStatus() {
   try {
     const data = await systemApi.getHealth()
     healthStatus.value = data.checks || data
-  } catch { /* ignore */ }
+  } catch (e: any) { console.warn('[Config] 健康状态加载失败:', e?.message || e) }
 }
 
 async function loadAlarmOutputConfig() {
   try {
     const data = await alarmsApi.getAlarmOutputConfig()
     if (data) Object.assign(alarmOutputConfig, data)
-  } catch { /* ignore */ }
+  } catch (e: any) { console.warn('[Config] 报警输出配置加载失败:', e?.message || e) }
 }
 
 async function saveAlarmOutputConfig() {
   try {
     await alarmsApi.setAlarmOutputConfig(alarmOutputConfig)
     ElMessage.success('报警输出配置已保存')
-  } catch { /* ignore */ }
+  } catch (e: any) { console.error('[Config] 操作失败:', e); ElMessage.error('保存失败: ' + (e?.response?.data?.error || e?.message || '未知错误')) }
 }
 
 async function loadAlarmEscalation() {
   try {
     const data = await alarmsApi.getAlarmOutputConfig()
     if (data?.escalation) Object.assign(alarmEscalation, data.escalation)
-  } catch { /* ignore */ }
+  } catch (e: any) { console.warn('[Config] 报警升级配置加载失败:', e?.message || e) }
 }
 
 async function saveAlarmEscalation() {
   try {
-    await alarmsApi.updateNotification({ escalation: alarmEscalation })
+    await systemApi.saveConfig('alarm_escalation', { ...alarmEscalation })
     ElMessage.success('报警升级配置已保存')
-  } catch { /* ignore */ }
+  } catch (e: any) { console.error('[Config] 操作失败:', e); ElMessage.error('保存失败: ' + (e?.response?.data?.error || e?.message || '未知错误')) }
 }
 
 async function loadArchiveConfig() {
   try {
     const data = await systemApi.getConfig()
     if (data?.config?.archive) Object.assign(archiveConfig, data.config.archive)
-  } catch { /* ignore */ }
+  } catch (e: any) { console.warn('[Config] 归档配置加载失败:', e?.message || e) }
 }
 
 async function saveArchiveConfig() {
   try {
     await systemApi.saveConfig('archive', archiveConfig)
     ElMessage.success('归档策略已保存')
-  } catch { /* ignore */ }
+  } catch (e: any) { console.error('[Config] 操作失败:', e); ElMessage.error('保存失败: ' + (e?.response?.data?.error || e?.message || '未知错误')) }
 }
 
 async function triggerArchive() {
@@ -418,8 +512,76 @@ async function triggerArchive() {
   try {
     await systemApi.saveConfig('archive_trigger', { action: 'archive_now' })
     ElMessage.success('归档任务已触发')
-  } catch { /* ignore */ }
+  } catch (e: any) { console.error('[Config] 操作失败:', e); ElMessage.error('归档失败: ' + (e?.response?.data?.error || e?.message || '未知错误')) }
   finally { archiveLoading.value = false }
+}
+
+// ========== 报警输出硬件配置 ==========
+async function loadSignalTowerConfig() {
+  try {
+    const data = await alarmsApi.getAlarmOutputConfig()
+    if (data?.config) {
+      const st = data.config.signal_tower || data.config
+      if (st.enabled !== undefined) signalTower.enabled = st.enabled
+      if (st.host) signalTower.host = st.host
+      if (st.port) signalTower.port = st.port
+      if (st.slave_id) signalTower.slave_id = st.slave_id
+      if (st.do_mapping) Object.assign(signalTower.do_mapping, st.do_mapping)
+    }
+  } catch (e: any) { console.warn('[Config] 光柱配置加载失败:', e?.message || e) }
+}
+
+async function saveSignalTower() {
+  try {
+    await alarmsApi.setAlarmOutputConfig({
+      enabled: signalTower.enabled,
+      signal_tower: { host: signalTower.host, port: signalTower.port, slave_id: signalTower.slave_id, do_mapping: { ...signalTower.do_mapping } },
+    })
+    ElMessage.success('报警输出硬件配置已保存')
+  } catch (e: any) { console.error('[Config] 操作失败:', e); ElMessage.error('保存失败: ' + (e?.response?.data?.error || e?.message || '未知错误')) }
+}
+
+// ========== 广播系统硬件配置 ==========
+async function loadBroadcastHardwareConfig() {
+  try {
+    const data = await alarmsApi.getBroadcastConfig()
+    if (data?.config) {
+      const bc = data.config
+      if (bc.enabled !== undefined) broadcastConfig.enabled = bc.enabled
+      if (bc.mqtt) Object.assign(broadcastConfig.mqtt, bc.mqtt)
+      if (bc.areas && Array.isArray(bc.areas)) {
+        broadcastConfig.areas = bc.areas
+        broadcastAreasStr.value = bc.areas.join(',')
+      }
+    }
+  } catch (e: any) { console.warn('[Config] 广播配置加载失败:', e?.message || e) }
+}
+
+async function saveBroadcastHardware() {
+  try {
+    const areas = broadcastAreasStr.value.split(',').map(s => s.trim()).filter(Boolean)
+    await alarmsApi.setBroadcastConfig({ enabled: broadcastConfig.enabled, mqtt: { ...broadcastConfig.mqtt }, areas })
+    ElMessage.success('广播系统配置已保存')
+  } catch (e: any) { console.error('[Config] 操作失败:', e); ElMessage.error('保存失败: ' + (e?.response?.data?.error || e?.message || '未知错误')) }
+}
+
+// ========== 日志设置 ==========
+async function loadLoggingConfig() {
+  try {
+    const data = await systemApi.getConfig()
+    if (data?.config?.logging) {
+      const lc = data.config.logging
+      if (lc.level) loggingConfig.level = lc.level
+      if (lc.file) Object.assign(loggingConfig.file, lc.file)
+    }
+  } catch (e: any) { console.warn('[Config] 日志配置加载失败:', e?.message || e) }
+}
+
+async function saveLoggingConfig() {
+  try {
+    await systemApi.saveConfig('logging', { level: loggingConfig.level, file: { ...loggingConfig.file } })
+    ElMessage.success('日志设置已保存')
+  } catch (e: any) { console.error('[Config] 操作失败:', e); ElMessage.error('保存失败: ' + (e?.response?.data?.error || e?.message || '未知错误')) }
 }
 
 function exportConfig() {
@@ -453,12 +615,13 @@ function importConfig() {
       // 自动保存所有配置段
       for (const section of ['system', 'collection', 'database', 'energy']) {
         if (imported[section]) {
-          try { await systemApi.saveConfig(section, config[section as keyof typeof config]) } catch { /* ignore */ }
+          try { await systemApi.saveConfig(section, config[section as keyof typeof config]) } catch (e: any) { console.warn(`[Config] 导入段 ${section} 保存失败:`, e?.message || e) }
         }
       }
       ElMessage.success('配置已导入并保存')
-    } catch {
-      ElMessage.error('配置文件格式错误')
+    } catch (e: any) {
+      console.error('[Config] 导入失败:', e)
+      ElMessage.error('配置文件格式错误: ' + (e?.message || '未知错误'))
     }
   }
   input.click()

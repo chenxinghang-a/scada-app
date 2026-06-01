@@ -1,4 +1,4 @@
-<template>
+﻿<template>
   <div class="devices-page">
     <!-- 操作栏 -->
     <el-card shadow="hover" class="mb-16">
@@ -290,7 +290,7 @@ async function refreshDevices() {
   try {
     const data = await devicesApi.getAll()
     devices.value = data.devices || []
-  } catch { /* ignore */ }
+  } catch (e: any) { console.warn('[Devices] 加载失败:', e?.message || e) }
   finally { loading.value = false }
 }
 
@@ -340,7 +340,7 @@ async function saveDevice() {
     }
     dialogVisible.value = false
     refreshDevices()
-  } catch { /* handled */ }
+  } catch (e: any) { if (e?.message) console.error('[Devices] 操作失败:', e) }
 }
 
 async function deleteDevice(device: Device) {
@@ -348,7 +348,7 @@ async function deleteDevice(device: Device) {
     await devicesApi.delete(device.device_id)
     ElMessage.success('设备已删除')
     refreshDevices()
-  } catch { /* ignore */ }
+  } catch (e: any) { if (e?.message) console.error('[Devices] 操作失败:', e) }
 }
 
 async function testDevice(device: Device) {
@@ -357,7 +357,7 @@ async function testDevice(device: Device) {
     testResult.success = data.success
     testResult.message = data.message
     testDialogVisible.value = true
-  } catch { /* ignore */ }
+  } catch (e: any) { if (e?.message) console.error('[Devices] 操作失败:', e) }
 }
 
 function viewData(device: Device) {
@@ -369,7 +369,7 @@ async function addPreset(preset: any) {
     await api.post('/devices/presets/add', { preset_id: preset.id })
     ElMessage.success(`已添加: ${preset.name}`)
     refreshDevices()
-  } catch { /* handled */ }
+  } catch (e: any) { if (e?.message) console.error('[Devices] 操作失败:', e) }
 }
 
 async function addAllPresets() {
@@ -377,7 +377,7 @@ async function addAllPresets() {
     await api.post('/devices/presets/add-all')
     ElMessage.success('全部预设设备已添加')
     refreshDevices()
-  } catch { /* handled */ }
+  } catch (e: any) { if (e?.message) console.error('[Devices] 操作失败:', e) }
 }
 
 function protocolColor(p: string) {

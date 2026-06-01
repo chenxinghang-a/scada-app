@@ -13,23 +13,17 @@ function isFirstRun() {
 }
 
 function markComplete() {
-  const configPath = getConfigPath()
-  fs.writeFileSync(configPath, JSON.stringify({
-    completedAt: new Date().toISOString(),
-    version: app.getVersion(),
-  }, null, 2))
-}
-
-function getFirstRunConfig() {
-  const configPath = getConfigPath()
-  if (fs.existsSync(configPath)) {
-    return JSON.parse(fs.readFileSync(configPath, 'utf-8'))
+  try {
+    const configPath = getConfigPath()
+    const dir = path.dirname(configPath)
+    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true })
+    fs.writeFileSync(configPath, JSON.stringify({
+      completedAt: new Date().toISOString(),
+      version: app.getVersion(),
+    }, null, 2))
+  } catch (e) {
+    console.warn('first-run markComplete failed:', e.message)
   }
-  return null
 }
 
-module.exports = {
-  isFirstRun,
-  markComplete,
-  getFirstRunConfig,
-}
+module.exports = { isFirstRun, markComplete }

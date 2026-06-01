@@ -1,4 +1,4 @@
-<template>
+﻿<template>
   <div class="alarm-output-page">
     <!-- 信号灯塔可视化 -->
     <el-row :gutter="16" class="mb-16">
@@ -132,47 +132,47 @@ async function loadStatus() {
     if (!data) return
     Object.assign(towerStatus, data.tower || {})
     towerStatus.mode = data.mode || 'simulation'
-  } catch { /* ignore */ }
+  } catch (e: any) { console.warn('[AlarmOutput] 加载失败:', e?.message || e) }
 }
 
 async function loadAreas() {
-  try { const data = await alarmsApi.getBroadcastAreas(); broadcastAreas.value = Array.isArray(data?.areas) ? data.areas : [] } catch { /* ignore */ }
+  try { const data = await alarmsApi.getBroadcastAreas(); broadcastAreas.value = Array.isArray(data?.areas) ? data.areas : [] } catch (e: any) { console.warn('[AlarmOutput] 加载失败:', e?.message || e) }
 }
 
 async function loadHistory() {
-  try { const data = await alarmsApi.getBroadcastHistory(30); broadcastHistory.value = Array.isArray(data?.history) ? data.history : [] } catch { /* ignore */ }
+  try { const data = await alarmsApi.getBroadcastHistory(30); broadcastHistory.value = Array.isArray(data?.history) ? data.history : [] } catch (e: any) { console.warn('[AlarmOutput] 加载失败:', e?.message || e) }
 }
 
 function connectSocket() {
-  const socketUrl = import.meta.env.DEV ? window.location.origin : 'http://localhost:5000'
+  const baseUrl = import.meta.env.DEV ? window.location.origin : 'http://localhost:5000'
   const token = getAuthToken()
+  const socketUrl = token ? `${baseUrl}?token=${encodeURIComponent(token)}` : baseUrl
   socket = io(socketUrl, {
     transports: ['websocket', 'polling'],
     reconnection: true,
     reconnectionDelay: 3000,
-    auth: token ? { token } : undefined,
   })
   socket.on('alarm', () => loadStatus())
   socket.on('broadcast', (data: any) => { if (data) broadcastHistory.value.unshift(data) })
 }
 
 async function silenceAlarm() {
-  try { await alarmsApi.alarmOutputAcknowledge(); ElMessage.success('已消音'); loadStatus() } catch { /* ignore */ }
+  try { await alarmsApi.alarmOutputAcknowledge(); ElMessage.success('已消音'); loadStatus() } catch (e: any) { console.error('[AlarmOutput] 操作失败:', e); ElMessage.error('操作失败: ' + (e?.response?.data?.error || e?.message || '未知错误')) }
 }
 
 async function resetAlarm() {
-  try { await alarmsApi.alarmOutputReset(); ElMessage.success('已复位'); loadStatus() } catch { /* ignore */ }
+  try { await alarmsApi.alarmOutputReset(); ElMessage.success('已复位'); loadStatus() } catch (e: any) { console.error('[AlarmOutput] 操作失败:', e); ElMessage.error('操作失败: ' + (e?.response?.data?.error || e?.message || '未知错误')) }
 }
 
 async function sendManualControl() {
-  try { await alarmsApi.alarmOutputManual(manual); ElMessage.success('指令已发送') } catch { /* ignore */ }
+  try { await alarmsApi.alarmOutputManual(manual); ElMessage.success('指令已发送') } catch (e: any) { console.error('[AlarmOutput] 操作失败:', e); ElMessage.error('操作失败: ' + (e?.response?.data?.error || e?.message || '未知错误')) }
 }
 
 function allOff() { manual.red = false; manual.yellow = false; manual.green = false; manual.buzzer = false; sendManualControl() }
 
 async function sendBroadcast() {
   if (!broadcast.text) { ElMessage.warning('请输入广播内容'); return }
-  try { await alarmsApi.broadcastSpeak(broadcast); ElMessage.success('广播已发送'); broadcast.text = ''; loadHistory() } catch { /* ignore */ }
+  try { await alarmsApi.broadcastSpeak(broadcast); ElMessage.success('广播已发送'); broadcast.text = ''; loadHistory() } catch (e: any) { console.error('[AlarmOutput] 操作失败:', e); ElMessage.error('操作失败: ' + (e?.response?.data?.error || e?.message || '未知错误')) }
 }
 </script>
 

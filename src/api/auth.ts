@@ -49,6 +49,13 @@ export const authApi = {
     }) as Promise<{ success: boolean; message: string }>
   },
 
+  forceChangePassword(username: string, newPassword: string) {
+    return api.post('/auth/force-change-password', {
+      username,
+      new_password: newPassword,
+    }) as Promise<{ success: boolean; message: string }>
+  },
+
   getUsers() {
     return api.get('/auth/users') as Promise<{ users: UserInfo[] }>
   },

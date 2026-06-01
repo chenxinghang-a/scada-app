@@ -89,6 +89,14 @@ export const devicesApi = {
     return api.post('/devices/presets/add', { preset_id: presetId })
   },
 
+  getPresetById(presetId: string) {
+    return api.get(`/devices/presets/${presetId}`) as Promise<any>
+  },
+
+  batchAddPresets(presetIds: string[]) {
+    return api.post('/devices/presets/batch-add', { preset_ids: presetIds })
+  },
+
   addAllPresets() {
     return api.post('/devices/presets/add-all')
   },

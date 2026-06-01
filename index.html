@@ -46,12 +46,58 @@
     </div>
     <script type="module" src="/src/main.ts"></script>
     <script>
-      // Vue 挂载后移除 loading
-      window.addEventListener('load', () => {
-        setTimeout(() => {
-          const el = document.getElementById('app-loading');
-          if (el) { el.classList.add('hide'); setTimeout(() => el.remove(), 300); }
-        }, 500);
+      // Vue 挂载后移除 loading — 由 App.vue 的 onMounted 调用
+      window.__removeLoading = function() {
+        const el = document.getElementById('app-loading');
+        if (el) { el.classList.add('hide'); setTimeout(() => el.remove(), 300); }
+      };
+      // 兜底：8 秒后如果 Vue 还没挂载，也移除 loading（显示空白让错误处理器接管）
+      setTimeout(function() {
+        if (window.__removeLoading) window.__removeLoading();
+      }, 8000);
+      // Vue 挂载超时检测
+      setTimeout(function() {
+        var app = document.getElementById('app');
+        if (app && app.children.length <= 1 && app.querySelector('#app-loading')) {
+          var el = document.getElementById('app-loading');
+          if (el) {
+            el.querySelector('.loading-text').innerHTML =
+              '<div style="color:#e6a23c;font-weight:bold;margin-bottom:8px">⚠ 加载超时</div>' +
+              '<div style="font-size:12px;max-width:600px;text-align:left">' +
+              'Vue 应用未能在 10 秒内挂载。可能原因：<br>' +
+              '1. 后端服务未启动（端口 5000）<br>' +
+              '2. JavaScript 模块加载失败<br>' +
+              '3. 网络连接问题' +
+              '</div>';
+            el.querySelector('.loading-spinner').style.display = 'none';
+          }
+        }
+      }, 10000);
+      // 全局错误捕获 — 白屏时显示错误信息
+      window.onerror = function(msg, url, line, col, err) {
+        var el = document.getElementById('app-loading');
+        if (el) {
+          el.querySelector('.loading-text').innerHTML =
+            '<div style="color:#f56c6c;font-weight:bold;margin-bottom:8px">⚠ 加载出错</div>' +
+            '<div style="font-size:12px;max-width:600px;word-break:break-all;text-align:left">' +
+            (msg || '未知错误') + (line ? ' (行 ' + line + ')' : '') +
+            '</div>' +
+            '<div style="font-size:11px;color:#999;margin-top:8px">请检查后端服务是否在端口 5000 上运行</div>';
+          el.querySelector('.loading-spinner').style.display = 'none';
+        }
+        console.error('[Global Error]', msg, url, line, col, err);
+      };
+      window.addEventListener('unhandledrejection', function(e) {
+        console.error('[Unhandled Promise]', e.reason);
+        var el = document.getElementById('app-loading');
+        if (el && el.querySelector('.loading-text')) {
+          el.querySelector('.loading-text').innerHTML =
+            '<div style="color:#e6a23c;font-weight:bold;margin-bottom:8px">⚠ 异步错误</div>' +
+            '<div style="font-size:12px;max-width:600px;word-break:break-all;text-align:left">' +
+            (e.reason?.message || e.reason || '未知异步错误') +
+            '</div>';
+          el.querySelector('.loading-spinner').style.display = 'none';
+        }
       });
     </script>
   </body>

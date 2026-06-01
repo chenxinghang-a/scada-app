@@ -1,4 +1,4 @@
-<template>
+﻿<template>
   <div class="history-page">
     <el-card shadow="hover">
       <template #header><span>历史数据查询</span></template>
@@ -61,9 +61,12 @@
 
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted, reactive } from 'vue'
+import { useRoute } from 'vue-router'
 import * as echarts from 'echarts'
 import { ElMessage } from 'element-plus'
 import { devicesApi, dataApi, type Device, type Register, type HistoryRecord } from '@/api'
+
+const route = useRoute()
 
 const devices = ref<Device[]>([])
 const registers = ref<Register[]>([])
@@ -83,7 +86,13 @@ function setQuickRange(range: string) {
 
 onMounted(async () => {
   setQuickRange('1h')
-  try { const data = await devicesApi.getAll(); devices.value = data.devices || [] } catch { /* ignore */ }
+  try { const data = await devicesApi.getAll(); devices.value = data.devices || [] } catch (e: any) { console.warn('[History] 加载失败:', e?.message || e) }
+  // 从路由query参数中读取设备ID（从设备管理页面跳转过来）
+  const queryDevice = route.query.device as string
+  if (queryDevice && devices.value.some(d => d.device_id === queryDevice)) {
+    filter.device_id = queryDevice
+    loadRegisters(queryDevice)
+  }
   if (chartRef.value) {
     chart = echarts.init(chartRef.value)
     chart.setOption({
@@ -102,7 +111,7 @@ onUnmounted(() => {
 })
 
 async function loadRegisters(deviceId: string) {
-  try { const data = await devicesApi.getById(deviceId); registers.value = data.device?.registers || [] } catch { /* ignore */ }
+  try { const data = await devicesApi.getById(deviceId); registers.value = data.device?.registers || [] } catch (e: any) { console.warn('[History] 加载失败:', e?.message || e) }
 }
 
 async function queryHistory() {
@@ -110,7 +119,7 @@ async function queryHistory() {
   loading.value = true
   try {
     const params: any = { interval: filter.interval }
-    if (filter.timeRange?.length === 2) { params.start_time = filter.timeRange[0].toISOString(); params.end_time = filter.timeRange[1].toISOString() }
+    if (filter.timeRange?.length === 2) { params.start = filter.timeRange[0].toISOString(); params.end = filter.timeRange[1].toISOString() }
     const data = await dataApi.getHistory(filter.device_id, filter.register_name, params)
     tableData.value = data.data || []
     if (chart) {
@@ -119,7 +128,7 @@ async function queryHistory() {
         series: [{ data: tableData.value.map(d => d.value) }],
       })
     }
-  } catch { /* ignore */ }
+  } catch (e: any) { console.warn('[History] 加载失败:', e?.message || e) }
   finally { loading.value = false }
 }
 
@@ -128,20 +137,24 @@ async function exportData() {
   try {
     const params: any = { format: 'csv' }
     if (filter.timeRange?.length === 2) {
-      params.start_time = filter.timeRange[0].toISOString()
-      params.end_time = filter.timeRange[1].toISOString()
+      params.start = filter.timeRange[0].toISOString()
+      params.end = filter.timeRange[1].toISOString()
     } else {
       // 默认导出最近24小时
-      params.start_time = new Date(Date.now() - 86400000).toISOString()
-      params.end_time = new Date().toISOString()
+      params.start = new Date(Date.now() - 86400000).toISOString()
+      params.end = new Date().toISOString()
     }
-    const res = await dataApi.exportDevice(filter.device_id, params) as any
-    if (res?.success && res?.filename) {
-      ElMessage.success(`导出成功: ${res.filename}`)
-    } else {
-      ElMessage.success('导出成功')
+    const blob = await dataApi.exportDevice(filter.device_id, params) as any
+    if (blob instanceof Blob) {
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `device_${filter.device_id}_${new Date().toISOString().slice(0, 10)}.csv`
+      a.click()
+      URL.revokeObjectURL(url)
     }
-  } catch { /* ignore */ }
+    ElMessage.success('导出成功')
+  } catch (e: any) { console.warn('[History] 加载失败:', e?.message || e) }
 }
 </script>
 
