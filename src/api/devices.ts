@@ -47,6 +47,14 @@ export const devicesApi = {
     return api.post(`/devices/${id}/test`) as Promise<{ success: boolean; message: string }>
   },
 
+  connect(id: string) {
+    return api.post(`/devices/${id}/connect`) as Promise<{ success: boolean; message: string }>
+  },
+
+  disconnect(id: string) {
+    return api.post(`/devices/${id}/disconnect`) as Promise<{ success: boolean; message: string }>
+  },
+
   getProtocols() {
     return api.get('/devices/protocols') as Promise<{ protocols: string[] }>
   },
@@ -55,11 +63,27 @@ export const devicesApi = {
     return api.get('/devices/templates') as Promise<{ templates: Record<string, any> }>
   },
 
+  getPresets() {
+    return api.get('/devices/presets') as Promise<{ presets: any[] }>
+  },
+
+  addPreset(presetId: string) {
+    return api.post('/devices/presets/add', { preset_id: presetId })
+  },
+
+  addAllPresets() {
+    return api.post('/devices/presets/add-all')
+  },
+
   injectFault(id: string, fault: any) {
     return api.post(`/devices/${id}/inject-fault`, fault)
   },
 
   forceState(id: string, state: any) {
     return api.post(`/devices/${id}/force-state`, state)
+  },
+
+  getBehavior(id: string) {
+    return api.get(`/devices/${id}/behavior`) as Promise<any>
   },
 }

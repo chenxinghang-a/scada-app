@@ -101,8 +101,7 @@
 <script setup lang="ts">
 import { ref, onMounted, reactive } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { authApi } from '@/api/auth'
-import api from '@/api/request'
+import { authApi } from '@/api'
 
 interface User { username: string; display_name: string; role: string }
 
@@ -143,9 +142,9 @@ function editUser(user: User) {
 async function saveUser() {
   try {
     if (isEdit.value) {
-      await api.put(`/auth/users/${form.username}`, { display_name: form.display_name, role: form.role })
+      await authApi.updateUser(form.username, { display_name: form.display_name, role: form.role })
     } else {
-      await api.post('/auth/register', form)
+      await authApi.register(form)
     }
     ElMessage.success(isEdit.value ? '用户已更新' : '用户已添加')
     dialogVisible.value = false
@@ -154,7 +153,7 @@ async function saveUser() {
 }
 
 async function deleteUser(username: string) {
-  try { await api.delete(`/auth/users/${username}`); ElMessage.success('用户已删除'); refreshUsers() } catch { /* ignore */ }
+  try { await authApi.deleteUser(username); ElMessage.success('用户已删除'); refreshUsers() } catch { /* ignore */ }
 }
 
 async function resetPassword(user: User) {
@@ -166,7 +165,7 @@ async function resetPassword(user: User) {
       inputValidator: (val) => (val && val.length >= 6) || '密码长度至少6位',
     })
     if (!newPwd) return
-    await api.put(`/auth/users/${user.username}`, { password: newPwd })
+    await authApi.updateUser(user.username, { password: newPwd })
     ElMessage.success(`用户 ${user.username} 密码已重置`)
   } catch { /* cancelled */ }
 }

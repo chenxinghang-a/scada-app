@@ -1,4 +1,5 @@
 import axios from 'axios'
+import type { AxiosRequestConfig } from 'axios'
 import { ElMessage } from 'element-plus'
 import router from '@/router'
 
@@ -11,6 +12,9 @@ const api = axios.create({
 
 // 防止 401 连锁跳转：标记正在跳转中，避免多个请求同时 401 导致反复刷新
 let isRedirectingToLogin = false
+// token 刷新中标记，防止并发刷新
+let isRefreshing = false
+let refreshQueue: Array<{ resolve: (token: string) => void; reject: (err: any) => void }> = []
 
 // 请求拦截器 - 注入 JWT token
 api.interceptors.request.use((config) => {
@@ -21,26 +25,83 @@ api.interceptors.request.use((config) => {
   return config
 })
 
-// 响应拦截器 - 统一错误处理
+// 刷新 token
+async function doRefreshToken(): Promise<string> {
+  const refreshToken = localStorage.getItem('scada_refresh_token')
+  if (!refreshToken) throw new Error('no refresh token')
+  const resp = await axios.post(
+    `${isDev ? '/api' : 'http://localhost:5000/api'}/auth/refresh`,
+    { refresh_token: refreshToken },
+    { timeout: 10000 }
+  )
+  const newToken = resp.data?.token
+  if (!newToken) throw new Error('refresh failed')
+  localStorage.setItem('auth_token', newToken)
+  if (resp.data?.refresh_token) {
+    localStorage.setItem('scada_refresh_token', resp.data.refresh_token)
+  }
+  return newToken
+}
+
+// 响应拦截器 - 统一错误处理 + token 自动刷新
 api.interceptors.response.use(
   (response) => response.data,
-  (error) => {
+  async (error) => {
+    const originalConfig = error.config as AxiosRequestConfig & { _retry?: boolean }
     if (error.response) {
       const { status, data } = error.response
-      if (status === 401) {
-        // 防止多个请求同时 401 导致反复跳转
-        if (!isRedirectingToLogin) {
-          isRedirectingToLogin = true
-          localStorage.removeItem('auth_token')
-          localStorage.removeItem('scada_user')
-          router.push('/login')
-          ElMessage.error('登录已过期，请重新登录')
-          // 2秒后重置标记，允许后续登录
-          setTimeout(() => { isRedirectingToLogin = false }, 2000)
+
+      // 401 且未重试过 → 尝试刷新 token
+      if (status === 401 && !originalConfig._retry) {
+        originalConfig._retry = true
+
+        if (!isRefreshing) {
+          isRefreshing = true
+          try {
+            const newToken = await doRefreshToken()
+            // 刷新成功，重试原始请求
+            if (originalConfig.headers) {
+              originalConfig.headers.Authorization = `Bearer ${newToken}`
+            }
+            // 通知队列中的等待者
+            refreshQueue.forEach(cb => cb.resolve(newToken))
+            refreshQueue = []
+            return api(originalConfig)
+          } catch {
+            // 刷新失败，清除登录状态
+            refreshQueue.forEach(cb => cb.reject(new Error('refresh failed')))
+            refreshQueue = []
+            if (!isRedirectingToLogin) {
+              isRedirectingToLogin = true
+              localStorage.removeItem('auth_token')
+              localStorage.removeItem('scada_refresh_token')
+              localStorage.removeItem('scada_user')
+              router.push('/login')
+              ElMessage.error('登录已过期，请重新登录')
+              setTimeout(() => { isRedirectingToLogin = false }, 2000)
+            }
+          } finally {
+            isRefreshing = false
+          }
+        } else {
+          // 正在刷新中，加入队列等待
+          return new Promise((resolve, reject) => {
+            refreshQueue.push({
+              resolve: (token: string) => {
+                if (originalConfig.headers) {
+                  originalConfig.headers.Authorization = `Bearer ${token}`
+                }
+                resolve(api(originalConfig))
+              },
+              reject,
+            })
+          })
         }
-      } else if (status === 403) {
+      }
+
+      if (status === 403) {
         ElMessage.error('权限不足')
-      } else {
+      } else if (status !== 401) {
         // 非 401/403 错误不跳转，只提示
         ElMessage.error(data?.error || `请求失败 (${status})`)
       }

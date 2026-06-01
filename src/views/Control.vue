@@ -178,8 +178,7 @@
 <script setup lang="ts">
 import { ref, onMounted, reactive, computed } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { devicesApi, type Device, type Register } from '@/api'
-import api from '@/api/request'
+import { devicesApi, controlApi, type Device, type Register } from '@/api'
 
 const devices = ref<Device[]>([])
 const currentRegisters = ref<Register[]>([])
@@ -222,7 +221,7 @@ async function onDeviceChange(deviceId: string) {
 
 async function loadSafetyStatus() {
   try {
-    const data = await api.get('/control/status') as any
+    const data = await controlApi.getStatus()
     if (data.estop) {
       eStop.active = data.estop.active
       eStop.reason = data.estop.reason || ''
@@ -235,7 +234,7 @@ async function loadSafetyStatus() {
 
 async function loadLogs() {
   try {
-    const data = await api.get('/control/logs?limit=20') as any
+    const data = await controlApi.getLogs({ per_page: 20 })
     controlLogs.value = data.logs || []
   } catch { /* ignore */ }
 }
@@ -244,14 +243,7 @@ async function writeRegister() {
   if (!regForm.device_id || !regForm.register_name) { ElMessage.warning('请选择设备和寄存器'); return }
   try {
     await ElMessageBox.confirm(`确认写入 ${regForm.register_name} = ${regForm.value}？`, '确认操作', { type: 'warning' })
-    // 后端要求 address 字段，从寄存器列表中查找地址
-    const reg = currentRegisters.value.find(r => r.name === regForm.register_name)
-    const address = reg?.address ?? 0
-    await api.post(`/devices/${regForm.device_id}/write-register`, {
-      address,
-      value: regForm.value,
-      register_name: regForm.register_name,
-    })
+    await controlApi.writeRegister(regForm.device_id, regForm.register_name, regForm.value)
     ElMessage.success('写入成功')
     loadLogs()
   } catch { /* handled */ }
@@ -261,13 +253,7 @@ async function writeCoil() {
   if (!coilForm.device_id || !coilForm.register_name) { ElMessage.warning('请选择设备和线圈'); return }
   try {
     await ElMessageBox.confirm(`确认写入 ${coilForm.register_name} = ${coilForm.value ? 'ON' : 'OFF'}？`, '确认操作', { type: 'warning' })
-    const reg = currentRegisters.value.find(r => r.name === coilForm.register_name)
-    const address = reg?.address ?? 0
-    await api.post(`/devices/${coilForm.device_id}/write-coil`, {
-      address,
-      value: coilForm.value,
-      register_name: coilForm.register_name,
-    })
+    await controlApi.writeCoil(coilForm.device_id, coilForm.register_name, coilForm.value)
     ElMessage.success('写入成功')
     loadLogs()
   } catch { /* handled */ }
@@ -276,7 +262,7 @@ async function writeCoil() {
 async function triggerEStop() {
   try {
     await ElMessageBox.confirm('确定执行紧急停止？此操作将停止所有设备！', '紧急停止', { type: 'error', confirmButtonText: '执行急停' })
-    await api.post('/control/estop')
+    await controlApi.eStop()
     ElMessage.success('急停已执行')
     loadSafetyStatus()
   } catch { /* cancelled */ }
@@ -284,7 +270,7 @@ async function triggerEStop() {
 
 async function resetEStop() {
   try {
-    await api.post('/control/estop/reset')
+    await controlApi.eStopReset()
     ElMessage.success('急停已重置')
     loadSafetyStatus()
   } catch { /* ignore */ }
@@ -292,7 +278,7 @@ async function resetEStop() {
 
 async function bypassInterlock(id: string) {
   try {
-    await api.post(`/control/interlocks/${id}/bypass`)
+    await controlApi.bypassInterlock(id)
     ElMessage.success('联锁已旁路')
     loadSafetyStatus()
   } catch { /* ignore */ }
@@ -300,7 +286,7 @@ async function bypassInterlock(id: string) {
 
 async function restoreInterlock(id: string) {
   try {
-    await api.post(`/control/interlocks/${id}/restore`)
+    await controlApi.restoreInterlock(id)
     ElMessage.success('联锁已恢复')
     loadSafetyStatus()
   } catch { /* ignore */ }
@@ -309,7 +295,7 @@ async function restoreInterlock(id: string) {
 async function batchControl(action: string) {
   try {
     await ElMessageBox.confirm(`确定执行「${action === 'start' ? '启动全部' : action === 'stop' ? '停止全部' : '重置全部'}」？`, '批量控制', { type: 'warning' })
-    await api.post('/control/batch', { action })
+    await controlApi.batchControl(action)
     ElMessage.success('指令已发送')
     loadLogs()
   } catch { /* cancelled */ }

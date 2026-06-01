@@ -35,6 +35,7 @@
               <el-option label="已确认" value="acknowledged" />
             </el-select>
             <el-button @click="refreshAlarms"><el-icon><Refresh /></el-icon> 刷新</el-button>
+            <el-button @click="exportAlarms" type="success"><el-icon><Download /></el-icon> 导出</el-button>
           </div>
         </div>
       </template>
@@ -114,6 +115,41 @@ async function acknowledge(id: string) {
     ElMessage.success('报警已确认')
     refreshAlarms()
   } catch { /* ignore */ }
+}
+
+async function exportAlarms() {
+  try {
+    const blob = await alarmsApi.exportAlarms('csv') as any
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `alarms-${new Date().toISOString().slice(0, 10)}.csv`
+    a.click()
+    URL.revokeObjectURL(url)
+    ElMessage.success('报警数据已导出')
+  } catch {
+    // 如果后端导出失败，用前端数据生成 CSV
+    const headers = ['时间', '设备', '参数', '等级', '报警信息', '阈值', '实际值', '状态']
+    const rows = alarms.value.map(a => [
+      new Date(a.timestamp).toLocaleString(),
+      a.device_id,
+      a.register_name,
+      a.alarm_level,
+      a.alarm_message,
+      a.threshold,
+      a.actual_value,
+      a.acknowledged ? '已确认' : '未确认',
+    ])
+    const csv = [headers.join(','), ...rows.map(r => r.join(','))].join('\n')
+    const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `alarms-${new Date().toISOString().slice(0, 10)}.csv`
+    a.click()
+    URL.revokeObjectURL(url)
+    ElMessage.success('报警数据已导出')
+  }
 }
 </script>
 

@@ -22,6 +22,10 @@ export const authApi = {
     }>
   },
 
+  logout() {
+    return api.post('/auth/logout') as Promise<{ success: boolean }>
+  },
+
   verify() {
     return api.get('/auth/verify') as Promise<{ valid: boolean; user: UserInfo }>
   },
@@ -33,6 +37,10 @@ export const authApi = {
     }>
   },
 
+  register(params: { username: string; password: string; role?: string; display_name?: string }) {
+    return api.post('/auth/register', params) as Promise<{ success: boolean; message: string }>
+  },
+
   changePassword(oldPassword: string, newPassword: string) {
     return api.post('/auth/change-password', {
       old_password: oldPassword,
@@ -42,6 +50,14 @@ export const authApi = {
 
   getUsers() {
     return api.get('/auth/users') as Promise<{ users: UserInfo[] }>
+  },
+
+  updateUser(username: string, data: { display_name?: string; role?: string; password?: string }) {
+    return api.put(`/auth/users/${username}`, data) as Promise<{ success: boolean; message: string }>
+  },
+
+  deleteUser(username: string) {
+    return api.delete(`/auth/users/${username}`) as Promise<{ success: boolean; message: string }>
   },
 
   getLogs(params?: { page?: number; per_page?: number }) {

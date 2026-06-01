@@ -50,7 +50,35 @@ export const systemApi = {
     return api.get('/system/simulation-mode') as Promise<{ simulation_mode: boolean }>
   },
 
+  setSimulationMode(enabled: boolean) {
+    return api.post('/system/simulation-mode', { simulation_mode: enabled }) as Promise<{ success: boolean }>
+  },
+
+  getConfig() {
+    return api.get('/config') as Promise<{ config: any }>
+  },
+
+  saveConfig(section: string, data: any) {
+    return api.put('/config', { section, data }) as Promise<{ success: boolean }>
+  },
+
   getHealth() {
     return api.get('/health') as Promise<{ status: string; checks: Record<string, boolean> }>
+  },
+
+  getHealthStatus() {
+    return api.get('/health/status') as Promise<any>
+  },
+
+  getHealthModules() {
+    return api.get('/health/modules') as Promise<any>
+  },
+
+  getHAStatus() {
+    return api.get('/system/ha-status') as Promise<any>
+  },
+
+  forceHARole(role: string) {
+    return api.post('/system/ha-force-role', { role }) as Promise<any>
   },
 }

@@ -335,9 +335,22 @@ function updateKPI(stats: SystemStatus) {
 function updateDeviceGrid(stats: SystemStatus) {
   if (!stats.devices) return
   const devs = Array.isArray(stats.devices) ? stats.devices : Object.values(stats.devices)
-  devs.forEach(d => { deviceCache[d.device_id || d.id || ''] = d })
-  allDeviceList.value = devs
-  if (!selectedDeviceId.value && devs.length > 0) selectedDeviceId.value = devs[0].device_id || devs[0].id || ''
+  // 合并而非覆盖：保留已有的 host、port 等静态字段
+  devs.forEach(d => {
+    const id = d.device_id || d.id || ''
+    const existing = deviceCache[id]
+    if (existing) {
+      // 合并：新数据覆盖旧数据，但保留旧数据中有而新数据中没有的字段
+      deviceCache[id] = { ...existing, ...d }
+      // 如果新数据没有 host 但旧数据有，保留旧的 host
+      if (!d.host && existing.host) deviceCache[id].host = existing.host
+      if (!(d as any).port && (existing as any).port) (deviceCache[id] as any).port = (existing as any).port
+    } else {
+      deviceCache[id] = d
+    }
+  })
+  allDeviceList.value = Object.values(deviceCache)
+  if (!selectedDeviceId.value && allDeviceList.value.length > 0) selectedDeviceId.value = allDeviceList.value[0].device_id || allDeviceList.value[0].id || ''
   if (socket?.connected) {
     devs.forEach(d => { const id = d.device_id || d.id; if (id) socket!.emit('subscribe', { device_id: id }) })
   }

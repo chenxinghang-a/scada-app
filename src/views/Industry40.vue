@@ -295,17 +295,19 @@ const TWIN_MAP: Record<string, any> = {
 }
 
 const twinConnections = computed(() => {
-  const pairs = [
-    ['siemens_1500_01', 'hollysys_lk_01'], ['hollysys_lk_01', 'mitsubishi_fx5u_01'],
-    ['mitsubishi_fx5u_01', 'delta_dvp_01'], ['delta_dvp_01', 'inovance_h5u_01'],
-    ['inovance_h5u_01', 'schneider_m340_01'], ['schneider_m340_01', 'abb_m4m_01'],
-    ['siemens_1500_01', 'schneider_m340_01'],
-  ]
-  return pairs.map(([a, b]) => {
-    const ma = TWIN_MAP[a], mb = TWIN_MAP[b]
-    if (!ma || !mb) return null
-    return { x1: ma.x + 40, y1: ma.y + 40, x2: mb.x + 40, y2: mb.y + 40 }
-  }).filter((c): c is {x1:number;y1:number;x2:number;y2:number} => c !== null)
+  const devs = twinDevices.value
+  if (devs.length < 2) return []
+  // 动态连线：相邻设备依次连接，形成产线拓扑
+  const conns: {x1:number;y1:number;x2:number;y2:number}[] = []
+  for (let i = 0; i < devs.length - 1; i++) {
+    conns.push({ x1: devs[i].x + 40, y1: devs[i].y + 40, x2: devs[i+1].x + 40, y2: devs[i+1].y + 40 })
+  }
+  // 首尾相连形成环形拓扑（如果设备数 >= 3）
+  if (devs.length >= 3) {
+    const last = devs[devs.length - 1]
+    conns.push({ x1: last.x + 40, y1: last.y + 40, x2: devs[0].x + 40, y2: devs[0].y + 40 })
+  }
+  return conns
 })
 
 // ========== 工具函数 ==========
@@ -322,7 +324,32 @@ async function loadOverview() {
     overview.power = data?.energy?.total_power_kw?.toFixed(1) || 0
     overview.carbon = data?.energy?.carbon_emission_kg?.toFixed(1) || 0
     overview.alerts = data?.alerts || []
+    renderProcessFlow(data)
   } catch { /* ignore */ }
+}
+
+function renderProcessFlow(data: any) {
+  if (!processFlowRef.value) return
+  if (!charts.processFlow) charts.processFlow = echarts.init(processFlowRef.value)
+  const devices = data?.device_statuses || data?.devices || []
+  const nodes = devices.map((d: any, i: number) => ({
+    name: d.device_id || d.name || `设备${i+1}`,
+    x: (i % 4) * 160 + 80,
+    y: Math.floor(i / 4) * 120 + 60,
+    symbolSize: 50,
+    itemStyle: { color: d.connected ? '#22c55e' : d.status === 'fault' ? '#ef4444' : '#f59e0b' },
+    label: { show: true, position: 'bottom', fontSize: 10, color: '#333' },
+  }))
+  const links = nodes.slice(1).map((_: any, i: number) => ({ source: nodes[i].name, target: nodes[i+1].name }))
+  charts.processFlow.setOption({
+    tooltip: { trigger: 'item' },
+    series: [{
+      type: 'graph', layout: 'none', roam: true,
+      data: nodes, links,
+      lineStyle: { color: '#4f46e5', curveness: 0.1 },
+      emphasis: { focus: 'adjacency' },
+    }],
+  })
 }
 
 async function loadPredictive() {
@@ -484,25 +511,76 @@ async function loadEdge() {
 
 async function loadTwin() {
   try {
-    const [devs, health, oee] = await Promise.all([
+    const [devs, health, oee, energyPower] = await Promise.all([
       industry40Api.getDevicesStatus(), industry40Api.getHealthScores(), industry40Api.getOEE(),
+      industry40Api.getEnergyPower().catch(() => null),
     ])
     const healthMap = new Map<string, number>()
     ;(health?.health_scores || []).forEach((h: any) => healthMap.set(h.device_id, h.health_score))
     const oeeMap = new Map<string, number>()
     ;(oee?.devices || []).forEach((o: any) => oeeMap.set(o.device_id, o.oee_percent))
+    const powerMap = new Map<string, number>()
+    ;(energyPower?.devices || []).forEach((p: any) => powerMap.set(p.device_id, p.power_kw || p.power || 0))
 
+    // 动态生成设备布局：用 TWIN_MAP 匹配已知设备，未知设备自动排列
+    const knownIds = Object.keys(TWIN_MAP)
+    let unknownIdx = 0
     twinDevices.value = (devs?.devices || []).map((d: any) => {
-      const m = TWIN_MAP[d.device_id] || {}
+      const m = TWIN_MAP[d.device_id]
+      if (m) {
+        return {
+          ...d, x: m.x, y: m.y, icon: m.icon,
+          name: m.name || d.device_id, process_type: m.process_type || '',
+          health_score: healthMap.get(d.device_id) || 0,
+          oee: oeeMap.get(d.device_id) || 0,
+          power: (powerMap.get(d.device_id) || 0).toFixed(1),
+        }
+      }
+      // 未知设备自动排列
+      const x = 100 + (unknownIdx % 4) * 180
+      const y = 60 + Math.floor(unknownIdx / 4) * 160
+      unknownIdx++
       return {
-        ...d, x: m.x || 0, y: m.y || 0, icon: m.icon || '⚙️',
-        name: m.name || d.device_id, process_type: m.process_type || '',
+        ...d, x, y, icon: '⚙️',
+        name: d.name || d.device_id, process_type: '',
         health_score: healthMap.get(d.device_id) || 0,
         oee: oeeMap.get(d.device_id) || 0,
-        power: (Math.random() * 50 + 10).toFixed(1),
+        power: (powerMap.get(d.device_id) || 0).toFixed(1),
       }
     })
   } catch { /* ignore */ }
+}
+
+async function loadSPCTab() {
+  // SPC tab 切换时，自动选择第一个设备的第一个寄存器并加载
+  if (!spc.deviceId && deviceList.value.length) {
+    const firstDev = deviceList.value[0]
+    spc.deviceId = firstDev.device_id
+    onSpcDeviceChange(firstDev.device_id)
+    if (spc.registers.length) {
+      spc.registerName = spc.registers[0]
+      await loadSPC()
+    }
+  }
+}
+
+// ========== 振动分析 ==========
+const vibrationData = ref<any[]>([])
+const vibrationSpectrum = ref<any[]>([])
+
+async function loadVibration() {
+  try {
+    const data = await industry40Api.getVibrationAll()
+    vibrationData.value = data?.vibrations || data?.devices || []
+    if (vibrationData.value.length) {
+      renderVibrationChart()
+    }
+  } catch { /* ignore */ }
+}
+
+function renderVibrationChart() {
+  // 振动分析在 Industry40 页面没有独立 tab，数据通过 overview 展示
+  // 此函数预留用于未来扩展
 }
 
 function selectTwinDevice(d: any) { twinSelected.value = d }
@@ -526,10 +604,11 @@ const loaders: Record<string, () => any> = {
   overview: loadOverview,
   predictive: loadPredictive,
   oee: loadOEE,
-  spc: () => {},
+  spc: loadSPCTab,
   energy: loadEnergy,
   edge: loadEdge,
   twin: loadTwin,
+  vibration: loadVibration,
 }
 
 function onTabChange(tab: string) {

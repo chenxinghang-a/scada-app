@@ -58,6 +58,18 @@ export const alarmsApi = {
     }>
   },
 
+  getFloodStatus() {
+    return api.get('/alarms/flood-status') as Promise<any>
+  },
+
+  getDedupConfig() {
+    return api.get('/alarms/dedup-config') as Promise<any>
+  },
+
+  setDedupConfig(config: any) {
+    return api.put('/alarms/dedup-config', config) as Promise<any>
+  },
+
   getRules() {
     return api.get('/alarm-rules') as Promise<{ rules: AlarmRule[] }>
   },
@@ -72,5 +84,29 @@ export const alarmsApi = {
 
   deleteRule(id: string) {
     return api.delete(`/alarm-rules/${id}`)
+  },
+
+  exportAlarms(format: string = 'csv') {
+    return api.post('/export/alarms', { format }, { responseType: 'blob' })
+  },
+
+  updateNotification(config: any) {
+    return api.put('/alarm-rules/notification', config) as Promise<any>
+  },
+
+  getAlarmOutputConfig() {
+    return api.get('/alarm-output/config') as Promise<any>
+  },
+
+  setAlarmOutputConfig(config: any) {
+    return api.put('/alarm-output/config', config) as Promise<any>
+  },
+
+  getBroadcastConfig() {
+    return api.get('/broadcast/config') as Promise<any>
+  },
+
+  setBroadcastConfig(config: any) {
+    return api.put('/broadcast/config', config) as Promise<any>
   },
 }

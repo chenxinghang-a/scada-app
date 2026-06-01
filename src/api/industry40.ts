@@ -85,6 +85,11 @@ export const industry40Api = {
     return api.get(`/industry40/maintenance-alerts?limit=${limit}`) as Promise<{ alerts: any[] }>
   },
 
+  // 趋势分析
+  getTrend(deviceId: string, registerName: string) {
+    return api.get(`/industry40/trend/${deviceId}/${registerName}`) as Promise<any>
+  },
+
   // OEE
   getOEE() {
     return api.get('/industry40/oee') as Promise<{ devices: OEERecord[] }>
@@ -117,6 +122,18 @@ export const industry40Api = {
   getEnergyPower() {
     return api.get('/industry40/energy/power') as Promise<any>
   },
+  getEnergyTariff() {
+    return api.get('/industry40/energy/tariff') as Promise<any>
+  },
+  setEnergyTariff(tariff: any) {
+    return api.put('/industry40/energy/tariff', tariff) as Promise<any>
+  },
+  getEnergyAnomalyConfig() {
+    return api.get('/industry40/energy/anomaly-config') as Promise<any>
+  },
+  setEnergyAnomalyConfig(config: any) {
+    return api.put('/industry40/energy/anomaly-config', config) as Promise<any>
+  },
 
   // 边缘决策
   getEdgeStatus() {
@@ -135,10 +152,16 @@ export const industry40Api = {
   },
 
   // 振动分析
+  getVibrationAll() {
+    return api.get('/industry40/vibration') as Promise<any>
+  },
   getVibration(deviceId: string) {
     return api.get(`/industry40/vibration/${deviceId}`) as Promise<any>
   },
   getVibrationSpectrum(deviceId: string) {
     return api.get(`/industry40/vibration/${deviceId}/spectrum`) as Promise<any>
+  },
+  getVibrationBearing(deviceId: string) {
+    return api.get(`/industry40/vibration/${deviceId}/bearing`) as Promise<any>
   },
 }

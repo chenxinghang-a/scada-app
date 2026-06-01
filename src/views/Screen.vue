@@ -131,14 +131,25 @@ async function loadData() {
 
 async function loadI40() {
   try {
-    const [oee, health, energy] = await Promise.all([
+    const [oee, health, energy, spcViolations] = await Promise.all([
       industry40Api.getOEE().catch(() => null),
       industry40Api.getHealthScores().catch(() => null),
       industry40Api.getEnergy().catch(() => null),
+      industry40Api.getSPCViolations().catch(() => null),
     ])
     if (oee?.devices?.length) renderOEEGauge(oee.devices)
     if (health?.health_scores?.length) renderHealthBar(health.health_scores)
     if (energy?.summary) renderEnergyBar(energy.summary)
+    // SPC 控制图：用第一个设备的第一个寄存器数据渲染
+    if (devices.value.length) {
+      const firstDev = devices.value[0]
+      const regs = firstDev.registers || []
+      const firstReg = regs[0]?.name || 'temperature'
+      try {
+        const spcData = await industry40Api.getSPC(firstDev.device_id, firstReg)
+        if (spcData?.chart_data) renderSPCChart(spcData.chart_data)
+      } catch { /* ignore */ }
+    }
   } catch { /* ignore */ }
 }
 
@@ -209,6 +220,27 @@ function renderEnergyBar(summary: any) {
         { value: summary.flat_kwh || 0, itemStyle: { color: '#f59e0b' } },
         { value: summary.valley_kwh || 0, itemStyle: { color: '#22c55e' } },
       ],
+    }],
+  })
+}
+
+function renderSPCChart(data: any) {
+  if (!spcRef.value) return
+  if (!charts.spc) charts.spc = echarts.init(spcRef.value)
+  const values = data.values || data.points || []
+  charts.spc.setOption({
+    tooltip: { trigger: 'axis' },
+    xAxis: { type: 'category', data: values.map((_: any, i: number) => i + 1), axisLabel: { color: '#999', fontSize: 9 } },
+    yAxis: { type: 'value', axisLabel: { color: '#999', fontSize: 9 }, splitLine: { lineStyle: { color: 'rgba(255,255,255,0.06)' } } },
+    grid: { left: 40, right: 10, top: 20, bottom: 20 },
+    series: [{
+      type: 'line', data: values, smooth: true, symbol: 'none',
+      lineStyle: { color: '#06b6d4', width: 1.5 },
+      markLine: { silent: true, lineStyle: { width: 1 }, data: [
+        { yAxis: data.ucl, lineStyle: { color: '#ef4444', type: 'dashed' }, label: { formatter: 'UCL', color: '#ef4444', fontSize: 9 } },
+        { yAxis: data.cl, lineStyle: { color: '#22c55e' }, label: { formatter: 'CL', color: '#22c55e', fontSize: 9 } },
+        { yAxis: data.lcl, lineStyle: { color: '#ef4444', type: 'dashed' }, label: { formatter: 'LCL', color: '#ef4444', fontSize: 9 } },
+      ]},
     }],
   })
 }

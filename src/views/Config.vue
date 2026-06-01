@@ -107,6 +107,54 @@
             <el-table-column prop="size" label="大小" width="120" />
           </el-table>
         </el-tab-pane>
+
+        <!-- 运维管理 -->
+        <el-tab-pane label="运维管理" name="ops">
+          <el-row :gutter="16">
+            <el-col :span="12">
+              <el-card shadow="hover" header="运行模式">
+                <el-form label-width="100px">
+                  <el-form-item label="当前模式">
+                    <el-tag :type="simulationMode ? 'warning' : 'success'" size="large">{{ simulationMode ? '模拟模式' : '实时模式' }}</el-tag>
+                  </el-form-item>
+                  <el-form-item label="切换模式">
+                    <el-switch v-model="simulationMode" active-text="模拟" inactive-text="实时" @change="toggleSimulationMode" />
+                  </el-form-item>
+                </el-form>
+              </el-card>
+            </el-col>
+            <el-col :span="12">
+              <el-card shadow="hover" header="系统健康">
+                <div v-if="healthStatus">
+                  <div v-for="(val, key) in healthStatus" :key="key" class="health-row">
+                    <span class="health-key">{{ key }}</span>
+                    <el-tag :type="val ? 'success' : 'danger'" size="small">{{ val ? '正常' : '异常' }}</el-tag>
+                  </div>
+                </div>
+                <el-empty v-else description="加载中..." :image-size="40" />
+                <el-button size="small" @click="loadHealthStatus" style="margin-top:8px">刷新</el-button>
+              </el-card>
+            </el-col>
+          </el-row>
+          <el-row :gutter="16" style="margin-top:16px">
+            <el-col :span="24">
+              <el-card shadow="hover" header="报警输出配置">
+                <el-form label-width="120px" style="max-width:600px">
+                  <el-form-item label="灯塔模式">
+                    <el-select v-model="alarmOutputConfig.mode" style="width:100%">
+                      <el-option label="自动模式" value="auto" />
+                      <el-option label="手动模式" value="manual" />
+                      <el-option label="禁用" value="disabled" />
+                    </el-select>
+                  </el-form-item>
+                  <el-form-item label="蜂鸣器启用"><el-switch v-model="alarmOutputConfig.buzzer_enabled" /></el-form-item>
+                  <el-form-item label="自动消音(秒)"><el-input-number v-model="alarmOutputConfig.auto_silence_seconds" :min="0" /></el-form-item>
+                  <el-form-item><el-button type="primary" @click="saveAlarmOutputConfig">保存报警输出配置</el-button></el-form-item>
+                </el-form>
+              </el-card>
+            </el-col>
+          </el-row>
+        </el-tab-pane>
       </el-tabs>
     </el-card>
 
@@ -149,7 +197,7 @@
 <script setup lang="ts">
 import { ref, onMounted, reactive, computed } from 'vue'
 import { ElMessage } from 'element-plus'
-import { systemApi, devicesApi, type Device } from '@/api'
+import { systemApi, devicesApi, alarmsApi, type Device } from '@/api'
 import api from '@/api/request'
 
 const activeTab = ref('system')
@@ -159,6 +207,9 @@ const systemStatus = ref<any>({})
 const dbInfo = ref<any>(null)
 const ruleDialogVisible = ref(false)
 const isEditRule = ref(false)
+const simulationMode = ref(false)
+const healthStatus = ref<any>(null)
+const alarmOutputConfig = reactive({ mode: 'auto', buzzer_enabled: true, auto_silence_seconds: 60 })
 
 const config = reactive({
   system: { name: 'SmartSCADA', port: 5000, host: '127.0.0.1', debug: false },
@@ -176,9 +227,26 @@ const dbTables = computed(() => {
 
 onMounted(async () => {
   try { const data = await devicesApi.getAll(); devices.value = data.devices || [] } catch { /* ignore */ }
+  loadConfig()
   loadSystemStatus()
   loadAlarmRules()
+  loadSimulationMode()
+  loadHealthStatus()
+  loadAlarmOutputConfig()
 })
+
+async function loadConfig() {
+  try {
+    const data = await api.get('/config') as any
+    if (data?.config) {
+      const c = data.config
+      if (c.system) Object.assign(config.system, c.system)
+      if (c.collection) Object.assign(config.collection, c.collection)
+      if (c.database) Object.assign(config.database, c.database)
+      if (c.energy) Object.assign(config.energy, c.energy)
+    }
+  } catch { /* 使用默认值 */ }
+}
 
 async function loadSystemStatus() {
   try {
@@ -228,6 +296,43 @@ async function deleteRule(id: string) {
   try { await api.delete(`/alarm-rules/${id}`); ElMessage.success('规则已删除'); loadAlarmRules() } catch { /* ignore */ }
 }
 
+async function loadSimulationMode() {
+  try {
+    const data = await systemApi.getSimulationMode()
+    simulationMode.value = data.simulation_mode
+  } catch { /* ignore */ }
+}
+
+async function toggleSimulationMode(val: boolean) {
+  try {
+    await systemApi.setSimulationMode(val)
+    ElMessage.success(`已切换为${val ? '模拟模式' : '实时模式'}`)
+  } catch {
+    simulationMode.value = !val
+  }
+}
+
+async function loadHealthStatus() {
+  try {
+    const data = await systemApi.getHealth()
+    healthStatus.value = data.checks || data
+  } catch { /* ignore */ }
+}
+
+async function loadAlarmOutputConfig() {
+  try {
+    const data = await alarmsApi.getAlarmOutputConfig()
+    if (data) Object.assign(alarmOutputConfig, data)
+  } catch { /* ignore */ }
+}
+
+async function saveAlarmOutputConfig() {
+  try {
+    await alarmsApi.setAlarmOutputConfig(alarmOutputConfig)
+    ElMessage.success('报警输出配置已保存')
+  } catch { /* ignore */ }
+}
+
 function exportConfig() {
   const blob = new Blob([JSON.stringify(config, null, 2)], { type: 'application/json' })
   const url = URL.createObjectURL(blob)
@@ -250,7 +355,13 @@ function importConfig() {
       const text = await file.text()
       const imported = JSON.parse(text)
       Object.assign(config, imported)
-      ElMessage.success('配置已导入，请点击各标签页的保存按钮生效')
+      // 自动保存所有配置段
+      for (const section of ['system', 'collection', 'database', 'energy']) {
+        if (imported[section]) {
+          try { await api.put('/config', { section, data: config[section as keyof typeof config] }) } catch { /* ignore */ }
+        }
+      }
+      ElMessage.success('配置已导入并保存')
     } catch {
       ElMessage.error('配置文件格式错误')
     }
@@ -261,4 +372,6 @@ function importConfig() {
 
 <style scoped>
 .mb-16 { margin-bottom: 16px; }
+.health-row { display: flex; align-items: center; justify-content: space-between; padding: 6px 0; border-bottom: 1px solid #f0f0f0; }
+.health-key { font-size: 13px; color: #333; }
 </style>
