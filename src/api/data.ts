@@ -41,13 +41,6 @@ export const dataApi = {
     return api.post(
       `/export/device/${deviceId}`,
       { format: 'csv', ...params },
-    )
-  },
-
-  exportAlarms(format: string = 'csv') {
-    return api.post(
-      '/export/alarms',
-      { format },
       { responseType: 'blob' }
     )
   },

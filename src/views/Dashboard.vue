@@ -152,6 +152,7 @@
 import { ref, computed, onMounted, onUnmounted, reactive } from 'vue'
 import * as echarts from 'echarts'
 import { io } from 'socket.io-client'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import { systemApi, devicesApi, dataApi, alarmsApi, industry40Api, type DeviceStatus, type SystemStatus, type Alarm } from '@/api'
 
 // ========== 状态 ==========
@@ -164,7 +165,6 @@ const trendChartRef = ref<HTMLElement>()
 let trendChart: echarts.ECharts | null = null
 let socket: ReturnType<typeof io> | null = null
 let loadTimer: ReturnType<typeof setInterval>
-let clockTimer: ReturnType<typeof setInterval>
 let loadDataInProgress = false
 let loadGeneration = 0
 
@@ -226,17 +226,12 @@ onMounted(() => {
   loadOEE()
   loadUserName()
   loadTimer = setInterval(loadData, 5000)
-  clockTimer = setInterval(() => {
-    const el = document.getElementById('topbar-clock')
-    if (el) el.textContent = new Date().toTimeString().slice(0, 8)
-  }, 1000)
 })
 
 onUnmounted(() => {
   trendChart?.dispose()
   socket?.disconnect()
   clearInterval(loadTimer)
-  clearInterval(clockTimer)
 })
 
 // ========== 数据加载 ==========
@@ -389,13 +384,15 @@ function getDeviceQuality(deviceId: string, regName: string): number | null {
 
 // ========== 设备控制 ==========
 async function toggleDevice(deviceId: string, stop: boolean) {
-  const action = stop ? 'stop' : 'start'
-  if (!confirm(`确认${stop ? '停止' : '启动'}设备 ${deviceId}？`)) return
+  const action = stop ? '停止' : '启动'
+  try {
+    await ElMessageBox.confirm(`确认${action}设备 ${deviceId}？`, '设备控制', { type: 'warning' })
+  } catch { return }
   try {
     const data = stop ? await devicesApi.stop(deviceId) : await devicesApi.start(deviceId)
     if (data.success) loadData()
-    else alert(data.message || '操作失败')
-  } catch (e: any) { alert('操作异常: ' + e.message) }
+    else ElMessage.error(data.message || '操作失败')
+  } catch (e: any) { ElMessage.error('操作异常: ' + e.message) }
 }
 
 // ========== 报警 ==========

@@ -88,7 +88,7 @@ const rules = {
   username: [{ required: true, message: '请输入用户名', trigger: 'blur' }],
   password: [
     { required: true, message: '请输入密码', trigger: 'blur' },
-    { min: 4, message: '密码长度至少4位', trigger: 'blur' },
+    { min: 6, message: '密码长度至少6位', trigger: 'blur' },
   ],
 }
 
@@ -99,6 +99,7 @@ async function handleLogin() {
   loading.value = true
   try {
     const data = await authStore.login(form.username, form.password)
+    if (!data) { ElMessage.error('登录响应异常'); return }
     if (data.success) {
       // 检查是否需要强制改密
       if (data.must_change_password) {

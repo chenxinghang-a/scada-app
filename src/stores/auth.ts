@@ -22,6 +22,7 @@ export const useAuthStore = defineStore('auth', () => {
 
   async function login(username: string, password: string) {
     const data = await authApi.login({ username, password })
+    if (!data) throw new Error('登录响应为空')
     if (data.success) {
       token.value = data.token
       refreshToken.value = data.refresh_token
@@ -63,15 +64,23 @@ export const useAuthStore = defineStore('auth', () => {
     localStorage.removeItem('auth_token')
     localStorage.removeItem('scada_refresh_token')
     localStorage.removeItem('scada_user')
+    localStorage.removeItem('scada_must_change_password')
   }
 
   // 从 localStorage 恢复用户信息
   const savedUser = localStorage.getItem('scada_user')
   if (savedUser) {
     try {
-      user.value = JSON.parse(savedUser)
+      const parsed = JSON.parse(savedUser)
+      if (parsed && typeof parsed === 'object' && parsed.username) {
+        user.value = parsed
+      } else {
+        // 数据结构异常，清除
+        localStorage.removeItem('scada_user')
+      }
     } catch {
-      // ignore
+      // JSON 解析失败，清除损坏数据
+      localStorage.removeItem('scada_user')
     }
   }
 

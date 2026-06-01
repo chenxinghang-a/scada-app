@@ -158,6 +158,7 @@ const currentTitle = computed(() => {
     '/history': '历史数据',
     '/alarms': '报警管理',
     '/alarm-output': '报警输出',
+    '/industry40': '工业4.0',
     '/config': '系统配置',
     '/users': '用户管理',
   }

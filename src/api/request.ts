@@ -18,15 +18,17 @@ let refreshQueue: Array<{ resolve: (token: string) => void; reject: (err: any) =
 
 // CSRF token 缓存
 let csrfToken: string | null = null
+let csrfAttempted = false
 
 async function ensureCsrfToken(): Promise<string | null> {
-  if (csrfToken) return csrfToken
+  if (csrfAttempted) return csrfToken
+  csrfAttempted = true
   try {
     const resp = await axios.get(`${isDev ? '/api' : 'http://localhost:5000/api'}/csrf-token`, { timeout: 5000 })
     csrfToken = resp.data?.csrf_token || null
     return csrfToken
   } catch {
-    // CSRF 端点可能不存在（后端未启用），忽略
+    // CSRF 端点不存在（后端未启用），不再重试
     return null
   }
 }

@@ -106,12 +106,18 @@ router.beforeEach((to, _from, next) => {
     try {
       const user = JSON.parse(localStorage.getItem('scada_user') || '{}')
       const allowedRoles = to.meta.roles as string[]
-      if (user.role && !allowedRoles.includes(user.role)) {
-        // 无权限，跳转仪表盘
+      // 无 role 或 role 不在允许列表中 → 拒绝访问
+      if (!user.role || !allowedRoles.includes(user.role)) {
         next('/dashboard')
         return
       }
-    } catch { /* ignore */ }
+    } catch {
+      // JSON 解析失败 → 数据损坏，跳登录页重新认证
+      localStorage.removeItem('auth_token')
+      localStorage.removeItem('scada_user')
+      next('/login')
+      return
+    }
   }
 
   next()

@@ -319,10 +319,10 @@ function trendArrow(t: string) { return t === 'rising' ? '↑' : t === 'falling'
 async function loadOverview() {
   try {
     const data = await industry40Api.getOverview()
-    overview.health = data?.predictive_maintenance?.avg_health_score?.toFixed(1) || 0
-    overview.oee = data?.oee?.avg_oee_percent?.toFixed(1) || 0
-    overview.power = data?.energy?.total_power_kw?.toFixed(1) || 0
-    overview.carbon = data?.energy?.carbon_emission_kg?.toFixed(1) || 0
+    overview.health = Number(data?.predictive_maintenance?.avg_health_score?.toFixed(1)) || 0
+    overview.oee = Number(data?.oee?.avg_oee_percent?.toFixed(1)) || 0
+    overview.power = Number(data?.energy?.total_power_kw?.toFixed(1)) || 0
+    overview.carbon = Number(data?.energy?.carbon_emission_kg?.toFixed(1)) || 0
     overview.alerts = data?.alerts || []
     renderProcessFlow(data)
   } catch { /* ignore */ }

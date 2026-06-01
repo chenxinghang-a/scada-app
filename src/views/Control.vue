@@ -176,7 +176,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, reactive, computed } from 'vue'
+import { ref, onMounted, onUnmounted, reactive, computed } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { devicesApi, controlApi, type Device, type Register } from '@/api'
 
@@ -203,6 +203,10 @@ onMounted(async () => {
   loadSafetyStatus()
   loadLogs()
   statusTimer = setInterval(loadSafetyStatus, 10000)
+})
+
+onUnmounted(() => {
+  clearInterval(statusTimer)
 })
 
 async function loadDevices() {

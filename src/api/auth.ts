@@ -20,7 +20,7 @@ export const authApi = {
       refresh_token: string
       user: UserInfo
       must_change_password?: boolean
-    }>
+    } | null>
   },
 
   logout() {
