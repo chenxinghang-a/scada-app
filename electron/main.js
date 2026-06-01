@@ -13,7 +13,7 @@ if (!gotTheLock) {
 let mainWindow = null
 let tray = null
 let backendProcess = null
-const BACKEND_PORT = 5000
+const BACKEND_PORT = 5000  // 模拟模式端口
 const isDev = !app.isPackaged
 
 // ============ 开机自启管理 ============
@@ -28,6 +28,48 @@ function setAutoLaunch(enabled) {
     args: ['--hidden'],
   })
   console.log(`开机自启: ${enabled ? '已启用' : '已禁用'}`)
+}
+
+// ============ 快捷方式管理 ============
+function createShortcuts() {
+  const { shell } = require('electron')
+  const exePath = app.getPath('exe')
+
+  // 桌面快捷方式
+  const desktopPath = app.getPath('desktop')
+  const shortcutPath = path.join(desktopPath, 'SmartSCADA.lnk')
+
+  // 检查是否已存在
+  if (!fs.existsSync(shortcutPath)) {
+    shell.writeShortcutLink(shortcutPath, {
+      target: exePath,
+      cwd: path.dirname(exePath),
+      description: 'SmartSCADA - 工业数据采集与监控系统',
+      icon: exePath,
+      iconIndex: 0,
+    })
+    console.log('桌面快捷方式已创建')
+  }
+
+  // 开始菜单快捷方式
+  const startMenuPath = app.getPath('startMenu')
+  const programsPath = path.join(startMenuPath, 'Programs', 'SmartSCADA')
+
+  if (!fs.existsSync(programsPath)) {
+    fs.mkdirSync(programsPath, { recursive: true })
+  }
+
+  const startMenuShortcut = path.join(programsPath, 'SmartSCADA.lnk')
+  if (!fs.existsSync(startMenuShortcut)) {
+    shell.writeShortcutLink(startMenuShortcut, {
+      target: exePath,
+      cwd: path.dirname(exePath),
+      description: 'SmartSCADA - 工业数据采集与监控系统',
+      icon: exePath,
+      iconIndex: 0,
+    })
+    console.log('开始菜单快捷方式已创建')
+  }
 }
 
 // ============ 环境检查 ============
@@ -293,6 +335,9 @@ app.whenReady().then(async () => {
     app.quit()
     return
   }
+
+  // 创建快捷方式（首次运行时）
+  createShortcuts()
 
   // 创建托盘
   createTray()
