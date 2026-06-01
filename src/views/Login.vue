@@ -61,7 +61,7 @@
           <el-icon><Monitor /></el-icon>
           <span>SmartSCADA v1.0.0</span>
         </div>
-        <div class="footer-hint">默认账号: admin / admin123</div>
+        <div v-if="isDev" class="footer-hint">默认账号: admin / admin123</div>
       </div>
     </div>
   </div>
@@ -73,6 +73,8 @@ import { useRouter } from 'vue-router'
 import { User, Lock } from '@element-plus/icons-vue'
 import { ElMessage, type FormInstance } from 'element-plus'
 import { useAuthStore } from '@/stores/auth'
+
+const isDev = import.meta.env.DEV
 
 const router = useRouter()
 const authStore = useAuthStore()

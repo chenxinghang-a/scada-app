@@ -28,7 +28,7 @@
         <el-table-column label="用户" width="200">
           <template #default="{ row }">
             <div class="user-cell">
-              <el-avatar :size="32" class="user-avatar">{{ (row.display_name || row.username)[0] }}</el-avatar>
+              <el-avatar :size="32" class="user-avatar">{{ (row.display_name || row.username || '?')[0] }}</el-avatar>
               <div>
                 <div class="user-name">{{ row.display_name || row.username }}</div>
                 <div class="user-id">{{ row.username }}</div>

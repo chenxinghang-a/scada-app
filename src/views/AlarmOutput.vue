@@ -108,6 +108,7 @@ import { ref, onMounted, reactive, onUnmounted } from 'vue'
 import { ElMessage } from 'element-plus'
 import { io } from 'socket.io-client'
 import { alarmsApi } from '@/api'
+import { getAuthToken } from '@/api/request'
 
 const towerStatus = reactive({ red: false, yellow: false, green: false, buzzer: false, flash: false, level: '', message: '', mode: 'simulation' })
 const manual = reactive({ red: false, yellow: false, green: false, buzzer: false, duration: 10 })
@@ -128,25 +129,28 @@ onUnmounted(() => { socket?.disconnect() })
 async function loadStatus() {
   try {
     const data = await alarmsApi.getAlarmOutputStatus()
+    if (!data) return
     Object.assign(towerStatus, data.tower || {})
     towerStatus.mode = data.mode || 'simulation'
   } catch { /* ignore */ }
 }
 
 async function loadAreas() {
-  try { const data = await alarmsApi.getBroadcastAreas(); broadcastAreas.value = data.areas || [] } catch { /* ignore */ }
+  try { const data = await alarmsApi.getBroadcastAreas(); broadcastAreas.value = Array.isArray(data?.areas) ? data.areas : [] } catch { /* ignore */ }
 }
 
 async function loadHistory() {
-  try { const data = await alarmsApi.getBroadcastHistory(30); broadcastHistory.value = data.history || [] } catch { /* ignore */ }
+  try { const data = await alarmsApi.getBroadcastHistory(30); broadcastHistory.value = Array.isArray(data?.history) ? data.history : [] } catch { /* ignore */ }
 }
 
 function connectSocket() {
   const socketUrl = import.meta.env.DEV ? window.location.origin : 'http://localhost:5000'
+  const token = getAuthToken()
   socket = io(socketUrl, {
     transports: ['websocket', 'polling'],
     reconnection: true,
     reconnectionDelay: 3000,
+    auth: token ? { token } : undefined,
   })
   socket.on('alarm', () => loadStatus())
   socket.on('broadcast', (data: any) => { if (data) broadcastHistory.value.unshift(data) })

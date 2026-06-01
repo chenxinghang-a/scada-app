@@ -68,6 +68,11 @@ async function doRefreshToken(): Promise<string> {
   return newToken
 }
 
+// 获取认证 token（供外部如 WebSocket 使用）
+export function getAuthToken(): string | null {
+  return localStorage.getItem('auth_token')
+}
+
 // 响应拦截器 - 统一错误处理 + token 自动刷新
 api.interceptors.response.use(
   (response) => response.data,
@@ -92,7 +97,7 @@ api.interceptors.response.use(
             refreshQueue.forEach(cb => cb.resolve(newToken))
             refreshQueue = []
             return api(originalConfig)
-          } catch {
+          } catch (refreshErr) {
             // 刷新失败，清除登录状态
             refreshQueue.forEach(cb => cb.reject(new Error('refresh failed')))
             refreshQueue = []
@@ -101,10 +106,13 @@ api.interceptors.response.use(
               localStorage.removeItem('auth_token')
               localStorage.removeItem('scada_refresh_token')
               localStorage.removeItem('scada_user')
+              localStorage.removeItem('scada_must_change_password')
               router.push('/login')
               ElMessage.error('登录已过期，请重新登录')
               setTimeout(() => { isRedirectingToLogin = false }, 2000)
             }
+            // 必须 reject，否则调用方收到 undefined 会崩溃
+            return Promise.reject(refreshErr)
           } finally {
             isRefreshing = false
           }

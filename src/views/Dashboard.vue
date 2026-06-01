@@ -154,6 +154,7 @@ import * as echarts from 'echarts'
 import { io } from 'socket.io-client'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { systemApi, devicesApi, dataApi, alarmsApi, industry40Api, type DeviceStatus, type SystemStatus, type Alarm } from '@/api'
+import { getAuthToken } from '@/api/request'
 
 // ========== 状态 ==========
 const allDeviceList = ref<DeviceStatus[]>([])
@@ -520,7 +521,14 @@ function downloadCSV(csv: string, filename: string) {
 // ========== WebSocket ==========
 function connectSocket() {
   const socketUrl = import.meta.env.DEV ? window.location.origin : 'http://localhost:5000'
-  socket = io(socketUrl, { transports: ['websocket', 'polling'], reconnection: true, reconnectionDelay: 3000, reconnectionAttempts: Infinity })
+  const token = getAuthToken()
+  socket = io(socketUrl, {
+    transports: ['websocket', 'polling'],
+    reconnection: true,
+    reconnectionDelay: 3000,
+    reconnectionAttempts: Infinity,
+    auth: token ? { token } : undefined,
+  })
   socket.on('connect', () => {
     statusDotClass.value = 'status-dot green'
     statusText.value = '系统运行中'

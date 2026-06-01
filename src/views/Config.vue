@@ -443,7 +443,13 @@ function importConfig() {
     try {
       const text = await file.text()
       const imported = JSON.parse(text)
-      Object.assign(config, imported)
+      // 安全校验：只接受已知配置段，防止原型链污染
+      const allowedSections = ['system', 'collection', 'database', 'energy']
+      for (const section of allowedSections) {
+        if (imported[section] && typeof imported[section] === 'object' && imported[section] !== null) {
+          Object.assign((config as any)[section], imported[section])
+        }
+      }
       // 自动保存所有配置段
       for (const section of ['system', 'collection', 'database', 'energy']) {
         if (imported[section]) {

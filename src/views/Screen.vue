@@ -63,6 +63,7 @@ import { ref, reactive, onMounted, onUnmounted } from 'vue'
 import * as echarts from 'echarts'
 import { io } from 'socket.io-client'
 import { systemApi, alarmsApi, industry40Api, dataApi } from '@/api'
+import { getAuthToken } from '@/api/request'
 
 const clock = ref('')
 const devices = ref<any[]>([])
@@ -271,7 +272,13 @@ function renderTrend(data: any[]) {
 
 function connectSocket() {
   const url = import.meta.env.DEV ? window.location.origin : 'http://localhost:5000'
-  socket = io(url, { transports: ['websocket', 'polling'], reconnection: true, reconnectionDelay: 3000 })
+  const token = getAuthToken()
+  socket = io(url, {
+    transports: ['websocket', 'polling'],
+    reconnection: true,
+    reconnectionDelay: 3000,
+    auth: token ? { token } : undefined,
+  })
   socket.on('connect', () => {
     devices.value.forEach((d: any) => { if (d.device_id) socket.emit('subscribe', { device_id: d.device_id }) })
   })

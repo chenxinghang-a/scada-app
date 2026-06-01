@@ -60,7 +60,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, reactive } from 'vue'
+import { ref, onMounted, onUnmounted, reactive } from 'vue'
 import * as echarts from 'echarts'
 import { ElMessage } from 'element-plus'
 import { devicesApi, dataApi, type Device, type Register, type HistoryRecord } from '@/api'
@@ -94,6 +94,11 @@ onMounted(async () => {
       series: [{ type: 'line', smooth: true, showSymbol: false, areaStyle: { opacity: 0.15 }, data: [] }],
     })
   }
+})
+
+onUnmounted(() => {
+  chart?.dispose()
+  chart = null
 })
 
 async function loadRegisters(deviceId: string) {

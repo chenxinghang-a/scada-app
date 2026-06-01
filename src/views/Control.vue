@@ -192,8 +192,10 @@ const regForm = reactive({ device_id: '', register_name: '', value: 0 })
 const coilForm = reactive({ device_id: '', register_name: '', value: true })
 
 const canControl = computed(() => {
-  const user = JSON.parse(localStorage.getItem('scada_user') || '{}')
-  return ['admin', 'engineer'].includes(user.role)
+  try {
+    const user = JSON.parse(localStorage.getItem('scada_user') || '{}')
+    return ['admin', 'engineer'].includes(user.role)
+  } catch { return false }
 })
 
 let statusTimer: ReturnType<typeof setInterval>
@@ -226,20 +228,21 @@ async function onDeviceChange(deviceId: string) {
 async function loadSafetyStatus() {
   try {
     const data = await controlApi.getStatus()
+    if (!data) return
     if (data.estop) {
-      eStop.active = data.estop.active
+      eStop.active = !!data.estop.active
       eStop.reason = data.estop.reason || ''
       eStop.time = data.estop.time || ''
     }
-    interlocks.value = data.interlocks || []
-    deviceHealth.value = data.health || []
+    interlocks.value = Array.isArray(data.interlocks) ? data.interlocks : []
+    deviceHealth.value = Array.isArray(data.health) ? data.health : []
   } catch { /* ignore */ }
 }
 
 async function loadLogs() {
   try {
     const data = await controlApi.getLogs({ per_page: 20 })
-    controlLogs.value = data.logs || []
+    controlLogs.value = Array.isArray(data?.logs) ? data.logs : []
   } catch { /* ignore */ }
 }
 
