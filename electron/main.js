@@ -32,43 +32,46 @@ function setAutoLaunch(enabled) {
 
 // ============ 快捷方式管理 ============
 function createShortcuts() {
-  const { shell } = require('electron')
-  const exePath = app.getPath('exe')
+  try {
+    const { shell } = require('electron')
+    const exePath = app.getPath('exe')
 
-  // 桌面快捷方式
-  const desktopPath = app.getPath('desktop')
-  const shortcutPath = path.join(desktopPath, 'SmartSCADA.lnk')
+    // 桌面快捷方式
+    const desktopPath = app.getPath('desktop')
+    const shortcutPath = path.join(desktopPath, 'SmartSCADA.lnk')
 
-  // 检查是否已存在
-  if (!fs.existsSync(shortcutPath)) {
-    shell.writeShortcutLink(shortcutPath, {
-      target: exePath,
-      cwd: path.dirname(exePath),
-      description: 'SmartSCADA - 工业数据采集与监控系统',
-      icon: exePath,
-      iconIndex: 0,
-    })
-    console.log('桌面快捷方式已创建')
-  }
+    if (!fs.existsSync(shortcutPath)) {
+      shell.writeShortcutLink(shortcutPath, {
+        target: exePath,
+        cwd: path.dirname(exePath),
+        description: 'SmartSCADA - 工业数据采集与监控系统',
+      })
+      console.log('桌面快捷方式已创建')
+    }
 
-  // 开始菜单快捷方式
-  const startMenuPath = app.getPath('startMenu')
-  const programsPath = path.join(startMenuPath, 'Programs', 'SmartSCADA')
+    // 开始菜单快捷方式（使用 APPDATA 路径）
+    const appData = process.env.APPDATA || path.join(require('os').homedir(), 'AppData', 'Roaming')
+    const programsPath = path.join(appData, 'Microsoft', 'Windows', 'Start Menu', 'Programs', 'SmartSCADA')
 
-  if (!fs.existsSync(programsPath)) {
-    fs.mkdirSync(programsPath, { recursive: true })
-  }
+    try {
+      if (!fs.existsSync(programsPath)) {
+        fs.mkdirSync(programsPath, { recursive: true })
+      }
 
-  const startMenuShortcut = path.join(programsPath, 'SmartSCADA.lnk')
-  if (!fs.existsSync(startMenuShortcut)) {
-    shell.writeShortcutLink(startMenuShortcut, {
-      target: exePath,
-      cwd: path.dirname(exePath),
-      description: 'SmartSCADA - 工业数据采集与监控系统',
-      icon: exePath,
-      iconIndex: 0,
-    })
-    console.log('开始菜单快捷方式已创建')
+      const startMenuShortcut = path.join(programsPath, 'SmartSCADA.lnk')
+      if (!fs.existsSync(startMenuShortcut)) {
+        shell.writeShortcutLink(startMenuShortcut, {
+          target: exePath,
+          cwd: path.dirname(exePath),
+          description: 'SmartSCADA - 工业数据采集与监控系统',
+        })
+        console.log('开始菜单快捷方式已创建')
+      }
+    } catch (e) {
+      console.log('开始菜单快捷方式创建跳过:', e.message)
+    }
+  } catch (e) {
+    console.log('快捷方式创建跳过:', e.message)
   }
 }
 
