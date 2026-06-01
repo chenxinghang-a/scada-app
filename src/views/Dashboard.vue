@@ -152,9 +152,7 @@
 import { ref, computed, onMounted, onUnmounted, reactive } from 'vue'
 import * as echarts from 'echarts'
 import { io } from 'socket.io-client'
-import { systemApi, type DeviceStatus, type SystemStatus } from '@/api'
-import { alarmsApi, type Alarm } from '@/api'
-import api from '@/api/request'
+import { systemApi, devicesApi, dataApi, alarmsApi, industry40Api, type DeviceStatus, type SystemStatus, type Alarm } from '@/api'
 
 // ========== 状态 ==========
 const allDeviceList = ref<DeviceStatus[]>([])
@@ -249,7 +247,7 @@ async function loadData() {
   try {
     // 1. 先加载 realtime 数据填充缓存（确保首次不显示 "--"）
     try {
-      const data = await api.get('/data/realtime?limit=5000') as any
+      const data = await dataApi.getRealtime() as any
       if (gen !== loadGeneration) return
       if (data?.data) {
         data.data.forEach((item: any) => {
@@ -291,7 +289,7 @@ async function loadData() {
 
 async function loadOEE() {
   try {
-    const data = await api.get('/industry40/oee') as any
+    const data = await industry40Api.getOEE() as any
     if (data?.devices?.length) {
       kpi.oee = Math.round(data.devices.reduce((s: number, d: any) => s + d.oee_percent, 0) / data.devices.length)
     }
@@ -394,7 +392,7 @@ async function toggleDevice(deviceId: string, stop: boolean) {
   const action = stop ? 'stop' : 'start'
   if (!confirm(`确认${stop ? '停止' : '启动'}设备 ${deviceId}？`)) return
   try {
-    const data = await api.post(`/devices/${deviceId}/${action}`) as any
+    const data = stop ? await devicesApi.stop(deviceId) : await devicesApi.start(deviceId)
     if (data.success) loadData()
     else alert(data.message || '操作失败')
   } catch (e: any) { alert('操作异常: ' + e.message) }
@@ -503,7 +501,7 @@ function exportChartData() {
 
 async function exportAllData() {
   try {
-    const data = await api.get('/data/realtime?limit=10000') as any
+    const data = await dataApi.getRealtime() as any
     if (!data?.data?.length) { alert('无数据可导出'); return }
     let csv = '﻿设备ID,寄存器,值,单位,时间\n'
     data.data.forEach((item: any) => {

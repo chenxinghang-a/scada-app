@@ -62,8 +62,7 @@
 import { ref, reactive, onMounted, onUnmounted } from 'vue'
 import * as echarts from 'echarts'
 import { io } from 'socket.io-client'
-import { systemApi, alarmsApi, industry40Api } from '@/api'
-import api from '@/api/request'
+import { systemApi, alarmsApi, industry40Api, dataApi } from '@/api'
 
 const clock = ref('')
 const devices = ref<any[]>([])
@@ -117,7 +116,7 @@ async function loadData() {
   } catch { /* ignore */ }
 
   try {
-    const data = await api.get('/data/realtime?limit=2000') as any
+    const data = await dataApi.getRealtime() as any
     if (data?.data) {
       data.data.forEach((item: any) => {
         if (item.device_id && item.register_name && item.value != null) {

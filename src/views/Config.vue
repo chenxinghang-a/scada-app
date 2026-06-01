@@ -137,9 +137,9 @@
             </el-col>
           </el-row>
           <el-row :gutter="16" style="margin-top:16px">
-            <el-col :span="24">
+            <el-col :span="12">
               <el-card shadow="hover" header="报警输出配置">
-                <el-form label-width="120px" style="max-width:600px">
+                <el-form label-width="120px">
                   <el-form-item label="灯塔模式">
                     <el-select v-model="alarmOutputConfig.mode" style="width:100%">
                       <el-option label="自动模式" value="auto" />
@@ -149,8 +149,56 @@
                   </el-form-item>
                   <el-form-item label="蜂鸣器启用"><el-switch v-model="alarmOutputConfig.buzzer_enabled" /></el-form-item>
                   <el-form-item label="自动消音(秒)"><el-input-number v-model="alarmOutputConfig.auto_silence_seconds" :min="0" /></el-form-item>
-                  <el-form-item><el-button type="primary" @click="saveAlarmOutputConfig">保存报警输出配置</el-button></el-form-item>
+                  <el-form-item><el-button type="primary" @click="saveAlarmOutputConfig">保存</el-button></el-form-item>
                 </el-form>
+              </el-card>
+            </el-col>
+            <el-col :span="12">
+              <el-card shadow="hover" header="报警升级配置">
+                <el-form label-width="140px">
+                  <el-form-item label="启用报警升级"><el-switch v-model="alarmEscalation.enabled" /></el-form-item>
+                  <el-form-item label="升级阈值(分钟)"><el-input-number v-model="alarmEscalation.timeout_minutes" :min="1" /></el-form-item>
+                  <el-form-item label="升级目标等级">
+                    <el-select v-model="alarmEscalation.escalate_to" style="width:100%">
+                      <el-option label="严重 (critical)" value="critical" />
+                      <el-option label="警告 (warning)" value="warning" />
+                    </el-select>
+                  </el-form-item>
+                  <el-form-item label="通知方式">
+                    <el-checkbox-group v-model="alarmEscalation.notify_methods">
+                      <el-checkbox label="sound">声光报警</el-checkbox>
+                      <el-checkbox label="broadcast">广播通知</el-checkbox>
+                    </el-checkbox-group>
+                  </el-form-item>
+                  <el-form-item><el-button type="primary" @click="saveAlarmEscalation">保存</el-button></el-form-item>
+                </el-form>
+              </el-card>
+            </el-col>
+          </el-row>
+          <el-row :gutter="16" style="margin-top:16px">
+            <el-col :span="24">
+              <el-card shadow="hover" header="数据归档管理">
+                <el-row :gutter="16">
+                  <el-col :span="12">
+                    <el-form label-width="140px">
+                      <el-form-item label="自动归档"><el-switch v-model="archiveConfig.auto_archive" /></el-form-item>
+                      <el-form-item label="归档周期(天)"><el-input-number v-model="archiveConfig.archive_interval_days" :min="1" /></el-form-item>
+                      <el-form-item label="数据保留(天)"><el-input-number v-model="archiveConfig.retention_days" :min="1" /></el-form-item>
+                      <el-form-item label="压缩已归档数据"><el-switch v-model="archiveConfig.compress_archived" /></el-form-item>
+                      <el-form-item>
+                        <el-button type="primary" @click="saveArchiveConfig">保存归档策略</el-button>
+                        <el-button @click="triggerArchive" :loading="archiveLoading">立即归档</el-button>
+                      </el-form-item>
+                    </el-form>
+                  </el-col>
+                  <el-col :span="12">
+                    <el-descriptions :column="1" border size="small">
+                      <el-descriptions-item label="历史数据总量">{{ dbTables.reduce((s, t) => t.name === 'history_data' ? s + t.rows : s, 0) }} 条</el-descriptions-item>
+                      <el-descriptions-item label="归档数据总量">{{ dbTables.reduce((s, t) => t.name === 'history_archive' ? s + t.rows : s, 0) }} 条</el-descriptions-item>
+                      <el-descriptions-item label="数据库大小">{{ dbTables.reduce((s, t) => s + (t.size || ''), '').toString() || '-' }}</el-descriptions-item>
+                    </el-descriptions>
+                  </el-col>
+                </el-row>
               </el-card>
             </el-col>
           </el-row>
@@ -198,7 +246,6 @@
 import { ref, onMounted, reactive, computed } from 'vue'
 import { ElMessage } from 'element-plus'
 import { systemApi, devicesApi, alarmsApi, type Device } from '@/api'
-import api from '@/api/request'
 
 const activeTab = ref('system')
 const devices = ref<Device[]>([])
@@ -210,6 +257,9 @@ const isEditRule = ref(false)
 const simulationMode = ref(false)
 const healthStatus = ref<any>(null)
 const alarmOutputConfig = reactive({ mode: 'auto', buzzer_enabled: true, auto_silence_seconds: 60 })
+const alarmEscalation = reactive({ enabled: false, timeout_minutes: 30, escalate_to: 'critical', notify_methods: ['sound'] as string[] })
+const archiveConfig = reactive({ auto_archive: true, archive_interval_days: 7, retention_days: 90, compress_archived: true })
+const archiveLoading = ref(false)
 
 const config = reactive({
   system: { name: 'SmartSCADA', port: 5000, host: '127.0.0.1', debug: false },
@@ -233,11 +283,13 @@ onMounted(async () => {
   loadSimulationMode()
   loadHealthStatus()
   loadAlarmOutputConfig()
+  loadAlarmEscalation()
+  loadArchiveConfig()
 })
 
 async function loadConfig() {
   try {
-    const data = await api.get('/config') as any
+    const data = await systemApi.getConfig()
     if (data?.config) {
       const c = data.config
       if (c.system) Object.assign(config.system, c.system)
@@ -257,12 +309,12 @@ async function loadSystemStatus() {
 }
 
 async function loadAlarmRules() {
-  try { const data = await api.get('/alarm-rules') as any; alarmRules.value = data.rules || [] } catch { /* ignore */ }
+  try { const data = await alarmsApi.getRules(); alarmRules.value = data.rules || [] } catch { /* ignore */ }
 }
 
 async function saveConfig(section: string) {
   try {
-    await api.put('/config', { section, data: (config as any)[section] })
+    await systemApi.saveConfig(section, (config as any)[section])
     ElMessage.success('配置已保存')
   } catch { /* ignore */ }
 }
@@ -282,9 +334,9 @@ function editRule(rule: any) {
 async function saveRule() {
   try {
     if (isEditRule.value) {
-      await api.put(`/alarm-rules/${ruleForm.id}`, ruleForm)
+      await alarmsApi.updateRule(ruleForm.id, ruleForm)
     } else {
-      await api.post('/alarm-rules', ruleForm)
+      await alarmsApi.createRule(ruleForm)
     }
     ElMessage.success('规则已保存')
     ruleDialogVisible.value = false
@@ -293,7 +345,7 @@ async function saveRule() {
 }
 
 async function deleteRule(id: string) {
-  try { await api.delete(`/alarm-rules/${id}`); ElMessage.success('规则已删除'); loadAlarmRules() } catch { /* ignore */ }
+  try { await alarmsApi.deleteRule(id); ElMessage.success('规则已删除'); loadAlarmRules() } catch { /* ignore */ }
 }
 
 async function loadSimulationMode() {
@@ -333,6 +385,43 @@ async function saveAlarmOutputConfig() {
   } catch { /* ignore */ }
 }
 
+async function loadAlarmEscalation() {
+  try {
+    const data = await alarmsApi.getAlarmOutputConfig()
+    if (data?.escalation) Object.assign(alarmEscalation, data.escalation)
+  } catch { /* ignore */ }
+}
+
+async function saveAlarmEscalation() {
+  try {
+    await alarmsApi.updateNotification({ escalation: alarmEscalation })
+    ElMessage.success('报警升级配置已保存')
+  } catch { /* ignore */ }
+}
+
+async function loadArchiveConfig() {
+  try {
+    const data = await systemApi.getConfig()
+    if (data?.config?.archive) Object.assign(archiveConfig, data.config.archive)
+  } catch { /* ignore */ }
+}
+
+async function saveArchiveConfig() {
+  try {
+    await systemApi.saveConfig('archive', archiveConfig)
+    ElMessage.success('归档策略已保存')
+  } catch { /* ignore */ }
+}
+
+async function triggerArchive() {
+  archiveLoading.value = true
+  try {
+    await systemApi.saveConfig('archive_trigger', { action: 'archive_now' })
+    ElMessage.success('归档任务已触发')
+  } catch { /* ignore */ }
+  finally { archiveLoading.value = false }
+}
+
 function exportConfig() {
   const blob = new Blob([JSON.stringify(config, null, 2)], { type: 'application/json' })
   const url = URL.createObjectURL(blob)
@@ -358,7 +447,7 @@ function importConfig() {
       // 自动保存所有配置段
       for (const section of ['system', 'collection', 'database', 'energy']) {
         if (imported[section]) {
-          try { await api.put('/config', { section, data: config[section as keyof typeof config] }) } catch { /* ignore */ }
+          try { await systemApi.saveConfig(section, config[section as keyof typeof config]) } catch { /* ignore */ }
         }
       }
       ElMessage.success('配置已导入并保存')

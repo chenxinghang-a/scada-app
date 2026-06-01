@@ -90,6 +90,36 @@ export const alarmsApi = {
     return api.post('/export/alarms', { format }, { responseType: 'blob' })
   },
 
+  // 报警输出（灯塔）
+  getAlarmOutputStatus() {
+    return api.get('/alarm-output/status') as Promise<any>
+  },
+
+  alarmOutputAcknowledge() {
+    return api.post('/alarm-output/acknowledge') as Promise<any>
+  },
+
+  alarmOutputReset() {
+    return api.post('/alarm-output/reset') as Promise<any>
+  },
+
+  alarmOutputManual(control: any) {
+    return api.post('/alarm-output/manual', control) as Promise<any>
+  },
+
+  // 广播系统
+  getBroadcastAreas() {
+    return api.get('/broadcast/areas') as Promise<any>
+  },
+
+  getBroadcastHistory(limit = 30) {
+    return api.get(`/broadcast/history?limit=${limit}`) as Promise<any>
+  },
+
+  broadcastSpeak(data: any) {
+    return api.post('/broadcast/speak', data) as Promise<any>
+  },
+
   updateNotification(config: any) {
     return api.put('/alarm-rules/notification', config) as Promise<any>
   },

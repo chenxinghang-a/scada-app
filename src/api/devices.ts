@@ -55,6 +55,14 @@ export const devicesApi = {
     return api.post(`/devices/${id}/disconnect`) as Promise<{ success: boolean; message: string }>
   },
 
+  start(id: string) {
+    return api.post(`/devices/${id}/start`) as Promise<{ success: boolean; message: string }>
+  },
+
+  stop(id: string) {
+    return api.post(`/devices/${id}/stop`) as Promise<{ success: boolean; message: string }>
+  },
+
   getProtocols() {
     return api.get('/devices/protocols') as Promise<{ protocols: string[] }>
   },

@@ -107,7 +107,7 @@
 import { ref, onMounted, reactive, onUnmounted } from 'vue'
 import { ElMessage } from 'element-plus'
 import { io } from 'socket.io-client'
-import api from '@/api/request'
+import { alarmsApi } from '@/api'
 
 const towerStatus = reactive({ red: false, yellow: false, green: false, buzzer: false, flash: false, level: '', message: '', mode: 'simulation' })
 const manual = reactive({ red: false, yellow: false, green: false, buzzer: false, duration: 10 })
@@ -127,18 +127,18 @@ onUnmounted(() => { socket?.disconnect() })
 
 async function loadStatus() {
   try {
-    const data = await api.get('/alarm-output/status') as any
+    const data = await alarmsApi.getAlarmOutputStatus()
     Object.assign(towerStatus, data.tower || {})
     towerStatus.mode = data.mode || 'simulation'
   } catch { /* ignore */ }
 }
 
 async function loadAreas() {
-  try { const data = await api.get('/broadcast/areas') as any; broadcastAreas.value = data.areas || [] } catch { /* ignore */ }
+  try { const data = await alarmsApi.getBroadcastAreas(); broadcastAreas.value = data.areas || [] } catch { /* ignore */ }
 }
 
 async function loadHistory() {
-  try { const data = await api.get('/broadcast/history?limit=30') as any; broadcastHistory.value = data.history || [] } catch { /* ignore */ }
+  try { const data = await alarmsApi.getBroadcastHistory(30); broadcastHistory.value = data.history || [] } catch { /* ignore */ }
 }
 
 function connectSocket() {
@@ -153,22 +153,22 @@ function connectSocket() {
 }
 
 async function silenceAlarm() {
-  try { await api.post('/alarm-output/acknowledge'); ElMessage.success('已消音'); loadStatus() } catch { /* ignore */ }
+  try { await alarmsApi.alarmOutputAcknowledge(); ElMessage.success('已消音'); loadStatus() } catch { /* ignore */ }
 }
 
 async function resetAlarm() {
-  try { await api.post('/alarm-output/reset'); ElMessage.success('已复位'); loadStatus() } catch { /* ignore */ }
+  try { await alarmsApi.alarmOutputReset(); ElMessage.success('已复位'); loadStatus() } catch { /* ignore */ }
 }
 
 async function sendManualControl() {
-  try { await api.post('/alarm-output/manual', manual); ElMessage.success('指令已发送') } catch { /* ignore */ }
+  try { await alarmsApi.alarmOutputManual(manual); ElMessage.success('指令已发送') } catch { /* ignore */ }
 }
 
 function allOff() { manual.red = false; manual.yellow = false; manual.green = false; manual.buzzer = false; sendManualControl() }
 
 async function sendBroadcast() {
   if (!broadcast.text) { ElMessage.warning('请输入广播内容'); return }
-  try { await api.post('/broadcast/speak', broadcast); ElMessage.success('广播已发送'); broadcast.text = ''; loadHistory() } catch { /* ignore */ }
+  try { await alarmsApi.broadcastSpeak(broadcast); ElMessage.success('广播已发送'); broadcast.text = ''; loadHistory() } catch { /* ignore */ }
 }
 </script>
 

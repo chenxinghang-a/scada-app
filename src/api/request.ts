@@ -16,11 +16,34 @@ let isRedirectingToLogin = false
 let isRefreshing = false
 let refreshQueue: Array<{ resolve: (token: string) => void; reject: (err: any) => void }> = []
 
-// 请求拦截器 - 注入 JWT token
-api.interceptors.request.use((config) => {
+// CSRF token 缓存
+let csrfToken: string | null = null
+
+async function ensureCsrfToken(): Promise<string | null> {
+  if (csrfToken) return csrfToken
+  try {
+    const resp = await axios.get(`${isDev ? '/api' : 'http://localhost:5000/api'}/csrf-token`, { timeout: 5000 })
+    csrfToken = resp.data?.csrf_token || null
+    return csrfToken
+  } catch {
+    // CSRF 端点可能不存在（后端未启用），忽略
+    return null
+  }
+}
+
+// 请求拦截器 - 注入 JWT token + CSRF token
+api.interceptors.request.use(async (config) => {
   const token = localStorage.getItem('auth_token')
   if (token) {
     config.headers.Authorization = `Bearer ${token}`
+  }
+  // POST/PUT/DELETE 请求注入 CSRF token
+  const method = config.method?.toUpperCase()
+  if (method && ['POST', 'PUT', 'DELETE', 'PATCH'].includes(method)) {
+    const csrf = await ensureCsrfToken()
+    if (csrf) {
+      config.headers['X-CSRF-Token'] = csrf
+    }
   }
   return config
 })

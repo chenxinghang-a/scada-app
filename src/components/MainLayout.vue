@@ -16,43 +16,43 @@
         active-text-color="#409eff"
         class="sidebar-menu"
       >
-        <el-menu-item index="/dashboard">
+        <el-menu-item index="/dashboard" v-if="canAccess(['admin','engineer','viewer'])">
           <el-icon><Odometer /></el-icon>
           <template #title>仪表盘</template>
         </el-menu-item>
-        <el-menu-item index="/devices">
+        <el-menu-item index="/devices" v-if="canAccess(['admin','engineer'])">
           <el-icon><Monitor /></el-icon>
           <template #title>设备管理</template>
         </el-menu-item>
-        <el-menu-item index="/control">
+        <el-menu-item index="/control" v-if="canAccess(['admin','engineer'])">
           <el-icon><Switch /></el-icon>
           <template #title>设备控制</template>
         </el-menu-item>
-        <el-menu-item index="/history">
+        <el-menu-item index="/history" v-if="canAccess(['admin','engineer','viewer'])">
           <el-icon><DataLine /></el-icon>
           <template #title>历史数据</template>
         </el-menu-item>
-        <el-menu-item index="/alarms">
+        <el-menu-item index="/alarms" v-if="canAccess(['admin','engineer','viewer'])">
           <el-icon><Bell /></el-icon>
           <template #title>报警管理</template>
         </el-menu-item>
-        <el-menu-item index="/alarm-output">
+        <el-menu-item index="/alarm-output" v-if="canAccess(['admin','engineer'])">
           <el-icon><Lightning /></el-icon>
           <template #title>报警输出</template>
         </el-menu-item>
-        <el-menu-item index="/industry40">
+        <el-menu-item index="/industry40" v-if="canAccess(['admin','engineer','viewer'])">
           <el-icon><Cpu /></el-icon>
           <template #title>工业4.0</template>
         </el-menu-item>
-        <el-menu-item index="/screen">
+        <el-menu-item index="/screen" v-if="canAccess(['admin','engineer','viewer'])">
           <el-icon><Monitor /></el-icon>
           <template #title>数据大屏</template>
         </el-menu-item>
-        <el-menu-item index="/config">
+        <el-menu-item index="/config" v-if="canAccess(['admin'])">
           <el-icon><Setting /></el-icon>
           <template #title>系统配置</template>
         </el-menu-item>
-        <el-menu-item index="/users">
+        <el-menu-item index="/users" v-if="canAccess(['admin'])">
           <el-icon><User /></el-icon>
           <template #title>用户管理</template>
         </el-menu-item>
@@ -140,6 +140,14 @@ const router = useRouter()
 const route = useRoute()
 const authStore = useAuthStore()
 const appStore = useAppStore()
+
+// 角色权限检查
+function canAccess(roles: string[]): boolean {
+  try {
+    const user = JSON.parse(localStorage.getItem('scada_user') || '{}')
+    return !user.role || roles.includes(user.role)
+  } catch { return true }
+}
 
 const currentRoute = computed(() => route.path)
 const currentTitle = computed(() => {

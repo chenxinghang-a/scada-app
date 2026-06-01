@@ -100,8 +100,15 @@ async function handleLogin() {
   try {
     const data = await authStore.login(form.username, form.password)
     if (data.success) {
-      ElMessage.success('登录成功')
-      router.push('/dashboard')
+      // 检查是否需要强制改密
+      if (data.must_change_password) {
+        localStorage.setItem('scada_must_change_password', 'true')
+        ElMessage.warning('首次登录请修改密码')
+        router.push('/force-change-password')
+      } else {
+        ElMessage.success('登录成功')
+        router.push('/dashboard')
+      }
     } else {
       ElMessage.error('登录失败')
     }
