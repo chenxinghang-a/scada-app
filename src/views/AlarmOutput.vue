@@ -172,7 +172,7 @@ async function allOff() {
   try {
     await ElMessageBox.confirm('确定关闭所有报警输出？', '确认操作', { confirmButtonText: '确定', cancelButtonText: '取消', type: 'warning' })
     manual.red = false; manual.yellow = false; manual.green = false; manual.buzzer = false
-    sendManualControl()
+    await sendManualControl()
   } catch { /* cancelled */ }
 }
 
