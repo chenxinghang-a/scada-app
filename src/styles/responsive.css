@@ -1,0 +1,223 @@
+/* SmartSCADA 响应式布局样式 */
+
+/* 移动端断点 */
+@media (max-width: 768px) {
+  /* 隐藏桌面端元素 */
+  .desktop-only {
+    display: none !important;
+  }
+
+  /* 调整卡片布局 */
+  .el-card {
+    margin-bottom: 12px;
+  }
+
+  /* 调整表格 */
+  .el-table {
+    font-size: 12px;
+  }
+
+  .el-table .el-button {
+    padding: 5px 8px;
+    font-size: 12px;
+  }
+
+  /* 调整表单 */
+  .el-form-item {
+    margin-bottom: 12px;
+  }
+
+  .el-form-item__label {
+    font-size: 13px;
+  }
+
+  /* 调整对话框 */
+  .el-dialog {
+    width: 95% !important;
+    margin: 0 auto;
+  }
+
+  /* 调整统计卡片 */
+  .stat-card {
+    padding: 12px;
+  }
+
+  .stat-value {
+    font-size: 24px;
+  }
+
+  /* 调整图表 */
+  .chart-container {
+    height: 250px;
+  }
+
+  /* 调整操作栏 */
+  .action-bar {
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .action-bar .el-button {
+    width: 100%;
+  }
+}
+
+/* 平板端断点 */
+@media (min-width: 769px) and (max-width: 1024px) {
+  /* 调整卡片布局 */
+  .el-col-md-8 {
+    width: 50%;
+  }
+
+  /* 调整表格 */
+  .el-table {
+    font-size: 13px;
+  }
+
+  /* 调整统计卡片 */
+  .stat-value {
+    font-size: 28px;
+  }
+}
+
+/* 桌面端断点 */
+@media (min-width: 1025px) {
+  /* 隐藏移动端元素 */
+  .mobile-only {
+    display: none !important;
+  }
+}
+
+/* 响应式工具类 */
+.hidden-xs {
+  display: block;
+}
+
+.hidden-sm {
+  display: block;
+}
+
+.hidden-md {
+  display: block;
+}
+
+.hidden-lg {
+  display: block;
+}
+
+@media (max-width: 768px) {
+  .hidden-xs {
+    display: none !important;
+  }
+}
+
+@media (min-width: 769px) and (max-width: 1024px) {
+  .hidden-sm {
+    display: none !important;
+  }
+}
+
+@media (min-width: 1025px) and (max-width: 1200px) {
+  .hidden-md {
+    display: none !important;
+  }
+}
+
+@media (min-width: 1201px) {
+  .hidden-lg {
+    display: none !important;
+  }
+}
+
+/* 响应式间距 */
+.p-xs-8 {
+  padding: 8px;
+}
+
+.p-sm-12 {
+  padding: 12px;
+}
+
+.p-md-16 {
+  padding: 16px;
+}
+
+.p-lg-24 {
+  padding: 24px;
+}
+
+@media (max-width: 768px) {
+  .p-xs-8 {
+    padding: 8px;
+  }
+}
+
+@media (min-width: 769px) and (max-width: 1024px) {
+  .p-sm-12 {
+    padding: 12px;
+  }
+}
+
+@media (min-width: 1025px) and (max-width: 1200px) {
+  .p-md-16 {
+    padding: 16px;
+  }
+}
+
+@media (min-width: 1201px) {
+  .p-lg-24 {
+    padding: 24px;
+  }
+}
+
+/* 响应式字体 */
+.text-responsive {
+  font-size: 14px;
+}
+
+@media (max-width: 768px) {
+  .text-responsive {
+    font-size: 12px;
+  }
+}
+
+@media (min-width: 1025px) {
+  .text-responsive {
+    font-size: 16px;
+  }
+}
+
+/* 响应式网格 */
+.grid-responsive {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+  gap: 16px;
+}
+
+@media (max-width: 768px) {
+  .grid-responsive {
+    grid-template-columns: 1fr;
+    gap: 12px;
+  }
+}
+
+/* 响应式侧边栏 */
+.sidebar-responsive {
+  width: 250px;
+  transition: width 0.3s ease;
+}
+
+@media (max-width: 768px) {
+  .sidebar-responsive {
+    width: 0;
+    overflow: hidden;
+  }
+
+  .sidebar-responsive.open {
+    width: 250px;
+    position: fixed;
+    z-index: 1000;
+    height: 100vh;
+    background-color: var(--bg-secondary);
+  }
+}
