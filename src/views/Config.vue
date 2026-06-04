@@ -268,6 +268,9 @@
             <el-option v-for="d in devices" :key="d.device_id" :label="d.name || d.device_name || d.device_id" :value="d.device_id" />
           </el-select>
         </el-form-item>
+        <el-form-item label="寄存器">
+          <el-input v-model="ruleForm.register_name" placeholder="如 temperature、pressure" />
+        </el-form-item>
         <el-form-item label="条件">
           <el-select v-model="ruleForm.condition" style="width:100%">
             <el-option label="大于 (>)" value=">" />
