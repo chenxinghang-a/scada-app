@@ -106,6 +106,7 @@
 import { ref, onMounted, reactive, computed } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { authApi } from '@/api'
+import { showActionError } from '@/utils/error'
 
 interface User { username: string; display_name: string; role: string }
 
@@ -166,11 +167,11 @@ async function saveUser() {
     ElMessage.success(isEdit.value ? '用户已更新' : '用户已添加')
     dialogVisible.value = false
     refreshUsers()
-  } catch (e: any) { console.error('[Users] 操作失败:', e); ElMessage.error('操作失败: ' + (e?.response?.data?.error || e?.message || '未知错误')) }
+  } catch (e: any) { showActionError(isEdit.value ? '更新用户' : '添加用户', e) }
 }
 
 async function deleteUser(username: string) {
-  try { await authApi.deleteUser(username); ElMessage.success('用户已删除'); refreshUsers() } catch (e: any) { console.error('[Users] 操作失败:', e); ElMessage.error('操作失败: ' + (e?.response?.data?.error || e?.message || '未知错误')) }
+  try { await authApi.deleteUser(username); ElMessage.success('用户已删除'); refreshUsers() } catch (e: any) { showActionError('删除用户', e) }
 }
 
 async function resetPassword(user: User) {

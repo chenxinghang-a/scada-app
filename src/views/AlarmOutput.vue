@@ -108,6 +108,7 @@ import { ref, onMounted, reactive, onUnmounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { io } from 'socket.io-client'
 import { alarmsApi } from '@/api'
+import { showActionError } from '@/utils/error'
 import { getAuthToken } from '@/api/request'
 
 const towerStatus = reactive({ red: false, yellow: false, green: false, buzzer: false, flash: false, level: '', message: '', mode: 'simulation' })
@@ -157,15 +158,15 @@ function connectSocket() {
 }
 
 async function silenceAlarm() {
-  try { await alarmsApi.alarmOutputAcknowledge(); ElMessage.success('已消音'); loadStatus() } catch (e: any) { console.error('[AlarmOutput] 操作失败:', e); ElMessage.error('操作失败: ' + (e?.response?.data?.error || e?.message || '未知错误')) }
+  try { await alarmsApi.alarmOutputAcknowledge(); ElMessage.success('已消音'); loadStatus() } catch (e: any) { showActionError('消音', e) }
 }
 
 async function resetAlarm() {
-  try { await alarmsApi.alarmOutputReset(); ElMessage.success('已复位'); loadStatus() } catch (e: any) { console.error('[AlarmOutput] 操作失败:', e); ElMessage.error('操作失败: ' + (e?.response?.data?.error || e?.message || '未知错误')) }
+  try { await alarmsApi.alarmOutputReset(); ElMessage.success('已复位'); loadStatus() } catch (e: any) { showActionError('复位', e) }
 }
 
 async function sendManualControl() {
-  try { await alarmsApi.alarmOutputManual(manual); ElMessage.success('指令已发送') } catch (e: any) { console.error('[AlarmOutput] 操作失败:', e); ElMessage.error('操作失败: ' + (e?.response?.data?.error || e?.message || '未知错误')) }
+  try { await alarmsApi.alarmOutputManual(manual); ElMessage.success('指令已发送') } catch (e: any) { showActionError('手动控制', e) }
 }
 
 async function allOff() {
@@ -178,7 +179,7 @@ async function allOff() {
 
 async function sendBroadcast() {
   if (!broadcast.text) { ElMessage.warning('请输入广播内容'); return }
-  try { await alarmsApi.broadcastSpeak(broadcast); ElMessage.success('广播已发送'); broadcast.text = ''; loadHistory() } catch (e: any) { console.error('[AlarmOutput] 操作失败:', e); ElMessage.error('操作失败: ' + (e?.response?.data?.error || e?.message || '未知错误')) }
+  try { await alarmsApi.broadcastSpeak(broadcast); ElMessage.success('广播已发送'); broadcast.text = ''; loadHistory() } catch (e: any) { showActionError('发送广播', e) }
 }
 </script>
 

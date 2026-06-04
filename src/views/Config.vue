@@ -302,6 +302,7 @@
 import { ref, onMounted, reactive, computed } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { systemApi, devicesApi, alarmsApi, type Device } from '@/api'
+import { showActionError } from '@/utils/error'
 
 // 从 package.json 读取版本号
 const appVersion = __APP_VERSION__ || 'v1.0.0'
@@ -408,7 +409,7 @@ async function saveConfig(section: string) {
   try {
     await systemApi.saveConfig(section, (config as any)[section])
     ElMessage.success('配置已保存')
-  } catch (e: any) { console.error('[Config] 操作失败:', e); ElMessage.error('操作失败: ' + (e?.response?.data?.error || e?.message || '未知错误')) }
+  } catch (e: any) { showActionError('保存配置', e) }
 }
 
 function showRuleDialog() {
@@ -433,11 +434,11 @@ async function saveRule() {
     ElMessage.success('规则已保存')
     ruleDialogVisible.value = false
     loadAlarmRules()
-  } catch (e: any) { console.error('[Config] 操作失败:', e); ElMessage.error('操作失败: ' + (e?.response?.data?.error || e?.message || '未知错误')) }
+  } catch (e: any) { showActionError('保存规则', e) }
 }
 
 async function deleteRule(id: string) {
-  try { await alarmsApi.deleteRule(id); ElMessage.success('规则已删除'); loadAlarmRules() } catch (e: any) { console.error('[Config] 操作失败:', e); ElMessage.error('操作失败: ' + (e?.response?.data?.error || e?.message || '未知错误')) }
+  try { await alarmsApi.deleteRule(id); ElMessage.success('规则已删除'); loadAlarmRules() } catch (e: any) { showActionError('删除规则', e) }
 }
 
 async function toggleRule(rule: any) {
@@ -446,7 +447,7 @@ async function toggleRule(rule: any) {
     ElMessage.success(rule.enabled ? '规则已启用' : '规则已禁用')
   } catch (e: any) {
     rule.enabled = !rule.enabled
-    console.error('[Config] 操作失败:', e); ElMessage.error('操作失败: ' + (e?.response?.data?.error || e?.message || '未知错误'))
+    showActionError('切换规则', e)
   }
 }
 
@@ -493,7 +494,7 @@ async function saveAlarmOutputConfig() {
   try {
     await alarmsApi.setAlarmOutputConfig(alarmOutputConfig)
     ElMessage.success('报警输出配置已保存')
-  } catch (e: any) { console.error('[Config] 操作失败:', e); ElMessage.error('保存失败: ' + (e?.response?.data?.error || e?.message || '未知错误')) }
+  } catch (e: any) { showActionError('保存报警输出配置', e) }
 }
 
 async function loadAlarmEscalation() {
@@ -507,7 +508,7 @@ async function saveAlarmEscalation() {
   try {
     await systemApi.saveConfig('alarm_escalation', { ...alarmEscalation })
     ElMessage.success('报警升级配置已保存')
-  } catch (e: any) { console.error('[Config] 操作失败:', e); ElMessage.error('保存失败: ' + (e?.response?.data?.error || e?.message || '未知错误')) }
+  } catch (e: any) { showActionError('保存报警升级配置', e) }
 }
 
 function loadArchiveConfig() {
@@ -522,7 +523,7 @@ async function saveArchiveConfig() {
   try {
     await systemApi.saveConfig('archive', archiveConfig)
     ElMessage.success('归档策略已保存')
-  } catch (e: any) { console.error('[Config] 操作失败:', e); ElMessage.error('保存失败: ' + (e?.response?.data?.error || e?.message || '未知错误')) }
+  } catch (e: any) { showActionError('保存归档策略', e) }
 }
 
 async function triggerArchive() {
@@ -530,7 +531,7 @@ async function triggerArchive() {
   try {
     await systemApi.saveConfig('archive_trigger', { action: 'archive_now' })
     ElMessage.success('归档任务已触发')
-  } catch (e: any) { console.error('[Config] 操作失败:', e); ElMessage.error('归档失败: ' + (e?.response?.data?.error || e?.message || '未知错误')) }
+  } catch (e: any) { showActionError('触发归档', e) }
   finally { archiveLoading.value = false }
 }
 
@@ -556,7 +557,7 @@ async function saveSignalTower() {
       signal_tower: { host: signalTower.host, port: signalTower.port, slave_id: signalTower.slave_id, do_mapping: { ...signalTower.do_mapping } },
     })
     ElMessage.success('报警输出硬件配置已保存')
-  } catch (e: any) { console.error('[Config] 操作失败:', e); ElMessage.error('保存失败: ' + (e?.response?.data?.error || e?.message || '未知错误')) }
+  } catch (e: any) { showActionError('保存报警输出硬件配置', e) }
 }
 
 // ========== 广播系统硬件配置 ==========
@@ -580,7 +581,7 @@ async function saveBroadcastHardware() {
     const areas = broadcastAreasStr.value.split(',').map(s => s.trim()).filter(Boolean)
     await alarmsApi.setBroadcastConfig({ enabled: broadcastConfig.enabled, mqtt: { ...broadcastConfig.mqtt }, areas })
     ElMessage.success('广播系统配置已保存')
-  } catch (e: any) { console.error('[Config] 操作失败:', e); ElMessage.error('保存失败: ' + (e?.response?.data?.error || e?.message || '未知错误')) }
+  } catch (e: any) { showActionError('保存广播配置', e) }
 }
 
 // ========== 日志设置 ==========
@@ -599,7 +600,7 @@ async function saveLoggingConfig() {
   try {
     await systemApi.saveConfig('logging', { level: loggingConfig.level, file: { ...loggingConfig.file } })
     ElMessage.success('日志设置已保存')
-  } catch (e: any) { console.error('[Config] 操作失败:', e); ElMessage.error('保存失败: ' + (e?.response?.data?.error || e?.message || '未知错误')) }
+  } catch (e: any) { showActionError('保存日志配置', e) }
 }
 
 function exportConfig() {

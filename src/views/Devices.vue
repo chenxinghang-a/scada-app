@@ -240,6 +240,7 @@ import { Delete } from '@element-plus/icons-vue'
 import { useRouter } from 'vue-router'
 import { devicesApi, type Device, type Register } from '@/api'
 import api from '@/api/request'
+import { showActionError } from '@/utils/error'
 
 const router = useRouter()
 
@@ -358,7 +359,7 @@ async function saveDevice() {
     }
     dialogVisible.value = false
     refreshDevices()
-  } catch (e: any) { console.error('[Devices] 操作失败:', e); ElMessage.error('操作失败: ' + (e?.response?.data?.error || e?.message || '未知错误')) }
+  } catch (e: any) { showActionError('保存设备', e) }
 }
 
 async function deleteDevice(device: Device) {

@@ -156,6 +156,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { systemApi, devicesApi, dataApi, alarmsApi, industry40Api, type DeviceStatus, type SystemStatus, type Alarm } from '@/api'
 import { getAuthToken } from '@/api/request'
 import { useAuthStore } from '@/stores/auth'
+import { showActionError } from '@/utils/error'
 
 const authStore = useAuthStore()
 
@@ -412,7 +413,7 @@ function formatAlarmTime(t: string): string { return t ? new Date(t).toLocaleTim
 function getAlarmPV(a: any): string { const v = a.last_value != null ? a.last_value : a.actual_value; return v != null ? `PV:${parseFloat(v).toFixed(1)}` : '' }
 async function ackAlarm(alarmId: string, deviceId: string, regName: string) {
   if (!alarmId) return
-  try { await alarmsApi.acknowledge(alarmId, deviceId, regName); loadData() } catch (e: any) { console.error('[Dashboard] 操作失败:', e); ElMessage.error('操作失败: ' + (e?.response?.data?.error || e?.message || '未知错误')) }
+  try { await alarmsApi.acknowledge(alarmId, deviceId, regName); loadData() } catch (e: any) { showActionError('确认报警', e) }
 }
 
 // ========== 工具函数 ==========

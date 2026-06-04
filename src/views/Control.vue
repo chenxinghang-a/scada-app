@@ -180,6 +180,7 @@ import { ref, onMounted, onUnmounted, reactive, computed, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { devicesApi, controlApi, type Device, type Register } from '@/api'
 import { useAuthStore } from '@/stores/auth'
+import { showActionError } from '@/utils/error'
 
 const authStore = useAuthStore()
 
@@ -274,7 +275,7 @@ async function writeRegister() {
     await controlApi.writeRegister(regForm.device_id, address, regForm.value)
     ElMessage.success('写入成功')
     loadLogs()
-  } catch (e: any) { if (e !== 'cancel') { console.error('[Control] 操作失败:', e); ElMessage.error('操作失败: ' + (e?.response?.data?.error || e?.message || '未知错误')) } }
+  } catch (e: any) { if (e !== 'cancel') showActionError('写入寄存器', e) }
   finally { controlLoading.value = false }
 }
 
@@ -289,7 +290,7 @@ async function writeCoil() {
     await controlApi.writeCoil(coilForm.device_id, address, coilForm.value)
     ElMessage.success('写入成功')
     loadLogs()
-  } catch (e: any) { if (e !== 'cancel') { console.error('[Control] 操作失败:', e); ElMessage.error('操作失败: ' + (e?.response?.data?.error || e?.message || '未知错误')) } }
+  } catch (e: any) { if (e !== 'cancel') showActionError('写入线圈', e) }
   finally { controlLoading.value = false }
 }
 
@@ -301,7 +302,7 @@ async function triggerEStop() {
     await controlApi.eStop()
     ElMessage.success('急停已执行')
     loadSafetyStatus()
-  } catch (e: any) { if (e !== 'cancel') { console.error('[Control] 操作失败:', e); ElMessage.error('操作失败: ' + (e?.response?.data?.error || e?.message || '未知错误')) } }
+  } catch (e: any) { if (e !== 'cancel') showActionError('紧急停止', e) }
   finally { controlLoading.value = false }
 }
 
@@ -311,7 +312,7 @@ async function resetEStop() {
     await controlApi.eStopReset()
     ElMessage.success('急停已重置')
     loadSafetyStatus()
-  } catch (e: any) { if (e !== 'cancel') { console.error('[Control] 操作失败:', e); ElMessage.error('操作失败: ' + (e?.response?.data?.error || e?.message || '未知错误')) } }
+  } catch (e: any) { if (e !== 'cancel') showActionError('复位急停', e) }
 }
 
 async function bypassInterlock(id: string) {
@@ -319,7 +320,7 @@ async function bypassInterlock(id: string) {
     await controlApi.bypassInterlock(id)
     ElMessage.success('联锁已旁路')
     loadSafetyStatus()
-  } catch (e: any) { console.error('[Control] 操作失败:', e); ElMessage.error('操作失败: ' + (e?.response?.data?.error || e?.message || '未知错误')) }
+  } catch (e: any) { showActionError('旁路联锁', e) }
 }
 
 async function restoreInterlock(id: string) {
@@ -327,7 +328,7 @@ async function restoreInterlock(id: string) {
     await controlApi.restoreInterlock(id)
     ElMessage.success('联锁已恢复')
     loadSafetyStatus()
-  } catch (e: any) { console.error('[Control] 操作失败:', e); ElMessage.error('操作失败: ' + (e?.response?.data?.error || e?.message || '未知错误')) }
+  } catch (e: any) { showActionError('恢复联锁', e) }
 }
 
 async function batchControl(action: string) {
@@ -338,7 +339,7 @@ async function batchControl(action: string) {
     await controlApi.batchControl(action)
     ElMessage.success('指令已发送')
     loadLogs()
-  } catch (e: any) { if (e !== 'cancel') { console.error('[Control] 操作失败:', e); ElMessage.error('操作失败: ' + (e?.response?.data?.error || e?.message || '未知错误')) } }
+  } catch (e: any) { if (e !== 'cancel') showActionError('批量控制', e) }
   finally { controlLoading.value = false }
 }
 </script>
