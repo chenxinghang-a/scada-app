@@ -115,7 +115,7 @@
             </el-form-item>
             <el-form-item label="线圈">
               <el-select v-model="coilForm.register_name" style="width:100%">
-                <el-option v-for="r in currentRegisters" :key="r.name" :label="`${r.description || r.name} (${r.name})`" :value="r.name" />
+                <el-option v-for="r in coilRegisters" :key="r.name" :label="`${r.description || r.name} (${r.name})`" :value="r.name" />
               </el-select>
             </el-form-item>
             <el-form-item label="状态">
@@ -176,7 +176,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted, reactive, computed } from 'vue'
+import { ref, onMounted, onUnmounted, reactive, computed, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { devicesApi, controlApi, type Device, type Register } from '@/api'
 import { useAuthStore } from '@/stores/auth'
@@ -185,6 +185,7 @@ const authStore = useAuthStore()
 
 const devices = ref<Device[]>([])
 const currentRegisters = ref<Register[]>([])
+const coilRegisters = ref<Register[]>([])
 const interlocks = ref<any[]>([])
 const deviceHealth = ref<any[]>([])
 const controlLogs = ref<any[]>([])
@@ -195,13 +196,12 @@ const controlLoading = ref(false)
 const regForm = reactive({ device_id: '', register_name: '', value: 0 })
 const coilForm = reactive({ device_id: '', register_name: '', value: true })
 
-// 监听线圈表单设备变化，自动加载寄存器
-import { watch } from 'vue'
+// 监听线圈表单设备变化，自动加载寄存器（独立于寄存器表单）
 watch(() => coilForm.device_id, async (deviceId) => {
   if (deviceId) {
     try {
       const data = await devicesApi.getById(deviceId)
-      currentRegisters.value = data.device?.registers || []
+      coilRegisters.value = data.device?.registers || []
     } catch (e: any) { console.warn('[Control] 加载失败:', e?.message || e) }
   }
 })
