@@ -4,6 +4,7 @@
  */
 import { ref, onUnmounted } from 'vue'
 import { io, Socket } from 'socket.io-client'
+import { ElMessage } from 'element-plus'
 import { getAuthToken } from '@/api/request'
 
 let sharedSocket: Socket | null = null
@@ -11,6 +12,8 @@ let refCount = 0
 
 export function useSocket() {
   const socket = ref<Socket | null>(null)
+  const connected = ref(false)
+  const error = ref<string | null>(null)
 
   function connect(): Socket {
     refCount++
@@ -26,6 +29,30 @@ export function useSocket() {
         reconnectionDelay: 3000,
         reconnectionAttempts: 10,
       })
+
+      // 连接成功
+      sharedSocket.on('connect', () => {
+        connected.value = true
+        error.value = null
+      })
+
+      // 连接断开
+      sharedSocket.on('disconnect', () => {
+        connected.value = false
+      })
+
+      // 连接错误
+      sharedSocket.on('connect_error', (err: Error) => {
+        error.value = err.message
+        console.error('[Socket.IO] 连接错误:', err.message)
+        // 静默处理，不弹窗打扰用户
+      })
+
+      // 认证错误
+      sharedSocket.on('error', (err: any) => {
+        error.value = typeof err === 'string' ? err : err?.message || '未知错误'
+        console.error('[Socket.IO] 错误:', err)
+      })
     }
     socket.value = sharedSocket
     return sharedSocket
@@ -39,6 +66,7 @@ export function useSocket() {
       refCount = 0
     }
     socket.value = null
+    connected.value = false
   }
 
   // 自动清理
@@ -48,6 +76,8 @@ export function useSocket() {
 
   return {
     socket,
+    connected,
+    error,
     connect,
     disconnect,
   }
