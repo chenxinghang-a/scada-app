@@ -6,16 +6,16 @@
         <el-card shadow="hover"><div class="stat"><div class="stat-label">用户总数</div><div class="stat-value">{{ users.length }}</div></div></el-card>
       </el-col>
       <el-col :span="4">
-        <el-card shadow="hover"><div class="stat"><div class="stat-label">管理员</div><div class="stat-value">{{ users.filter(u => u.role === 'admin').length }}</div></div></el-card>
+        <el-card shadow="hover"><div class="stat"><div class="stat-label">管理员</div><div class="stat-value">{{ adminCount }}</div></div></el-card>
       </el-col>
       <el-col :span="4">
-        <el-card shadow="hover"><div class="stat"><div class="stat-label">工程师</div><div class="stat-value">{{ users.filter(u => u.role === 'engineer').length }}</div></div></el-card>
+        <el-card shadow="hover"><div class="stat"><div class="stat-label">工程师</div><div class="stat-value">{{ engineerCount }}</div></div></el-card>
       </el-col>
       <el-col :span="4">
-        <el-card shadow="hover"><div class="stat"><div class="stat-label">操作员</div><div class="stat-value">{{ users.filter(u => u.role === 'operator').length }}</div></div></el-card>
+        <el-card shadow="hover"><div class="stat"><div class="stat-label">操作员</div><div class="stat-value">{{ operatorCount }}</div></div></el-card>
       </el-col>
       <el-col :span="4">
-        <el-card shadow="hover"><div class="stat"><div class="stat-label">观察者</div><div class="stat-value">{{ users.filter(u => u.role === 'viewer').length }}</div></div></el-card>
+        <el-card shadow="hover"><div class="stat"><div class="stat-label">观察者</div><div class="stat-value">{{ viewerCount }}</div></div></el-card>
       </el-col>
     </el-row>
 
@@ -103,7 +103,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, reactive } from 'vue'
+import { ref, onMounted, reactive, computed } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { authApi } from '@/api'
 
@@ -116,6 +116,12 @@ const logsLoading = ref(false)
 const dialogVisible = ref(false)
 const isEdit = ref(false)
 const form = reactive({ username: '', password: '', display_name: '', role: 'viewer' })
+
+// 角色统计（computed避免模板中重复filter）
+const adminCount = computed(() => users.value.filter(u => u.role === 'admin').length)
+const engineerCount = computed(() => users.value.filter(u => u.role === 'engineer').length)
+const operatorCount = computed(() => users.value.filter(u => u.role === 'operator').length)
+const viewerCount = computed(() => users.value.filter(u => u.role === 'viewer').length)
 
 onMounted(() => { refreshUsers(); refreshLogs() })
 
