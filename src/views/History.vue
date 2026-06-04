@@ -84,6 +84,8 @@ function setQuickRange(range: string) {
   filter.timeRange = [new Date(now.getTime() - (offsets[range] || 3600000)), now]
 }
 
+function handleResize() { chart?.resize() }
+
 onMounted(async () => {
   setQuickRange('1h')
   try { const data = await devicesApi.getAll(); devices.value = data.devices || [] } catch (e: any) { console.warn('[History] 加载失败:', e?.message || e) }
@@ -103,9 +105,11 @@ onMounted(async () => {
       series: [{ type: 'line', smooth: true, showSymbol: false, areaStyle: { opacity: 0.15 }, data: [] }],
     })
   }
+  window.addEventListener('resize', handleResize)
 })
 
 onUnmounted(() => {
+  window.removeEventListener('resize', handleResize)
   chart?.dispose()
   chart = null
 })
@@ -137,12 +141,12 @@ async function exportData() {
   try {
     const params: any = { format: 'csv' }
     if (filter.timeRange?.length === 2) {
-      params.start = filter.timeRange[0].toISOString()
-      params.end = filter.timeRange[1].toISOString()
+      params.start_time = filter.timeRange[0].toISOString()
+      params.end_time = filter.timeRange[1].toISOString()
     } else {
       // 默认导出最近24小时
-      params.start = new Date(Date.now() - 86400000).toISOString()
-      params.end = new Date().toISOString()
+      params.start_time = new Date(Date.now() - 86400000).toISOString()
+      params.end_time = new Date().toISOString()
     }
     const blob = await dataApi.exportDevice(filter.device_id, params) as any
     if (blob instanceof Blob) {

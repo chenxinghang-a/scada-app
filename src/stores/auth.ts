@@ -54,9 +54,10 @@ export const useAuthStore = defineStore('auth', () => {
       const status = err?.response?.status
       if (status === 401 || status === 403) {
         await logout()
+        return false
       }
-      // 其他错误保留 token，下次再试
-      return false
+      // 网络错误 / 后端不可达 → 保留 token，返回 'error' 区分于 'invalid'
+      return 'error' as any
     }
   }
 
@@ -100,6 +101,7 @@ export const useAuthStore = defineStore('auth', () => {
   return {
     user,
     token,
+    refreshToken,
     isLoggedIn,
     isAdmin,
     isEngineer,

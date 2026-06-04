@@ -59,7 +59,7 @@
       <div class="login-footer">
         <div class="footer-info">
           <el-icon><Monitor /></el-icon>
-          <span>SmartSCADA v1.0.0</span>
+          <span>SmartSCADA {{ typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : 'v1.0.0' }}</span>
         </div>
         <div v-if="isDev" class="footer-hint">默认账号: admin / admin123</div>
       </div>
@@ -90,17 +90,7 @@ const rules = {
   username: [{ required: true, message: '请输入用户名', trigger: 'blur' }],
   password: [
     { required: true, message: '请输入密码', trigger: 'blur' },
-    { min: 8, message: '密码长度至少8位', trigger: 'blur' },
-    {
-      validator: (_rule: any, value: string, callback: any) => {
-        if (!value) return callback()
-        if (!/[A-Z]/.test(value)) return callback(new Error('密码必须包含大写字母'))
-        if (!/[a-z]/.test(value)) return callback(new Error('密码必须包含小写字母'))
-        if (!/[0-9]/.test(value)) return callback(new Error('密码必须包含数字'))
-        callback()
-      },
-      trigger: 'blur',
-    },
+    // 登录时不校验密码复杂度，复杂度规则仅在注册/改密时强制
   ],
 }
 

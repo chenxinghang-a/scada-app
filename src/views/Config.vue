@@ -248,7 +248,7 @@
                     <el-descriptions :column="1" border size="small">
                       <el-descriptions-item label="历史数据总量">{{ dbTables.reduce((s, t) => t.name === 'history_data' ? s + t.rows : s, 0) }} 条</el-descriptions-item>
                       <el-descriptions-item label="归档数据总量">{{ dbTables.reduce((s, t) => t.name === 'history_archive' ? s + t.rows : s, 0) }} 条</el-descriptions-item>
-                      <el-descriptions-item label="数据库大小">{{ dbTables.reduce((s, t) => s + (t.size || ''), '').toString() || '-' }}</el-descriptions-item>
+                      <el-descriptions-item label="数据库大小">{{ dbTables.reduce((s, t) => s + (parseFloat(t.size) || 0), 0).toFixed(2) }} MB</el-descriptions-item>
                     </el-descriptions>
                   </el-col>
                 </el-row>
@@ -493,11 +493,12 @@ async function saveAlarmEscalation() {
   } catch (e: any) { console.error('[Config] 操作失败:', e); ElMessage.error('保存失败: ' + (e?.response?.data?.error || e?.message || '未知错误')) }
 }
 
-async function loadArchiveConfig() {
-  try {
-    const data = await systemApi.getConfig()
+function loadArchiveConfig() {
+  // 归档配置在 loadConfig 中已统一拉取，此处从 config reactive 中读取
+  // 如果 loadConfig 中没有 archive 段，尝试单独拉取
+  systemApi.getConfig().then(data => {
     if (data?.config?.archive) Object.assign(archiveConfig, data.config.archive)
-  } catch (e: any) { console.warn('[Config] 归档配置加载失败:', e?.message || e) }
+  }).catch((e: any) => { console.warn('[Config] 归档配置加载失败:', e?.message || e) })
 }
 
 async function saveArchiveConfig() {

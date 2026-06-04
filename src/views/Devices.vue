@@ -80,7 +80,7 @@
 
     <!-- 添加/编辑对话框 -->
     <el-dialog v-model="dialogVisible" :title="isEdit ? '编辑设备' : '添加设备'" width="700px" top="5vh">
-      <el-form :model="form" label-width="100px">
+      <el-form :model="form" :rules="deviceRules" ref="deviceFormRef" label-width="100px">
         <el-row :gutter="16">
           <el-col :span="12">
             <el-form-item label="设备ID">
@@ -237,8 +237,11 @@
 import { ref, onMounted, reactive, computed } from 'vue'
 import { ElMessage } from 'element-plus'
 import { Delete } from '@element-plus/icons-vue'
+import { useRouter } from 'vue-router'
 import { devicesApi, type Device, type Register } from '@/api'
 import api from '@/api/request'
+
+const router = useRouter()
 
 const devices = ref<Device[]>([])
 const loading = ref(false)
@@ -254,6 +257,12 @@ const form = reactive<any>({
 })
 
 const testResult = reactive({ success: false, message: '' })
+const deviceFormRef = ref<any>(null)
+const deviceRules = {
+  device_id: [{ required: true, message: '请输入设备ID', trigger: 'blur' }],
+  name: [{ required: true, message: '请输入设备名称', trigger: 'blur' }],
+  protocol: [{ required: true, message: '请选择协议', trigger: 'change' }],
+}
 
 // 预设设备
 const presetCategories = ['Modbus', 'MC协议', 'FINS', 'OPC UA', 'MQTT', 'REST']
@@ -325,6 +334,9 @@ function addRegister() {
 }
 
 async function saveDevice() {
+  if (deviceFormRef.value) {
+    try { await deviceFormRef.value.validate() } catch { return }
+  }
   try {
     if (isEdit.value) {
       await devicesApi.update(form.device_id, form)
@@ -340,7 +352,7 @@ async function saveDevice() {
     }
     dialogVisible.value = false
     refreshDevices()
-  } catch (e: any) { if (e?.message) console.error('[Devices] 操作失败:', e) }
+  } catch (e: any) { console.error('[Devices] 操作失败:', e); ElMessage.error('操作失败: ' + (e?.response?.data?.error || e?.message || '未知错误')) }
 }
 
 async function deleteDevice(device: Device) {
@@ -348,7 +360,7 @@ async function deleteDevice(device: Device) {
     await devicesApi.delete(device.device_id)
     ElMessage.success('设备已删除')
     refreshDevices()
-  } catch (e: any) { if (e?.message) console.error('[Devices] 操作失败:', e) }
+  } catch (e: any) { console.error('[Devices] 操作失败:', e); ElMessage.error('删除失败: ' + (e?.response?.data?.error || e?.message || '未知错误')) }
 }
 
 async function testDevice(device: Device) {
@@ -357,11 +369,11 @@ async function testDevice(device: Device) {
     testResult.success = data.success
     testResult.message = data.message
     testDialogVisible.value = true
-  } catch (e: any) { if (e?.message) console.error('[Devices] 操作失败:', e) }
+  } catch (e: any) { console.error('[Devices] 操作失败:', e); ElMessage.error('测试失败: ' + (e?.response?.data?.error || e?.message || '未知错误')) }
 }
 
 function viewData(device: Device) {
-  window.location.hash = `#/history?device=${device.device_id}`
+  router.push({ path: '/history', query: { device: device.device_id } })
 }
 
 async function addPreset(preset: any) {

@@ -125,7 +125,7 @@ api.interceptors.response.use(
             if (!isRedirectingToLogin) {
               isRedirectingToLogin = true
               // 同步清理 Pinia store
-              try { const store = useAuthStore(); store.token = null; store.user = null } catch {}
+              try { const store = useAuthStore(); store.token = null; store.refreshToken = null; store.user = null } catch {}
               localStorage.removeItem('auth_token')
               localStorage.removeItem('scada_refresh_token')
               localStorage.removeItem('scada_user')

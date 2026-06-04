@@ -221,14 +221,15 @@ function handleActivity() {
 }
 
 onMounted(async () => {
-  // 验证登录状态 — 失败则跳登录页
-  const valid = await authStore.verify()
-  if (!valid && authStore.token) {
-    // verify 失败但 token 还在（store 内 logout 可能未完成），强制跳转
-    await authStore.logout()
+  // 验证登录状态
+  // verify 返回: true=有效, false=token无效(已logout), 'error'=网络问题(保留token)
+  const verifyResult = await authStore.verify()
+  if (verifyResult === false) {
+    // token 确认无效，跳登录页
     router.push('/login')
     return
   }
+  // verifyResult === 'error' 时不做任何操作，保留当前登录状态
   // 获取系统状态
   appStore.fetchSystemStatus()
   // 定时刷新状态

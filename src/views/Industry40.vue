@@ -489,7 +489,20 @@ function renderSPCCharts(data: any) {
   }
   if (spcRRef.value) {
     if (!charts.spcR) charts.spcR = echarts.init(spcRRef.value)
-    charts.spcR.setOption(opts('R 控制图', data.values || [], data.ucl, data.cl, data.lcl), true)
+    // R 控制图：使用极差数据（r_values/r_ucl/r_cl/r_lcl），后端若未提供则用子组极差计算
+    const vals = data.values || []
+    const subgroupSize = 5
+    const rValues = data.r_values || vals.reduce((acc: number[], _: number, i: number) => {
+      if (i % subgroupSize === 0) {
+        const group = vals.slice(i, i + subgroupSize)
+        acc.push(Math.max(...group) - Math.min(...group))
+      }
+      return acc
+    }, [])
+    const rUcl = data.r_ucl ?? data.ucl
+    const rCl = data.r_cl ?? data.cl
+    const rLcl = data.r_lcl ?? 0
+    charts.spcR.setOption(opts('R 控制图', rValues, rUcl, rCl, rLcl), true)
   }
 }
 

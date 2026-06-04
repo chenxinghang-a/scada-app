@@ -144,6 +144,13 @@ function editUser(user: User) {
 }
 
 async function saveUser() {
+  if (!isEdit.value) {
+    if (!form.username.trim()) { ElMessage.warning('请输入用户名'); return }
+    if (!form.password || form.password.length < 8) { ElMessage.warning('密码长度至少8位'); return }
+    if (!/[A-Z]/.test(form.password)) { ElMessage.warning('密码必须包含大写字母'); return }
+    if (!/[a-z]/.test(form.password)) { ElMessage.warning('密码必须包含小写字母'); return }
+    if (!/[0-9]/.test(form.password)) { ElMessage.warning('密码必须包含数字'); return }
+  }
   try {
     if (isEdit.value) {
       await authApi.updateUser(form.username, { display_name: form.display_name, role: form.role })

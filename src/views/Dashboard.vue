@@ -499,9 +499,10 @@ function exportChartData() {
   const timeSet = new Set<string>()
   keys.forEach(k => dataBuffers[k].forEach(d => timeSet.add(d.t)))
   const times = Array.from(timeSet).sort()
-  let csv = '﻿时间,' + keys.map(k => getShortLabel(k)).join(',') + '\n'
+  const escCSV = (v: string) => v.includes(',') || v.includes('"') || v.includes('\n') ? `"${v.replace(/"/g, '""')}"` : v
+  let csv = '﻿时间,' + keys.map(k => escCSV(getShortLabel(k))).join(',') + '\n'
   times.forEach(t => {
-    csv += t + ',' + keys.map(k => { const d = dataBuffers[k].find(x => x.t === t); return d ? d.v.toFixed(2) : '' }).join(',') + '\n'
+    csv += escCSV(t) + ',' + keys.map(k => { const d = dataBuffers[k].find(x => x.t === t); return d ? d.v.toFixed(2) : '' }).join(',') + '\n'
   })
   downloadCSV(csv, `trend_${selectedDeviceId.value}_${new Date().toISOString().slice(0,19).replace(/:/g,'-')}.csv`)
 }
@@ -510,9 +511,10 @@ async function exportAllData() {
   try {
     const data = await dataApi.getRealtime() as any
     if (!data?.data?.length) { ElMessage.error('无数据可导出'); return }
+    const escCSV = (v: string) => (v.includes(',') || v.includes('"') || v.includes('\n')) ? `"${v.replace(/"/g, '""')}"` : String(v ?? '')
     let csv = '﻿设备ID,寄存器,值,单位,时间\n'
     data.data.forEach((item: any) => {
-      csv += `${item.device_id},${item.register_name},${item.value},${item.unit||''},${item.timestamp}\n`
+      csv += `${escCSV(item.device_id)},${escCSV(item.register_name)},${item.value},${escCSV(item.unit||'')},${escCSV(item.timestamp)}\n`
     })
     downloadCSV(csv, `all_devices_${new Date().toISOString().slice(0,19).replace(/:/g,'-')}.csv`)
   } catch (e: any) { console.error('[Dashboard] 操作失败:', e); ElMessage.error('导出失败') }

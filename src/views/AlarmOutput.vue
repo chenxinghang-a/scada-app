@@ -105,7 +105,7 @@
 
 <script setup lang="ts">
 import { ref, onMounted, reactive, onUnmounted } from 'vue'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import { io } from 'socket.io-client'
 import { alarmsApi } from '@/api'
 import { getAuthToken } from '@/api/request'
@@ -168,7 +168,13 @@ async function sendManualControl() {
   try { await alarmsApi.alarmOutputManual(manual); ElMessage.success('指令已发送') } catch (e: any) { console.error('[AlarmOutput] 操作失败:', e); ElMessage.error('操作失败: ' + (e?.response?.data?.error || e?.message || '未知错误')) }
 }
 
-function allOff() { manual.red = false; manual.yellow = false; manual.green = false; manual.buzzer = false; sendManualControl() }
+async function allOff() {
+  try {
+    await ElMessageBox.confirm('确定关闭所有报警输出？', '确认操作', { confirmButtonText: '确定', cancelButtonText: '取消', type: 'warning' })
+    manual.red = false; manual.yellow = false; manual.green = false; manual.buzzer = false
+    sendManualControl()
+  } catch { /* cancelled */ }
+}
 
 async function sendBroadcast() {
   if (!broadcast.text) { ElMessage.warning('请输入广播内容'); return }

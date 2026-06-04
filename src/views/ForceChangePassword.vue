@@ -25,9 +25,11 @@ import { ref, reactive } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { authApi } from '@/api'
+import { useAuthStore } from '@/stores/auth'
 import type { FormInstance, FormRules } from 'element-plus'
 
 const router = useRouter()
+const authStore = useAuthStore()
 const formRef = ref<FormInstance>()
 const loading = ref(false)
 const form = reactive({ newPassword: '', confirmPassword: '' })
@@ -78,9 +80,8 @@ async function submit() {
     await authApi.forceChangePassword(username, form.newPassword)
     localStorage.removeItem('scada_must_change_password')
     ElMessage.success('密码修改成功，请重新登录')
-    localStorage.removeItem('auth_token')
-    localStorage.removeItem('scada_refresh_token')
-    localStorage.removeItem('scada_user')
+    // 用 store logout 统一清理（含 Pinia ref + localStorage + cookie）
+    await authStore.logout()
     router.push('/login')
   } catch (e: any) {
     ElMessage.error(e?.response?.data?.error || '密码修改失败')

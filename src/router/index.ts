@@ -106,19 +106,17 @@ router.beforeEach((to, _from, next) => {
     try {
       const user = JSON.parse(localStorage.getItem('scada_user') || '{}')
       const allowedRoles = to.meta.roles as string[]
-      // 无 role 或 role 不在允许列表中 → 跳登录页（避免 /dashboard 无限循环）
       if (!user.role || !allowedRoles.includes(user.role)) {
-        localStorage.removeItem('auth_token')
-        localStorage.removeItem('scada_refresh_token')
-        localStorage.removeItem('scada_user')
-        localStorage.removeItem('scada_must_change_password')
-        document.cookie = 'token=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT'
-        next('/login')
+        if (!token) {
+          next('/login')
+        } else {
+          // 有 token 但角色不匹配 → 重定向到仪表盘（不放行未授权页面）
+          next('/dashboard')
+        }
         return
       }
     } catch {
-      // JSON 解析失败 → 数据损坏，跳登录页重新认证
-      localStorage.removeItem('auth_token')
+      // JSON 解析失败 → user 缓存损坏，只清 user 不清 token，重定向到登录
       localStorage.removeItem('scada_user')
       next('/login')
       return
