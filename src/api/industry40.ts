@@ -76,13 +76,13 @@ export const industry40Api = {
 
   // 预测性维护
   getHealthScores() {
-    return api.get('/industry40/health') as Promise<{ health_scores: HealthScore[] }>
+    return api.get('/industry40/health') as Promise<any>
   },
   getHealthScore(deviceId: string) {
-    return api.get(`/industry40/health/${deviceId}`) as Promise<{ health_scores: HealthScore[] }>
+    return api.get(`/industry40/health/${deviceId}`) as Promise<any>
   },
   getMaintenanceAlerts(limit = 50) {
-    return api.get(`/industry40/maintenance-alerts?limit=${limit}`) as Promise<{ alerts: any[] }>
+    return api.get(`/industry40/maintenance-alerts?limit=${limit}`) as Promise<any>
   },
 
   // 趋势分析
@@ -92,15 +92,15 @@ export const industry40Api = {
 
   // OEE
   getOEE() {
-    return api.get('/industry40/oee') as Promise<{ devices: OEERecord[] }>
+    return api.get('/industry40/oee') as Promise<any>
   },
   getOEEDevice(deviceId: string) {
-    return api.get(`/industry40/oee/${deviceId}`) as Promise<{ oee: OEERecord }>
+    return api.get(`/industry40/oee/${deviceId}`) as Promise<any>
   },
 
   // SPC
   getSPC(deviceId: string, registerName: string) {
-    return api.get(`/industry40/spc/${deviceId}/${registerName}`) as Promise<{ chart_data: SPCData }>
+    return api.get(`/industry40/spc/${deviceId}/${registerName}`) as Promise<any>
   },
   getSPCViolations(deviceId?: string, limit = 50) {
     const params = new URLSearchParams()
