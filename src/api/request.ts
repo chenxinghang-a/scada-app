@@ -94,7 +94,7 @@ export function resetCsrfToken() {
   csrfAttempted = false
 }
 
-// 响应拦截器 - 统一错误处理 + token 自动刷新 + success/data 信封解包
+// 响应拦截器 - 统一错误处理 + token 自动刷新 + success/data 信封解包 + 网络重试
 api.interceptors.response.use(
   (response) => {
     const data = response.data
@@ -105,7 +105,21 @@ api.interceptors.response.use(
     return data
   },
   async (error) => {
-    const originalConfig = error.config as AxiosRequestConfig & { _retry?: boolean }
+    const originalConfig = error.config as AxiosRequestConfig & { _retry?: boolean; _retryCount?: number }
+
+    // 网络错误自动重试（最多3次，指数退避）
+    if (!error.response && !originalConfig._retry) {
+      const maxRetries = 3
+      const retryCount = originalConfig._retryCount || 0
+
+      if (retryCount < maxRetries) {
+        originalConfig._retryCount = retryCount + 1
+        const delay = Math.pow(2, retryCount) * 1000  // 1s, 2s, 4s
+        await new Promise(resolve => setTimeout(resolve, delay))
+        return api(originalConfig)
+      }
+    }
+
     if (error.response) {
       const { status, data } = error.response
 
