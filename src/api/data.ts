@@ -46,4 +46,36 @@ export const dataApi = {
       { responseType: 'blob' }
     )
   },
+
+  exportDeviceExcel(deviceId: string, params?: { start_time?: string; end_time?: string }) {
+    return api.post(
+      `/export/device/${deviceId}`,
+      { format: 'excel', ...params },
+      { responseType: 'blob' }
+    )
+  },
+
+  exportDevicePDF(deviceId: string, params?: { start_time?: string; end_time?: string }) {
+    return api.post(
+      `/export/device/${deviceId}`,
+      { format: 'pdf', ...params },
+      { responseType: 'blob' }
+    )
+  },
+
+  exportAlarms(params?: { format?: string; start_time?: string; end_time?: string }) {
+    return api.post(
+      '/export/alarms',
+      { format: 'csv', ...params },
+      { responseType: 'blob' }
+    )
+  },
+
+  exportAlarmsExcel(params?: { start_time?: string; end_time?: string }) {
+    return api.post(
+      '/export/alarms',
+      { format: 'excel', ...params },
+      { responseType: 'blob' }
+    )
+  },
 }
