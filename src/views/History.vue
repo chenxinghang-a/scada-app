@@ -166,7 +166,7 @@ async function exportData() {
       URL.revokeObjectURL(url)
     }
     ElMessage.success('导出成功')
-  } catch (e: any) { console.warn('[History] 加载失败:', e?.message || e) }
+  } catch (e: any) { console.warn('[History] 导出失败:', e?.message || e); ElMessage.error('导出失败: ' + (e?.message || '未知错误')) }
 }
 </script>
 

@@ -114,7 +114,7 @@ async function acknowledge(id: string) {
     await alarmsApi.acknowledge(id, alarm?.device_id, alarm?.register_name)
     ElMessage.success('报警已确认')
     refreshAlarms()
-  } catch (e: any) { console.warn('[Alarms] 加载失败:', e?.message || e) }
+  } catch (e: any) { console.warn('[Alarms] 确认失败:', e?.message || e); ElMessage.error('报警确认失败: ' + (e?.message || '未知错误')) }
 }
 
 async function exportAlarms() {
