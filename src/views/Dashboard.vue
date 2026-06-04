@@ -555,7 +555,17 @@ function connectSocket() {
   })
   socket.on('disconnect', () => {
     statusDotClass.value = 'status-dot yellow'
-    statusText.value = '连接断开，正在重连...'
+    statusText.value = '实时连接断开，降级为轮询模式（每2秒刷新）'
+    // WebSocket断开时增加轮询频率（从5秒降到2秒）
+    clearInterval(loadTimer)
+    loadTimer = setInterval(loadData, 2000)
+  })
+  socket.on('reconnect', () => {
+    statusDotClass.value = 'status-dot green'
+    statusText.value = '系统运行中'
+    // 恢复正常轮询频率
+    clearInterval(loadTimer)
+    loadTimer = setInterval(loadData, 5000)
   })
   socket.on('data_update', (data: any) => {
     if (!data) return
