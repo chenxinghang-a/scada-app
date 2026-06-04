@@ -32,7 +32,9 @@ export const dataApi = {
       limit?: number
     }
   ) {
-    return api.get(`/data/history/${deviceId}/${register}`, {
+    // register='*' 表示查询全部寄存器，需URL编码
+    const encodedRegister = encodeURIComponent(register)
+    return api.get(`/data/history/${deviceId}/${encodedRegister}`, {
       params,
     }) as Promise<{ data: HistoryRecord[] }>
   },
