@@ -155,6 +155,9 @@ import { io } from 'socket.io-client'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { systemApi, devicesApi, dataApi, alarmsApi, industry40Api, type DeviceStatus, type SystemStatus, type Alarm } from '@/api'
 import { getAuthToken } from '@/api/request'
+import { useAuthStore } from '@/stores/auth'
+
+const authStore = useAuthStore()
 
 // ========== 状态 ==========
 const allDeviceList = ref<DeviceStatus[]>([])
@@ -296,10 +299,7 @@ async function loadOEE() {
 }
 
 function loadUserName() {
-  try {
-    const u = JSON.parse(localStorage.getItem('scada_user') || '{}')
-    userName.value = u.display_name || u.username || '用户'
-  } catch (e: any) { console.warn('[Dashboard] 加载失败:', e?.message || e) }
+  userName.value = authStore.user?.display_name || authStore.user?.username || '用户'
 }
 
 // ========== KPI 更新 ==========
