@@ -179,6 +179,9 @@
 import { ref, onMounted, onUnmounted, reactive, computed } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { devicesApi, controlApi, type Device, type Register } from '@/api'
+import { useAuthStore } from '@/stores/auth'
+
+const authStore = useAuthStore()
 
 const devices = ref<Device[]>([])
 const currentRegisters = ref<Register[]>([])
@@ -187,6 +190,7 @@ const deviceHealth = ref<any[]>([])
 const controlLogs = ref<any[]>([])
 
 const eStop = reactive({ active: false, reason: '', time: '' })
+const controlLoading = ref(false)
 
 const regForm = reactive({ device_id: '', register_name: '', value: 0 })
 const coilForm = reactive({ device_id: '', register_name: '', value: true })
@@ -202,12 +206,7 @@ watch(() => coilForm.device_id, async (deviceId) => {
   }
 })
 
-const canControl = computed(() => {
-  try {
-    const user = JSON.parse(localStorage.getItem('scada_user') || '{}')
-    return ['admin', 'engineer'].includes(user.role)
-  } catch { return false }
-})
+const canControl = computed(() => authStore.isAdmin || authStore.isEngineer)
 
 let statusTimer: ReturnType<typeof setInterval>
 
@@ -265,27 +264,33 @@ function findRegisterAddress(deviceId: string, registerName: string): number | u
 }
 
 async function writeRegister() {
+  if (controlLoading.value) return
   if (!regForm.device_id || !regForm.register_name) { ElMessage.warning('请选择设备和寄存器'); return }
   const address = findRegisterAddress(regForm.device_id, regForm.register_name)
   if (address === undefined) { ElMessage.error('无法找到寄存器地址'); return }
   try {
     await ElMessageBox.confirm(`确认写入 ${regForm.register_name} (地址${address}) = ${regForm.value}？`, '确认操作', { type: 'warning' })
+    controlLoading.value = true
     await controlApi.writeRegister(regForm.device_id, address, regForm.value)
     ElMessage.success('写入成功')
     loadLogs()
   } catch (e: any) { if (e !== 'cancel') { console.error('[Control] 操作失败:', e); ElMessage.error('操作失败: ' + (e?.response?.data?.error || e?.message || '未知错误')) } }
+  finally { controlLoading.value = false }
 }
 
 async function writeCoil() {
+  if (controlLoading.value) return
   if (!coilForm.device_id || !coilForm.register_name) { ElMessage.warning('请选择设备和线圈'); return }
   const address = findRegisterAddress(coilForm.device_id, coilForm.register_name)
   if (address === undefined) { ElMessage.error('无法找到线圈地址'); return }
   try {
     await ElMessageBox.confirm(`确认写入 ${coilForm.register_name} (地址${address}) = ${coilForm.value ? 'ON' : 'OFF'}？`, '确认操作', { type: 'warning' })
+    controlLoading.value = true
     await controlApi.writeCoil(coilForm.device_id, address, coilForm.value)
     ElMessage.success('写入成功')
     loadLogs()
   } catch (e: any) { if (e !== 'cancel') { console.error('[Control] 操作失败:', e); ElMessage.error('操作失败: ' + (e?.response?.data?.error || e?.message || '未知错误')) } }
+  finally { controlLoading.value = false }
 }
 
 async function triggerEStop() {
@@ -299,10 +304,11 @@ async function triggerEStop() {
 
 async function resetEStop() {
   try {
+    await ElMessageBox.confirm('确定复位急停？确认现场人员已安全后再操作！', '复位急停', { type: 'warning', confirmButtonText: '确认复位' })
     await controlApi.eStopReset()
     ElMessage.success('急停已重置')
     loadSafetyStatus()
-  } catch (e: any) { console.error('[Control] 操作失败:', e); ElMessage.error('操作失败: ' + (e?.response?.data?.error || e?.message || '未知错误')) }
+  } catch (e: any) { if (e !== 'cancel') { console.error('[Control] 操作失败:', e); ElMessage.error('操作失败: ' + (e?.response?.data?.error || e?.message || '未知错误')) } }
 }
 
 async function bypassInterlock(id: string) {

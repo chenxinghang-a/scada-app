@@ -42,10 +42,16 @@ export const alarmsApi = {
   },
 
   acknowledge(id: string, device_id?: string, register_name?: string) {
+    // 从 localStorage 获取真实用户名（auth store 同步写入）
+    let username = 'operator'
+    try {
+      const user = JSON.parse(localStorage.getItem('scada_user') || '{}')
+      username = user.username || 'operator'
+    } catch {}
     return api.post(`/alarms/${id}/acknowledge`, {
       device_id,
       register_name,
-      acknowledged_by: 'operator',
+      acknowledged_by: username,
     }) as Promise<{ success: boolean }>
   },
 

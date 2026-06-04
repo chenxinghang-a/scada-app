@@ -94,9 +94,16 @@ export function resetCsrfToken() {
   csrfAttempted = false
 }
 
-// 响应拦截器 - 统一错误处理 + token 自动刷新
+// 响应拦截器 - 统一错误处理 + token 自动刷新 + success/data 信封解包
 api.interceptors.response.use(
-  (response) => response.data,
+  (response) => {
+    const data = response.data
+    // 自动解包 { success, data, message } 信封（api_industry40/api_health 使用此格式）
+    if (data && typeof data === 'object' && 'success' in data && 'data' in data) {
+      return data.data
+    }
+    return data
+  },
   async (error) => {
     const originalConfig = error.config as AxiosRequestConfig & { _retry?: boolean }
     if (error.response) {

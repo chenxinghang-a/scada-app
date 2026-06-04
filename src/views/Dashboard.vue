@@ -171,8 +171,8 @@ let loadGeneration = 0
 
 const deviceCache: Record<string, DeviceStatus> = {}
 const dataBuffers: Record<string, Array<{ t: string; v: number }>> = {}
-const deviceValues: Record<string, number> = {}
-const deviceQuality: Record<string, number> = {}
+const deviceValues = reactive<Record<string, number>>({})
+const deviceQuality = reactive<Record<string, number>>({})
 const MAX_CHART_POINTS = 200
 
 // ========== 筛选 + 分页 ==========

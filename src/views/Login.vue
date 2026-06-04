@@ -109,8 +109,9 @@ async function handleLogin() {
         ElMessage.warning('首次登录请修改密码')
         router.push('/force-change-password')
       } else {
+        // 清除可能残留的强制改密标志
+        localStorage.removeItem('scada_must_change_password')
         ElMessage.success('登录成功')
-        // 登录后跳回之前被拦截的页面（防 open redirect）
         const redirect = router.currentRoute.value.query.redirect as string
         const safeRedirect = redirect && redirect.startsWith('/') && !redirect.startsWith('//') ? redirect : '/dashboard'
         router.push(safeRedirect)

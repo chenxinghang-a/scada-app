@@ -68,7 +68,7 @@ import { getAuthToken } from '@/api/request'
 const clock = ref('')
 const devices = ref<any[]>([])
 const alarms = ref<any[]>([])
-const deviceValues: Record<string, number> = {}
+const deviceValues = reactive<Record<string, number>>({})
 const kpi = reactive({ online: 0, total: 0, alarms: 0, rate: 0, quality: 100, uptime: '-' })
 
 // ECharts

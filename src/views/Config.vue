@@ -297,7 +297,7 @@
 
 <script setup lang="ts">
 import { ref, onMounted, reactive, computed } from 'vue'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import { systemApi, devicesApi, alarmsApi, type Device } from '@/api'
 
 // 从 package.json 读取版本号
@@ -449,9 +449,16 @@ async function loadSimulationMode() {
 
 async function toggleSimulationMode(val: boolean) {
   try {
+    const modeName = val ? '模拟模式' : '实时模式'
+    await ElMessageBox.confirm(
+      `确定切换到${modeName}？${val ? '切换后将停止真实设备数据采集。' : '切换后将开始与真实设备通信。'}`,
+      '切换运行模式',
+      { confirmButtonText: '确定切换', cancelButtonText: '取消', type: 'warning' }
+    )
     await systemApi.setSimulationMode(val)
-    ElMessage.success(`已切换为${val ? '模拟模式' : '实时模式'}`)
+    ElMessage.success(`已切换为${modeName}`)
   } catch (e: any) {
+    if (e === 'cancel') { simulationMode.value = !val; return }
     console.error('[Config] 切换模式失败:', e)
     simulationMode.value = !val
     ElMessage.error('切换模式失败: ' + (e?.response?.data?.error || e?.message || '未知错误'))
