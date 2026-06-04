@@ -41,6 +41,11 @@ export default defineConfig({
     target: 'es2020',
     modulePreload: false,
     chunkSizeWarningLimit: 800,
+    // Tree-shaking优化
+    commonjsOptions: {
+      include: [/node_modules/],
+      extensions: ['.js', '.cjs'],
+    },
     rollupOptions: {
       output: {
         // 精细化 chunk 分割 — 避免单个 vendor 过大
@@ -57,6 +62,8 @@ export default defineConfig({
               if (id.includes('/chart/') || id.includes('/components/')) return 'vendor-echarts-charts'
               return 'vendor-echarts-core'
             }
+            // Socket.IO单独拆
+            if (id.includes('socket.io')) return 'vendor-socketio'
             // 其他第三方
             return 'vendor-other'
           }
