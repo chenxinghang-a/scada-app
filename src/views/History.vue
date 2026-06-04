@@ -118,6 +118,8 @@ async function loadRegisters(deviceId: string) {
   try { const data = await devicesApi.getById(deviceId); registers.value = data.device?.registers || [] } catch (e: any) { console.warn('[History] 加载失败:', e?.message || e) }
 }
 
+const MAX_CHART_POINTS = 500  // 图表最大数据点数
+
 async function queryHistory() {
   if (!filter.device_id || !filter.register_name) { ElMessage.warning('请选择设备和参数'); return }
   loading.value = true
@@ -126,10 +128,16 @@ async function queryHistory() {
     if (filter.timeRange?.length === 2) { params.start = filter.timeRange[0].toISOString(); params.end = filter.timeRange[1].toISOString() }
     const data = await dataApi.getHistory(filter.device_id, filter.register_name, params)
     tableData.value = data.data || []
-    if (chart) {
+    if (chart && tableData.value.length > 0) {
+      // 大数据量采样：超过MAX_CHART_POINTS时均匀采样
+      let displayData = tableData.value
+      if (displayData.length > MAX_CHART_POINTS) {
+        const step = Math.ceil(displayData.length / MAX_CHART_POINTS)
+        displayData = displayData.filter((_, i) => i % step === 0)
+      }
       chart.setOption({
-        xAxis: { data: tableData.value.map(d => new Date(d.timestamp).toLocaleTimeString()) },
-        series: [{ data: tableData.value.map(d => d.value) }],
+        xAxis: { data: displayData.map(d => new Date(d.timestamp).toLocaleTimeString()) },
+        series: [{ data: displayData.map(d => d.value) }],
       })
     }
   } catch (e: any) { console.warn('[History] 加载失败:', e?.message || e) }
