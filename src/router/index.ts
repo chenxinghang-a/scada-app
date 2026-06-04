@@ -79,6 +79,12 @@ const router = createRouter({
           component: () => import('@/views/Users.vue'),
           meta: { title: '用户管理', icon: 'User', roles: ['admin'] },
         },
+        {
+          path: 'performance',
+          name: 'Performance',
+          component: () => import('@/views/PerformanceMonitor.vue'),
+          meta: { title: '性能监控', icon: 'TrendCharts', roles: ['admin', 'engineer'] },
+        },
       ],
     },
   ],

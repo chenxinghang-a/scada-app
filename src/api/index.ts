@@ -5,6 +5,7 @@ export { alarmsApi } from './alarms'
 export { systemApi } from './system'
 export { industry40Api } from './industry40'
 export { controlApi } from './control'
+export { performanceApi } from './performance'
 
 export type { LoginParams, UserInfo } from './auth'
 export type { Device, Register } from './devices'
