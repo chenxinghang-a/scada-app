@@ -65,7 +65,7 @@
         </el-table-column>
         <el-table-column label="操作" width="100" fixed="right">
           <template #default="{ row }">
-            <el-button v-if="!row.acknowledged" type="primary" link size="small" @click="acknowledge(row.id)">确认</el-button>
+            <el-button v-if="!row.acknowledged" type="primary" link size="small" @click="acknowledge(row.alarm_id || row.id)">确认</el-button>
           </template>
         </el-table-column>
       </el-table>

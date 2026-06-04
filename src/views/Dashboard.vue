@@ -450,8 +450,15 @@ function getQualityLabel(q: number | null): string {
 }
 
 // ========== 趋势图 ==========
-function selectDevice(id: string) { selectedDeviceId.value = id; Object.keys(dataBuffers).forEach(k => delete dataBuffers[k]); trendChart?.clear() }
-function onDeviceChange() { Object.keys(dataBuffers).forEach(k => delete dataBuffers[k]); trendChart?.clear() }
+function selectDevice(id: string) {
+  selectedDeviceId.value = id
+  // 不清空历史数据，切换设备后趋势图自动显示新设备的数据
+  updateTrendChart()
+}
+function onDeviceChange() {
+  // 不清空历史数据，保留所有设备的趋势记录
+  updateTrendChart()
+}
 
 function initTrendChart() {
   if (!trendChartRef.value) return
