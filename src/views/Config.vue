@@ -615,16 +615,20 @@ function importConfig() {
       const imported = JSON.parse(text)
       // 安全校验：只接受已知配置段，防止原型链污染
       const allowedSections = ['system', 'collection', 'database', 'energy']
-      for (const section of allowedSections) {
-        if (imported[section] && typeof imported[section] === 'object' && imported[section] !== null) {
-          Object.assign((config as any)[section], imported[section])
-        }
+      const matchedSections = allowedSections.filter(s => imported[s] && typeof imported[s] === 'object' && imported[s] !== null)
+      if (matchedSections.length === 0) { ElMessage.warning('配置文件中没有可识别的配置段'); return }
+      // 确认对话框：显示将导入的配置段
+      await ElMessageBox.confirm(
+        `将导入以下配置段: ${matchedSections.join(', ')}\n这会覆盖当前配置，确定继续？`,
+        '导入配置',
+        { confirmButtonText: '确定导入', cancelButtonText: '取消', type: 'warning' }
+      )
+      for (const section of matchedSections) {
+        Object.assign((config as any)[section], imported[section])
       }
       // 自动保存所有配置段
-      for (const section of ['system', 'collection', 'database', 'energy']) {
-        if (imported[section]) {
-          try { await systemApi.saveConfig(section, config[section as keyof typeof config]) } catch (e: any) { console.warn(`[Config] 导入段 ${section} 保存失败:`, e?.message || e) }
-        }
+      for (const section of matchedSections) {
+        try { await systemApi.saveConfig(section, config[section as keyof typeof config]) } catch (e: any) { console.warn(`[Config] 导入段 ${section} 保存失败:`, e?.message || e) }
       }
       ElMessage.success('配置已导入并保存')
     } catch (e: any) {
