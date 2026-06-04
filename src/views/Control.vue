@@ -294,12 +294,15 @@ async function writeCoil() {
 }
 
 async function triggerEStop() {
+  if (controlLoading.value) return
   try {
     await ElMessageBox.confirm('确定执行紧急停止？此操作将停止所有设备！', '紧急停止', { type: 'error', confirmButtonText: '执行急停' })
+    controlLoading.value = true
     await controlApi.eStop()
     ElMessage.success('急停已执行')
     loadSafetyStatus()
   } catch (e: any) { if (e !== 'cancel') { console.error('[Control] 操作失败:', e); ElMessage.error('操作失败: ' + (e?.response?.data?.error || e?.message || '未知错误')) } }
+  finally { controlLoading.value = false }
 }
 
 async function resetEStop() {
@@ -328,12 +331,15 @@ async function restoreInterlock(id: string) {
 }
 
 async function batchControl(action: string) {
+  if (controlLoading.value) return
   try {
     await ElMessageBox.confirm(`确定执行「${action === 'start' ? '启动全部' : action === 'stop' ? '停止全部' : '重置全部'}」？`, '批量控制', { type: 'warning' })
+    controlLoading.value = true
     await controlApi.batchControl(action)
     ElMessage.success('指令已发送')
     loadLogs()
   } catch (e: any) { if (e !== 'cancel') { console.error('[Control] 操作失败:', e); ElMessage.error('操作失败: ' + (e?.response?.data?.error || e?.message || '未知错误')) } }
+  finally { controlLoading.value = false }
 }
 </script>
 

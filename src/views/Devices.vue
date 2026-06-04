@@ -262,6 +262,11 @@ const deviceRules = {
   device_id: [{ required: true, message: '请输入设备ID', trigger: 'blur' }],
   name: [{ required: true, message: '请输入设备名称', trigger: 'blur' }],
   protocol: [{ required: true, message: '请选择协议', trigger: 'change' }],
+  host: [{ required: true, message: '请输入地址', trigger: 'blur' }],
+  port: [
+    { required: true, message: '请输入端口', trigger: 'blur' },
+    { type: 'number', min: 1, max: 65535, message: '端口范围 1-65535', trigger: 'blur' }
+  ],
 }
 
 // 预设设备
