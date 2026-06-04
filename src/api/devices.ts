@@ -74,7 +74,7 @@ export const devicesApi = {
   },
 
   getProtocols() {
-    return api.get('/devices/protocols') as Promise<{ protocols: string[] }>
+    return api.get('/devices/protocols') as Promise<{ protocols: Array<{id: string; name: string; description: string; default_port: number|null; requires: string[]}>; summary: any }>
   },
 
   getTemplates() {

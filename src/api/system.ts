@@ -33,8 +33,13 @@ export interface SystemStatus {
 }
 
 export interface DatabaseInfo {
-  size: number
-  tables: Record<string, { rows: number; size: string }>
+  realtime_records: number
+  history_records: number
+  alarm_records: number
+  unacknowledged_alarms: number
+  archive_records: number
+  total_records: number
+  database_size_mb: number
 }
 
 export const systemApi = {

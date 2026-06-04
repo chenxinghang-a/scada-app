@@ -248,7 +248,7 @@
                     <el-descriptions :column="1" border size="small">
                       <el-descriptions-item label="历史数据总量">{{ dbTables.reduce((s, t) => t.name === 'history_data' ? s + t.rows : s, 0) }} 条</el-descriptions-item>
                       <el-descriptions-item label="归档数据总量">{{ dbTables.reduce((s, t) => t.name === 'history_archive' ? s + t.rows : s, 0) }} 条</el-descriptions-item>
-                      <el-descriptions-item label="数据库大小">{{ dbTables.reduce((s, t) => s + (parseFloat(t.size) || 0), 0).toFixed(2) }} MB</el-descriptions-item>
+                      <el-descriptions-item label="数据库大小">{{ (dbInfo as any)?.database_size_mb?.toFixed(2) || '-' }} MB</el-descriptions-item>
                     </el-descriptions>
                   </el-col>
                 </el-row>
@@ -350,8 +350,15 @@ const config = reactive({
 const ruleForm = reactive({ id: '', name: '', device_id: '', register_name: '', condition: '>', threshold: 0, level: 'warning', enabled: true })
 
 const dbTables = computed(() => {
-  if (!dbInfo.value?.tables) return []
-  return Object.entries(dbInfo.value.tables).map(([name, info]: any) => ({ name, rows: info.rows, size: info.size }))
+  if (!dbInfo.value) return []
+  // 后端返回扁平结构，转换为表格数据
+  const info = dbInfo.value as any
+  return [
+    { name: 'realtime_data', rows: info.realtime_records || 0, size: '-' },
+    { name: 'history_data', rows: info.history_records || 0, size: '-' },
+    { name: 'alarm_records', rows: info.alarm_records || 0, size: '-' },
+    { name: 'history_archive', rows: info.archive_records || 0, size: '-' },
+  ]
 })
 
 onMounted(async () => {
