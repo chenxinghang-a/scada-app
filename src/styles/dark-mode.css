@@ -1,0 +1,185 @@
+/* SmartSCADA 深色模式样式 */
+
+/* CSS变量定义 */
+:root {
+  --bg-primary: #ffffff;
+  --bg-secondary: #f5f7fa;
+  --bg-card: #ffffff;
+  --text-primary: #1a1a2e;
+  --text-secondary: #606266;
+  --text-muted: #909399;
+  --border-color: #e2e5ea;
+  --shadow-color: rgba(0, 0, 0, 0.08);
+  --accent-color: #409eff;
+  --success-color: #67c23a;
+  --warning-color: #e6a23c;
+  --danger-color: #f56c6c;
+}
+
+/* 深色模式变量 */
+[data-theme="dark"] {
+  --bg-primary: #0a0e27;
+  --bg-secondary: #141937;
+  --bg-card: #1a1f3d;
+  --text-primary: #e0e0e0;
+  --text-secondary: #a0a0a0;
+  --text-muted: #666666;
+  --border-color: #2a2f4d;
+  --shadow-color: rgba(0, 0, 0, 0.3);
+  --accent-color: #64b5f6;
+  --success-color: #81c784;
+  --warning-color: #ffb74d;
+  --danger-color: #e57373;
+}
+
+/* 全局样式 */
+[data-theme="dark"] body {
+  background-color: var(--bg-primary);
+  color: var(--text-primary);
+}
+
+/* 卡片样式 */
+[data-theme="dark"] .el-card {
+  background-color: var(--bg-card);
+  border-color: var(--border-color);
+  box-shadow: 0 2px 12px var(--shadow-color);
+}
+
+/* 表格样式 */
+[data-theme="dark"] .el-table {
+  background-color: var(--bg-card);
+  color: var(--text-primary);
+}
+
+[data-theme="dark"] .el-table th {
+  background-color: var(--bg-secondary);
+  color: var(--text-primary);
+  border-bottom-color: var(--border-color);
+}
+
+[data-theme="dark"] .el-table td {
+  border-bottom-color: var(--border-color);
+}
+
+[data-theme="dark"] .el-table--striped .el-table__body tr.el-table__row--striped td {
+  background-color: var(--bg-secondary);
+}
+
+[data-theme="dark"] .el-table__body tr:hover > td {
+  background-color: var(--bg-secondary);
+}
+
+/* 输入框样式 */
+[data-theme="dark"] .el-input__inner {
+  background-color: var(--bg-secondary);
+  border-color: var(--border-color);
+  color: var(--text-primary);
+}
+
+[data-theme="dark"] .el-input__inner::placeholder {
+  color: var(--text-muted);
+}
+
+/* 按钮样式 */
+[data-theme="dark"] .el-button--default {
+  background-color: var(--bg-secondary);
+  border-color: var(--border-color);
+  color: var(--text-primary);
+}
+
+/* 对话框样式 */
+[data-theme="dark"] .el-dialog {
+  background-color: var(--bg-card);
+  border-color: var(--border-color);
+}
+
+[data-theme="dark"] .el-dialog__title {
+  color: var(--text-primary);
+}
+
+/* 菜单样式 */
+[data-theme="dark"] .el-menu {
+  background-color: var(--bg-secondary);
+  border-color: var(--border-color);
+}
+
+[data-theme="dark"] .el-menu-item {
+  color: var(--text-secondary);
+}
+
+[data-theme="dark"] .el-menu-item:hover,
+[data-theme="dark"] .el-menu-item.is-active {
+  color: var(--accent-color);
+  background-color: var(--bg-card);
+}
+
+/* 标签页样式 */
+[data-theme="dark"] .el-tabs__item {
+  color: var(--text-secondary);
+}
+
+[data-theme="dark"] .el-tabs__item.is-active {
+  color: var(--accent-color);
+}
+
+/* 表单样式 */
+[data-theme="dark"] .el-form-item__label {
+  color: var(--text-primary);
+}
+
+/* 选择器样式 */
+[data-theme="dark"] .el-select-dropdown {
+  background-color: var(--bg-card);
+  border-color: var(--border-color);
+}
+
+[data-theme="dark"] .el-select-dropdown__item {
+  color: var(--text-primary);
+}
+
+[data-theme="dark"] .el-select-dropdown__item:hover,
+[data-theme="dark"] .el-select-dropdown__item.selected {
+  background-color: var(--bg-secondary);
+  color: var(--accent-color);
+}
+
+/* 消息框样式 */
+[data-theme="dark"] .el-message-box {
+  background-color: var(--bg-card);
+  border-color: var(--border-color);
+}
+
+/* 通知样式 */
+[data-theme="dark"] .el-notification {
+  background-color: var(--bg-card);
+  border-color: var(--border-color);
+}
+
+/* 自定义组件样式 */
+[data-theme="dark"] .stat-card {
+  background: linear-gradient(135deg, var(--bg-card), var(--bg-secondary));
+  border-color: var(--border-color);
+}
+
+[data-theme="dark"] .chart-container {
+  background-color: var(--bg-card);
+}
+
+/* 滚动条样式 */
+[data-theme="dark"] ::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+[data-theme="dark"] ::-webkit-scrollbar-track {
+  background: var(--bg-secondary);
+}
+
+[data-theme="dark"] ::-webkit-scrollbar-thumb {
+  background: var(--border-color);
+  border-radius: 4px;
+}
+
+[data-theme="dark"] ::-webkit-scrollbar-thumb:hover {
+  background: var(--text-muted);
+}
