@@ -68,10 +68,6 @@ export const systemApi = {
   },
 
   getHealth() {
-    return api.get('/health/status') as Promise<{ status: string; checks: Record<string, boolean> }>
-  },
-
-  getHealthStatus() {
     return api.get('/health/status') as Promise<any>
   },
 
