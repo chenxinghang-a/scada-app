@@ -269,35 +269,36 @@ const deviceRules = {
   ],
 }
 
-// 预设设备
-const presetCategories = ['Modbus', 'MC协议', 'FINS', 'OPC UA', 'MQTT', 'REST']
-const presets = [
-  // Modbus
-  { id: 'schneider_m340_01', name: '施耐德M340 PLC', protocol: 'modbus_tcp', category: 'Modbus', description: '施耐德M340 PLC - 水处理控制' },
-  { id: 'abb_m4m_01', name: 'ABB M4M仪表', protocol: 'modbus_tcp', category: 'Modbus', description: 'ABB M4M电力监测仪表' },
-  { id: 'turck_iolink_01', name: '图尔克IO-Link', protocol: 'modbus_tcp', category: 'Modbus', description: '图尔克IO-Link站点' },
-  { id: 'delta_dvp_01', name: '台达DVP PLC', protocol: 'modbus_tcp', category: 'Modbus', description: '台达DVP PLC - 包装线控制' },
-  { id: 'inovance_h5u_01', name: '汇川H5U PLC', protocol: 'modbus_tcp', category: 'Modbus', description: '汇川H5U PLC - 喷涂车间' },
-  { id: 'siemens_1500_01', name: '西门子S7-1500', protocol: 'modbus_tcp', category: 'Modbus', description: '西门子S7-1500 PLC - 锅炉控制' },
-  { id: 'hollysys_lk_01', name: '和利时LK PLC', protocol: 'modbus_tcp', category: 'Modbus', description: '和利时LK PLC - 化工流程' },
-  { id: 'mitsubishi_fx5u_01', name: '三菱FX5U PLC', protocol: 'modbus_tcp', category: 'Modbus', description: '三菱FX5U PLC - 注塑机控制' },
-  // MC协议
-  { id: 'fx5u_mc', name: '三菱FX5U (MC协议)', protocol: 'mc', category: 'MC协议', description: '三菱FX5U SLMP/3E帧协议' },
-  // FINS
-  { id: 'nj501_fins', name: '欧姆龙NJ501 (FINS)', protocol: 'fins', category: 'FINS', description: '欧姆龙NJ系列FINS/TCP协议' },
-  // OPC UA
-  { id: 'opcua_plc_01', name: 'OPC UA PLC', protocol: 'opcua', category: 'OPC UA', description: 'OPC UA PLC测试设备' },
-  // MQTT
-  { id: 'vibration_sensor_01', name: 'MQTT振动传感器', protocol: 'mqtt', category: 'MQTT', description: 'MQTT振动监测节点' },
-  { id: 'water_quality_01', name: 'MQTT水质传感器', protocol: 'mqtt', category: 'MQTT', description: 'MQTT水质监测终端' },
-  // REST
-  { id: 'siemens_web_01', name: '西门子Web API', protocol: 'rest', category: 'REST', description: '西门子S7-1500 REST API' },
-  { id: 'mes_api_01', name: 'MES系统API', protocol: 'rest', category: 'REST', description: 'MES制造执行系统' },
-]
+// 预设设备（从后端API加载）
+const presetCategories = ref<string[]>([])
+const presets = ref<any[]>([])
 
-const filteredPresets = computed(() => presets.filter(p => p.category === presetCategory.value))
+async function loadPresets() {
+  try {
+    const data = await devicesApi.getPresets()
+    presets.value = data.presets || []
+    // 从预设数据中提取分类
+    const cats = new Set(presets.value.map(p => p.category).filter(Boolean))
+    presetCategories.value = cats.size > 0 ? Array.from(cats).sort() : ['Modbus', 'MC协议', 'FINS', 'OPC UA', 'MQTT', 'REST']
+  } catch (e: any) {
+    console.warn('[Devices] 加载预设失败，使用本地默认:', e?.message || e)
+    // 降级：使用本地默认预设
+    presetCategories.value = ['Modbus', 'MC协议', 'FINS', 'OPC UA', 'MQTT', 'REST']
+    presets.value = [
+      { id: 'schneider_m340_01', name: '施耐德M340 PLC', protocol: 'modbus_tcp', category: 'Modbus', description: '施耐德M340 PLC - 水处理控制' },
+      { id: 'abb_m4m_01', name: 'ABB M4M仪表', protocol: 'modbus_tcp', category: 'Modbus', description: 'ABB M4M电力监测仪表' },
+      { id: 'siemens_1500_01', name: '西门子S7-1500', protocol: 'modbus_tcp', category: 'Modbus', description: '西门子S7-1500 PLC - 锅炉控制' },
+      { id: 'fx5u_mc', name: '三菱FX5U (MC协议)', protocol: 'mc', category: 'MC协议', description: '三菱FX5U SLMP/3E帧协议' },
+      { id: 'nj501_fins', name: '欧姆龙NJ501 (FINS)', protocol: 'fins', category: 'FINS', description: '欧姆龙NJ系列FINS/TCP协议' },
+      { id: 'opcua_plc_01', name: 'OPC UA PLC', protocol: 'opcua', category: 'OPC UA', description: 'OPC UA PLC测试设备' },
+      { id: 'vibration_sensor_01', name: 'MQTT振动传感器', protocol: 'mqtt', category: 'MQTT', description: 'MQTT振动监测节点' },
+    ]
+  }
+}
 
-onMounted(() => { refreshDevices() })
+const filteredPresets = computed(() => presets.value.filter(p => p.category === presetCategory.value))
+
+onMounted(() => { refreshDevices(); loadPresets() })
 
 async function refreshDevices() {
   loading.value = true
