@@ -60,46 +60,46 @@ export const systemApi = {
   },
 
   getConfig() {
-    return api.get('/config') as Promise<{ config: any }>
+    return api.get('/config') as Promise<{ config: Record<string, unknown> }>
   },
 
-  saveConfig(section: string, data: any) {
+  saveConfig(section: string, data: Record<string, unknown>) {
     return api.put('/config', { section, data }) as Promise<{ success: boolean }>
   },
 
   getHealth() {
-    return api.get('/health/status') as Promise<any>
+    return api.get('/health/status') as Promise<{ global_status: string; modules: Record<string, unknown>; checks: Record<string, boolean>; unhealthy_modules: string[] }>
   },
 
   getHealthModules() {
-    return api.get('/health/modules') as Promise<any>
+    return api.get('/health/modules') as Promise<Record<string, { status: string; has_instance: boolean; error: string | null }>>
   },
 
   getHealthModule(moduleName: string) {
-    return api.get(`/health/modules/${moduleName}`) as Promise<any>
+    return api.get(`/health/modules/${moduleName}`) as Promise<{ status: string; has_instance: boolean; error: string | null }>
   },
 
   getHealthChecks() {
-    return api.get('/health/checks') as Promise<any>
+    return api.get('/health/checks') as Promise<Record<string, boolean>>
   },
 
   getHealthCheck(checkName: string) {
-    return api.get(`/health/checks/${checkName}`) as Promise<any>
+    return api.get(`/health/checks/${checkName}`) as Promise<{ status: boolean; message: string }>
   },
 
   getHealthAvailable() {
-    return api.get('/health/available') as Promise<any>
+    return api.get('/health/available') as Promise<string[]>
   },
 
   getHealthUnavailable() {
-    return api.get('/health/unavailable') as Promise<any>
+    return api.get('/health/unavailable') as Promise<string[]>
   },
 
   getHAStatus() {
-    return api.get('/system/ha-status') as Promise<any>
+    return api.get('/system/ha-status') as Promise<{ role: string; state: string; peer: string | null }>
   },
 
   forceHARole(role: string) {
-    return api.post('/system/ha-force-role', { role }) as Promise<any>
+    return api.post('/system/ha-force-role', { role }) as Promise<{ success: boolean }>
   },
 }
