@@ -76,7 +76,7 @@
 <script setup lang="ts">
 import { ref, onMounted, reactive } from 'vue'
 import { ElMessage } from 'element-plus'
-import { alarmsApi, devicesApi, type Alarm, type Device } from '@/api'
+import { alarmsApi, devicesApi, type Alarm } from '@/api'
 
 const alarms = ref<Alarm[]>([])
 const devices = ref<Device[]>([])
