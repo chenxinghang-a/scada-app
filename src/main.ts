@@ -6,7 +6,11 @@ import zhCn from 'element-plus/es/locale/lang/zh-cn'
 import * as ElementPlusIconsVue from '@element-plus/icons-vue'
 import App from './App.vue'
 import router from './router'
+import { installErrorLogger } from './composables/useErrorLogger'
 import './assets/style.css'
+
+// 安装全局错误日志上报
+installErrorLogger()
 
 const app = createApp(App)
 
