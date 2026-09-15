@@ -59,18 +59,12 @@
 import { ref, onMounted, onUnmounted } from 'vue'
 import * as echarts from 'echarts'
 import { Delete } from '@element-plus/icons-vue'
-import { devicesApi, dataApi } from '@/api'
+import { devicesApi, dataApi, type Device } from '@/api'
 
 interface Comparison {
   deviceId: string
   registerName: string
   timeRange: Date[]
-}
-
-interface Device {
-  device_id: string
-  name: string
-  registers: Array<{ name: string; description: string }>
 }
 
 interface Statistic {
@@ -141,8 +135,8 @@ async function updateChart() {
 
     try {
       const params = {
-        start_time: comp.timeRange[0].toISOString(),
-        end_time: comp.timeRange[1].toISOString(),
+        start: comp.timeRange[0].toISOString(),
+        end: comp.timeRange[1].toISOString(),
       }
       const data = await dataApi.getHistory(comp.deviceId, comp.registerName, params)
       const historyData = data.data || []

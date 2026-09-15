@@ -57,7 +57,7 @@ const props = withDefaults(defineProps<{
 
 const router = useRouter()
 const { t } = useI18n()
-const { logError } = useErrorLogger()
+const { reportError } = useErrorLogger()
 
 const hasError = ref(false)
 const errorMessage = ref('')
@@ -79,13 +79,7 @@ function handleError(err: any, info?: string) {
   errorStack.value = err.stack || ''
 
   // 上报错误
-  logError({
-    type: 'vue',
-    message: err.message,
-    stack: err.stack,
-    component: info,
-    timestamp: Date.now(),
-  })
+  reportError(err instanceof Error ? err : new Error(err?.message || String(err)), info)
 
   console.error('[ErrorBoundary]', err, info)
 

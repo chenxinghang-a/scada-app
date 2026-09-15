@@ -10,7 +10,7 @@
  *   if (hasDraft.value) { formData.value = restoreDraft() }
  */
 
-import { ref, onMounted, onUnmounted, watch } from 'vue'
+import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 
 interface DraftOptions {
   /** 保存防抖间隔（ms） */

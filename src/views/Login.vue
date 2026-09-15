@@ -59,7 +59,7 @@
       <div class="login-footer">
         <div class="footer-info">
           <el-icon><Monitor /></el-icon>
-          <span>SmartSCADA {{ typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : 'v1.0.0' }}</span>
+          <span>SmartSCADA {{ appVersion }}</span>
         </div>
         <div v-if="isDev" class="footer-hint">默认账号: admin / admin123</div>
       </div>
@@ -75,6 +75,7 @@ import { ElMessage, type FormInstance } from 'element-plus'
 import { useAuthStore } from '@/stores/auth'
 
 const isDev = import.meta.env.DEV
+const appVersion = typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : 'v1.0.0'
 
 const router = useRouter()
 const authStore = useAuthStore()

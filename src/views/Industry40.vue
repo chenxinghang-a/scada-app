@@ -463,7 +463,7 @@ async function loadSPC() {
     // 后端返回 { control_chart: { xbar_chart, r_chart, ... }, capability: {...} }
     const controlChart = chart?.control_chart || chart?.chart_data
     spc.capability = chart?.capability || null
-    spc.violations = v || []
+    spc.violations = v?.violations || []
     renderSPCCharts(controlChart)
   } catch (e: any) { console.warn('[Industry40] 加载失败:', e?.message || e) }
 }

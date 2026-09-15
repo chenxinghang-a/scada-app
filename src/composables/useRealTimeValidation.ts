@@ -6,7 +6,7 @@
  *   const { errors, validate, validateField, clearErrors } = useRealTimeValidation(rules)
  */
 
-import { ref, reactive, watch } from 'vue'
+import { computed, ref, reactive, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 
 interface ValidationRule {
@@ -26,7 +26,7 @@ interface ValidationRules {
 export function useRealTimeValidation(rules: ValidationRules) {
   const { t } = useI18n()
   const errors = reactive<Record<string, string[]>>({})
-  const touched = reactive<Record<string, boolean>({})
+  const touched = reactive<Record<string, boolean>>({})
   let debounceTimer: ReturnType<typeof setTimeout> | null = null
 
   function validateField(field: string, value: any): string[] {

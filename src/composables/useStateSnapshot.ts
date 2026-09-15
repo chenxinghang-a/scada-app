@@ -97,6 +97,7 @@ export function useStateSnapshot(componentName: string) {
       return false
     } catch {
       return false
+    }
   }
 
   /** 获取快照摘要 */

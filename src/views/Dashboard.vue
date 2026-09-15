@@ -466,7 +466,7 @@ function initTrendChart() {
   trendChart = echarts.init(trendChartRef.value)
 }
 
-function updateTrendChart(data: any[]) {
+function updateTrendChart(data: any[] = []) {
   if (!trendChart || !selectedDeviceId.value) return
   const now = new Date().toTimeString().slice(0, 8)
   let matched = 0

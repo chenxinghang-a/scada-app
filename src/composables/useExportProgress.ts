@@ -96,14 +96,16 @@ export function useExportProgress() {
         throw new Error('无法读取响应流')
       }
 
-      const chunks: Uint8Array[] = []
+      const chunks: BlobPart[] = []
       let received = 0
 
       while (true) {
         const { done, value } = await reader.read()
         if (done) break
 
-        chunks.push(value)
+        const chunk = new Uint8Array(value.length)
+        chunk.set(value)
+        chunks.push(chunk.buffer)
         received += value.length
 
         // 计算速度和ETA

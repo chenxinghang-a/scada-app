@@ -1,3 +1,5 @@
+import { ref } from 'vue'
+
 /**
  * 表单校验规则引擎
  * 提供可复用的校验规则，支持自定义规则组合。
@@ -55,7 +57,7 @@ export const rules = {
       validator: (v) => !v || String(v).length <= max,
       message: message || `最多${max}个字符`,
     }
-  }
+  },
 
   /** 数值范围 */
   range(min: number, max: number, message?: string): ValidationRule {
@@ -68,7 +70,7 @@ export const rules = {
       },
       message: message || `数值范围: ${min}-${max}`,
     }
-  }
+  },
 
   /** 端口号 */
   port(message?: string): ValidationRule {
@@ -81,7 +83,7 @@ export const rules = {
       },
       message: message || '端口号: 1-65535',
     }
-  }
+  },
 
   /** IP地址 */
   ip(message?: string): ValidationRule {
@@ -99,7 +101,7 @@ export const rules = {
       },
       message: message || '请输入有效的IP地址或主机名',
     }
-  }
+  },
 
   /** 邮箱 */
   email(message?: string): ValidationRule {
@@ -108,7 +110,7 @@ export const rules = {
       validator: (v) => !v || /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v),
       message: message || '请输入有效的邮箱地址',
     }
-  }
+  },
 
   /** 正则匹配 */
   pattern(regex: RegExp, message?: string): ValidationRule {
@@ -117,7 +119,7 @@ export const rules = {
       validator: (v) => !v || regex.test(String(v)),
       message: message || '格式不正确',
     }
-  }
+  },
 
   /** 自定义函数 */
   custom(fn: (v: any) => boolean | string, name: string = 'custom'): ValidationRule {
@@ -125,7 +127,7 @@ export const rules = {
       name,
       validator: fn,
     }
-  }
+  },
 
   /** 数字 */
   numeric(message?: string): ValidationRule {
@@ -134,7 +136,7 @@ export const rules = {
       validator: (v) => v === '' || v === null || v === undefined || !isNaN(Number(v)),
       message: message || '请输入数字',
     }
-  }
+  },
 
   /** 整数 */
   integer(message?: string): ValidationRule {

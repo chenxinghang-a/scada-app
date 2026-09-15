@@ -124,10 +124,12 @@ export const globalEventBus = {
     }
   },
   emit: <T = any>(event: string, data?: T) => {
-    (events[event] || []).forEach(handler => {
+    const handlers: EventHandler[] = events[event] || []
+    handlers.forEach((handler: EventHandler) => {
       try { handler(data) } catch (e) { console.error(e) }
     })
-    (onceEvents[event] || []).forEach(handler => {
+    const onceHandlers: EventHandler[] = onceEvents[event] || []
+    onceHandlers.forEach((handler: EventHandler) => {
       try { handler(data) } catch (e) { console.error(e) }
     })
     delete onceEvents[event]

@@ -589,7 +589,7 @@ async function loadLoggingConfig() {
   try {
     const data = await systemApi.getConfig()
     if (data?.config?.logging) {
-      const lc = data.config.logging
+      const lc = data.config.logging as any
       if (lc.level) loggingConfig.level = lc.level
       if (lc.file) Object.assign(loggingConfig.file, lc.file)
     }

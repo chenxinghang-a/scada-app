@@ -67,6 +67,12 @@ export function useSWRCache<T = any>(
 
   let refreshTimer: ReturnType<typeof setInterval> | null = null
   let mounted = true
+  const handleCacheUpdate = (entry: CacheEntry) => {
+    if (mounted) {
+      data.value = entry.data
+      error.value = entry.error
+    }
+  }
 
   /** 获取缓存 */
   function getCached(): CacheEntry | null {
@@ -175,13 +181,7 @@ export function useSWRCache<T = any>(
     if (!listeners.has(key)) {
       listeners.set(key, new Set())
     }
-    listeners.get(key)!.handleCacheUpdate = (entry: CacheEntry) => {
-      if (mounted) {
-        data.value = entry.data
-        error.value = entry.error
-      }
-    }
-    listeners.get(key)!.add(listeners.get(key)!.handleCacheUpdate)
+    listeners.get(key)!.add(handleCacheUpdate)
 
     // 焦点重新验证
     if (revalidateOnFocus) {
@@ -219,8 +219,8 @@ export function useSWRCache<T = any>(
     // 延迟删除缓存
     setTimeout(() => {
       const keyListeners = listeners.get(key)
-      if (keyListeners && keyListeners.handleCacheUpdate) {
-        keyListeners.delete(keyListeners.handleCacheUpdate)
+      if (keyListeners) {
+        keyListeners.delete(handleCacheUpdate)
       }
     }, cacheTime)
   })

@@ -33,17 +33,7 @@
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted } from 'vue'
 import * as echarts from 'echarts'
-import { devicesApi } from '@/api'
-
-interface Device {
-  device_id: string
-  name: string
-  protocol: string
-  host: string
-  port: number
-  connected: boolean
-  zone?: string
-}
+import { devicesApi, type Device } from '@/api'
 
 const chartRef = ref<HTMLElement>()
 let chart: echarts.ECharts | null = null

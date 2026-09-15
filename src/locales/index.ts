@@ -7,8 +7,10 @@ const messages = {
   'en-US': enUS,
 }
 
+type Locale = keyof typeof messages
+
 // 从localStorage读取语言设置，默认中文
-const savedLocale = localStorage.getItem('scada_locale') || 'zh-CN'
+const savedLocale = (localStorage.getItem('scada_locale') as Locale) || 'zh-CN'
 
 const i18n = createI18n({
   legacy: false, // 使用Composition API
@@ -20,7 +22,7 @@ const i18n = createI18n({
 export default i18n
 
 // 切换语言
-export function setLocale(locale: string) {
+export function setLocale(locale: Locale) {
   i18n.global.locale.value = locale
   localStorage.setItem('scada_locale', locale)
 }

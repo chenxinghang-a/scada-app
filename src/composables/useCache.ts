@@ -9,7 +9,12 @@ interface CacheEntry<T> {
 interface CacheOptions {
   ttl?: number        // 缓存过期时间（毫秒），默认5分钟
   maxSize?: number    // 最大缓存条目数，默认100
-  staleWhileRevalidate?: boolean  // 过期后仍返回旧数据，后台刷新
+  /**
+   * 过期后仍返回旧数据，并在后台刷新（Stale-While-Revalidate）。
+   * 默认 false：get() 对过期条目返回 null，与 has()/isStale() 保持一致。
+   * 仅影响 getOrFetch()，开启后它会在返回旧数据的同时触发后台刷新。
+   */
+  staleWhileRevalidate?: boolean
 }
 
 const caches = new Map<string, Map<string, CacheEntry<any>>>()
@@ -18,7 +23,7 @@ export function useCache<T>(namespace: string, options: CacheOptions = {}) {
   const {
     ttl = 5 * 60 * 1000,
     maxSize = 100,
-    staleWhileRevalidate = true,
+    staleWhileRevalidate = false,
   } = options
 
   // 获取或创建命名空间缓存
@@ -33,13 +38,9 @@ export function useCache<T>(namespace: string, options: CacheOptions = {}) {
 
     const now = Date.now()
     if (now > entry.expiry) {
-      // 已过期
-      if (!staleWhileRevalidate) {
-        cache.delete(key)
-        return null
-      }
-      // 返回旧数据，但标记为需要刷新
-      return entry.data
+      // 已过期：严格模式下清除并返回 null
+      cache.delete(key)
+      return null
     }
 
     return entry.data
@@ -91,9 +92,18 @@ export function useCache<T>(namespace: string, options: CacheOptions = {}) {
     forceRefresh = false
   ): Promise<T> {
     if (!forceRefresh) {
-      const cached = get(key)
-      if (cached !== null && !isStale(key)) {
-        return cached
+      const entry = cache.get(key)
+      if (entry) {
+        if (!isStale(key)) {
+          return entry.data
+        }
+        if (staleWhileRevalidate) {
+          // 先返回旧数据，后台静默刷新（失败不抛出，保留旧值）
+          void fetcher()
+            .then(fresh => set(key, fresh))
+            .catch(() => { /* 后台刷新失败忽略，下次调用再试 */ })
+          return entry.data
+        }
       }
     }
 
