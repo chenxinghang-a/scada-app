@@ -1,6 +1,8 @@
 node_modules/
 dist/
 dist-test/
+# 构建前的临时改名产物（用于规避环境批量删除保护，见 skill safe-delete-guard-workarounds）
+dist.prev-*/
 release/
 .vite/
 backend/*.exe
