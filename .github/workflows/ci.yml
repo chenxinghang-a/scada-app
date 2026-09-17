@@ -1,0 +1,49 @@
+name: SmartSCADA Frontend CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  build-and-test:
+    # 前端仓库此前**零 CI** —— 类型错误、构建失败、单测回归全靠人工在本机跑，
+    # 而本机 `npm run build` 里 `vue-tsc` 是硬前置，一旦类型挂了构建就整个停摆
+    # （历史上 `electron:build` 长期跑不通就是这个原因）。
+    #
+    # 跑 ubuntu 而非 windows：`vue-tsc` / `vite build` / `vitest` 是纯 Node 工具链，
+    # 与平台无关，ubuntu 更快更省额度。Windows 专属的部分是 **Electron 打包**
+    # （`electron:build --win`），它需要先有后端 PyInstaller 产物，属于独立议题，
+    # 不在本 workflow 范围（见后端仓库的交付链待办 P3-c）。
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          # 22 = 当前 LTS，与本地开发用的版本一致
+          node-version: '22'
+          cache: npm
+
+      # 用 npm ci 而不是 npm install：严格按 package-lock.json 安装，
+      # 保证 CI 与本地、以及两次 CI 之间依赖树完全一致。
+      # （lockfile 与 package.json 不同步时它会直接失败，这本身也是一道校验。）
+      - name: Install dependencies
+        run: npm ci
+
+      # package.json 的 build = `vue-tsc --noEmit && vite build`
+      # 即类型检查 + 打包，一条命令覆盖两项。
+      - name: Type check and build
+        run: npm run build
+
+      - name: Unit tests
+        run: npm test
+
+      - name: Upload build artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/
+          if-no-files-found: warn
