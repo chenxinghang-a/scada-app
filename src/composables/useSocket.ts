@@ -5,7 +5,7 @@
 import { ref, onUnmounted } from 'vue'
 import { io, Socket } from 'socket.io-client'
 import { ElMessage } from 'element-plus'
-import { getAuthToken } from '@/api/request'
+import { getAuthToken, getBackendPort } from '@/api/request'
 
 let sharedSocket: Socket | null = null
 let refCount = 0
@@ -21,7 +21,7 @@ export function useSocket() {
       const token = getAuthToken()
       const baseUrl = import.meta.env.DEV
         ? `${window.location.protocol}//${window.location.hostname}:${window.location.port}`
-        : 'http://localhost:5000'
+        : `http://localhost:${getBackendPort()}`
       sharedSocket = io(baseUrl, {
         auth: { token },
         transports: ['websocket', 'polling'],

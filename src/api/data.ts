@@ -13,13 +13,24 @@ export interface HistoryRecord {
   value: number
 }
 
+export interface LatestValue {
+  value: number
+  unit?: string
+  timestamp: string
+  quality?: string
+}
+
 export const dataApi = {
   getRealtime() {
     return api.get('/data/realtime') as Promise<{ data: RealtimeData[] }>
   },
 
-  getLatest(deviceId: string) {
-    return api.get(`/data/latest/${deviceId}`) as Promise<{ data: RealtimeData[] }>
+  getLatest(deviceId: string, registerName?: string) {
+    // 后端 /api/data/latest/<id> 返回 {data: {register_name: {value, unit, timestamp, ...}}}
+    // 指定 register_name 时 data 为单寄存器 dict（api_data.py:50-59, database.py:472+）
+    return api.get(`/data/latest/${deviceId}`, {
+      params: registerName ? { register_name: registerName } : undefined,
+    }) as Promise<{ data: Record<string, LatestValue> }>
   },
 
   getHistory(

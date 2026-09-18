@@ -8,6 +8,7 @@
 
 import { ref, onMounted, onUnmounted } from 'vue'
 import { useAuthStore } from '@/stores/auth'
+import { getBackendPort } from '@/api/request'
 
 interface ErrorEntry {
   type: 'vue' | 'unhandledrejection' | 'js' | 'resource'
@@ -40,7 +41,7 @@ async function flushErrors() {
 
   try {
     const isDev = import.meta.env.DEV
-    const base = isDev ? '/api' : 'http://localhost:5000/api'
+    const base = isDev ? '/api' : `http://localhost:${getBackendPort()}/api`
     await fetch(`${base}/system/client-errors`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },

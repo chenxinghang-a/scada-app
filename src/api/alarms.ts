@@ -56,11 +56,22 @@ export const alarmsApi = {
   },
 
   getStatistics() {
+    // 后端 /api/alarms/statistics 返回 alarm_manager.get_alarm_statistics() 原始结构
+    // （alarm_manager.py:1184-1208），无 success/data 信封
     return api.get('/alarms/statistics') as Promise<{
-      total: number
-      active: number
-      acknowledged: number
+      total_active_alarms: number
       by_level: Record<string, number>
+      by_device: Record<string, number>
+      total_rules: number
+      enabled_rules: number
+      output?: { alarm_output: any; broadcast: any }
+      dedup?: {
+        enabled: boolean
+        emit_cooldown_seconds: number
+        acknowledge_suppress_seconds: number
+        tracked_alarms: number
+        acknowledged_alarms: number
+      }
     }>
   },
 

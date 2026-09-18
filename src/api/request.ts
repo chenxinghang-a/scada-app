@@ -6,8 +6,27 @@ import { useAuthStore } from '@/stores/auth'
 
 // 生产模式（Electron 打包后）直接请求后端，开发模式走 Vite proxy
 const isDev = import.meta.env.DEV
+
+// 读取 Electron 注入的实际后端端口；读不到回退 5000（开发模式走 Vite proxy，不使用此端口）
+export function getBackendPort(): string {
+  const p = (window as any).__BACKEND_PORT__
+  const s = p != null ? String(p).trim() : ''
+  return s && /^\d+$/.test(s) ? s : '5000'
+}
+
+// 生产模式后端 API 基础地址（含 /api 前缀）；开发模式走 Vite proxy
+function getApiBaseURL(): string {
+  return isDev ? '/api' : `http://localhost:${getBackendPort()}/api`
+}
+
+// 供 WebSocket 等模块使用的后端基础地址（不含 /api）
+export function getWsBaseUrl(): string {
+  if (isDev) return window.location.origin
+  return `http://localhost:${getBackendPort()}`
+}
+
 const api = axios.create({
-  baseURL: isDev ? '/api' : 'http://localhost:5000/api',
+  baseURL: getApiBaseURL(),
   timeout: 30000,
 })
 
@@ -32,7 +51,7 @@ async function ensureCsrfToken(): Promise<string | null> {
   csrfAttempted = true
   csrfLastAttempt = now
   try {
-    const resp = await axios.get(`${isDev ? '/api' : 'http://localhost:5000/api'}/csrf-token`, { timeout: 5000 })
+    const resp = await axios.get(`${getApiBaseURL()}/csrf-token`, { timeout: 5000 })
     csrfToken = resp.data?.csrf_token || null
     return csrfToken
   } catch {
@@ -46,6 +65,10 @@ api.interceptors.request.use(async (config) => {
   const token = localStorage.getItem('auth_token')
   if (token) {
     config.headers.Authorization = `Bearer ${token}`
+  }
+  // 生产模式：动态拼接 Electron 注入的后端端口（支持运行时变更，避免写死 5000）
+  if (!isDev && config.url && !/^https?:\/\//.test(config.url)) {
+    config.baseURL = `http://localhost:${getBackendPort()}/api`
   }
   // POST/PUT/DELETE 请求注入 CSRF token
   const method = config.method?.toUpperCase()
@@ -63,7 +86,7 @@ async function doRefreshToken(): Promise<string> {
   const refreshToken = localStorage.getItem('scada_refresh_token')
   if (!refreshToken) throw new Error('no refresh token')
   const resp = await axios.post(
-    `${isDev ? '/api' : 'http://localhost:5000/api'}/auth/refresh`,
+    `${getApiBaseURL()}/auth/refresh`,
     { refresh_token: refreshToken },
     { timeout: 10000 }
   )
@@ -192,5 +215,16 @@ api.interceptors.response.use(
     return Promise.reject(error)
   }
 )
+
+// 监听 Electron 后端状态变更事件（下发 port 字段），实时更新后端基础地址
+if (typeof window !== 'undefined') {
+  window.addEventListener('backend-status-changed', ((e: any) => {
+    const port = e?.detail?.port ?? e?.port
+    if (port != null) {
+      ;(window as any).__BACKEND_PORT__ = port
+      api.defaults.baseURL = `http://localhost:${getBackendPort()}/api`
+    }
+  }) as EventListener)
+}
 
 export default api
