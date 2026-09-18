@@ -1,86 +1,114 @@
 ﻿<template>
   <div class="devices-page">
     <!-- 操作栏 -->
-    <el-card shadow="hover" class="mb-16">
-      <div class="action-bar">
-        <div>
-          <el-button type="primary" @click="showAddDialog"><el-icon><Plus /></el-icon> 自定义添加</el-button>
-          <el-button @click="showPresets = !showPresets"><el-icon><Grid /></el-icon> 预设设备</el-button>
-          <el-button @click="refreshDevices"><el-icon><Refresh /></el-icon> 刷新</el-button>
+    <section class="panel">
+      <div class="panel__body toolbar">
+        <div class="toolbar__actions">
+          <el-button type="primary" @click="showAddDialog"><el-icon><Plus /></el-icon>自定义添加</el-button>
+          <el-button @click="showPresets = !showPresets"><el-icon><Grid /></el-icon>预设设备</el-button>
+          <el-button @click="refreshDevices"><el-icon><Refresh /></el-icon>刷新</el-button>
         </div>
-        <div>
-          <el-tag type="info">共 {{ devices.length }} 台设备</el-tag>
+        <div class="toolbar__meta">
+          <span class="tag tag--offline">共 {{ devices.length }} 台</span>
+          <span class="tag tag--success">在线 {{ onlineCount }}</span>
+          <span v-if="offlineCount > 0" class="tag tag--warning">离线 {{ offlineCount }}</span>
         </div>
       </div>
-    </el-card>
+    </section>
 
     <!-- 预设设备面板 -->
     <el-collapse-transition>
-      <el-card v-show="showPresets" shadow="hover" class="mb-16">
-        <template #header>
-          <div class="card-header">
-            <span>预设设备</span>
-            <el-button type="success" size="small" @click="addAllPresets">一键添加全部</el-button>
+      <section v-show="showPresets" class="panel">
+        <div class="panel__header">
+          <span>预设设备</span>
+          <el-button type="success" size="small" :disabled="presetBusy" @click="addAllPresets">一键添加全部</el-button>
+        </div>
+        <div class="panel__body">
+          <el-tabs v-model="presetCategory" type="card">
+            <el-tab-pane v-for="cat in presetCategories" :key="cat" :label="cat" :name="cat" />
+          </el-tabs>
+          <div v-if="filteredPresets.length" class="preset-grid">
+            <button v-for="p in filteredPresets" :key="p.id" type="button" class="preset-card" @click="addPreset(p)">
+              <div class="preset-card__name">{{ p.name }}</div>
+              <div class="preset-card__tag"><span class="tag tag--info">{{ protocolLabel(p.protocol) }}</span></div>
+              <div class="preset-card__desc">{{ p.description }}</div>
+            </button>
           </div>
-        </template>
-        <el-tabs v-model="presetCategory" type="card">
-          <el-tab-pane v-for="cat in presetCategories" :key="cat" :label="cat" :name="cat" />
-        </el-tabs>
-        <el-row :gutter="12">
-          <el-col v-for="p in filteredPresets" :key="p.id" :span="6">
-            <div class="preset-card" @click="addPreset(p)">
-              <div class="preset-name">{{ p.name }}</div>
-              <div class="preset-protocol"><el-tag size="small">{{ p.protocol }}</el-tag></div>
-              <div class="preset-desc">{{ p.description }}</div>
-            </div>
-          </el-col>
-        </el-row>
-      </el-card>
+          <el-empty v-else description="该分类下暂无预设设备" :image-size="70" />
+        </div>
+      </section>
     </el-collapse-transition>
 
     <!-- 设备列表 -->
-    <el-card shadow="hover">
-      <el-table :data="devices" stripe v-loading="loading">
-        <el-table-column prop="device_id" label="设备ID" width="160" show-overflow-tooltip />
-        <el-table-column label="设备名称" show-overflow-tooltip>
-          <template #default="{ row }">{{ row.name || row.device_name || row.device_id }}</template>
-        </el-table-column>
-        <el-table-column prop="protocol" label="协议" width="100">
-          <template #default="{ row }">
-            <el-tag :type="protocolColor(row.protocol)" size="small">{{ row.protocol }}</el-tag>
+    <section class="panel">
+      <div class="panel__header">
+        <span>设备列表</span>
+        <span class="panel__meta">共 {{ devices.length }} 台设备</span>
+      </div>
+      <div class="panel__body panel__body--flush">
+        <el-table :data="devices" stripe v-loading="loading" class="device-table">
+          <el-table-column prop="device_id" label="设备ID" width="180" show-overflow-tooltip>
+            <template v-slot:default="{ row }"><span class="mono">{{ row.device_id }}</span></template>
+          </el-table-column>
+          <el-table-column label="设备名称" min-width="200" show-overflow-tooltip>
+            <template v-slot:default="{ row }">{{ row.name || row.device_name || row.device_id }}</template>
+          </el-table-column>
+          <el-table-column label="协议" width="120">
+            <template v-slot:default="{ row }">
+              <span class="tag tag--info">{{ protocolLabel(row.protocol) }}</span>
+            </template>
+          </el-table-column>
+          <el-table-column label="地址" width="180" show-overflow-tooltip>
+            <template v-slot:default="{ row }">
+              <span class="mono">{{ row.host }}{{ row.port ? ':' + row.port : '' }}</span>
+            </template>
+          </el-table-column>
+          <el-table-column label="状态" width="100">
+            <template v-slot:default="{ row }">
+              <span class="tag" :class="row.connected ? 'tag--success' : 'tag--offline'">
+                <span class="status-dot" :class="row.connected ? 'status-dot--success' : 'status-dot--offline'"></span>
+                {{ row.connected ? '在线' : '离线' }}
+              </span>
+            </template>
+          </el-table-column>
+          <el-table-column label="数据点" width="90" align="right">
+            <template v-slot:default="{ row }"><span class="mono">{{ row.registers?.length || 0 }}</span></template>
+          </el-table-column>
+          <el-table-column label="操作" width="240" fixed="right" align="right">
+            <template v-slot:default="{ row }">
+              <div class="row-actions">
+                <el-button type="primary" link size="small" @click="testDevice(row)">测试</el-button>
+                <el-button type="warning" link size="small" @click="editDevice(row)">编辑</el-button>
+                <el-button type="info" link size="small" @click="viewData(row)">数据</el-button>
+                <span class="row-actions__sep" aria-hidden="true"></span>
+                <el-popconfirm
+                  title="删除后不可恢复，确定删除此设备？"
+                  confirm-button-text="删除"
+                  cancel-button-text="取消"
+                  confirm-button-type="danger"
+                  width="240"
+                  @confirm="deleteDevice(row)"
+                >
+                  <template v-slot:reference>
+                    <el-button link size="small" class="btn-danger-link">删除</el-button>
+                  </template>
+                </el-popconfirm>
+              </div>
+            </template>
+          </el-table-column>
+          <template v-slot:empty>
+            <el-empty description="还没有设备，可自定义添加或从预设中添加" :image-size="90">
+              <el-button type="primary" @click="showAddDialog">自定义添加</el-button>
+              <el-button @click="showPresets = true">从预设添加</el-button>
+            </el-empty>
           </template>
-        </el-table-column>
-        <el-table-column label="地址" width="160" show-overflow-tooltip>
-          <template #default="{ row }">{{ row.host }}{{ row.port ? ':' + row.port : '' }}</template>
-        </el-table-column>
-        <el-table-column label="状态" width="80">
-          <template #default="{ row }">
-            <el-tag :type="row.connected ? 'success' : 'danger'" size="small" effect="dark">
-              {{ row.connected ? '在线' : '离线' }}
-            </el-tag>
-          </template>
-        </el-table-column>
-        <el-table-column label="数据点" width="80" align="center">
-          <template #default="{ row }">{{ row.registers?.length || 0 }}</template>
-        </el-table-column>
-        <el-table-column label="操作" width="200" fixed="right">
-          <template #default="{ row }">
-            <el-button type="primary" link size="small" @click="testDevice(row)">测试</el-button>
-            <el-button type="warning" link size="small" @click="editDevice(row)">编辑</el-button>
-            <el-button type="info" link size="small" @click="viewData(row)">数据</el-button>
-            <el-popconfirm title="确定删除此设备？" @confirm="deleteDevice(row)">
-              <template #reference>
-                <el-button type="danger" link size="small">删除</el-button>
-              </template>
-            </el-popconfirm>
-          </template>
-        </el-table-column>
-      </el-table>
-    </el-card>
+        </el-table>
+      </div>
+    </section>
 
     <!-- 添加/编辑对话框 -->
-    <el-dialog v-model="dialogVisible" :title="isEdit ? '编辑设备' : '添加设备'" width="700px" top="5vh">
-      <el-form :model="form" :rules="deviceRules" ref="deviceFormRef" label-width="100px">
+    <el-dialog v-model="dialogVisible" :title="isEdit ? '编辑设备' : '添加设备'" width="700px" top="5vh" class="device-dialog">
+      <el-form :model="form" :rules="deviceRules" ref="deviceFormRef" label-width="110px" class="device-form">
         <el-row :gutter="16">
           <el-col :span="12">
             <el-form-item label="设备ID">
@@ -116,7 +144,7 @@
 
         <!-- Modbus TCP/RTU 字段 -->
         <template v-if="form.protocol?.startsWith('modbus')">
-          <el-divider content-position="left">Modbus 配置</el-divider>
+          <div class="form-section-title">Modbus 配置</div>
           <el-row :gutter="16">
             <el-col :span="8">
               <el-form-item :label="form.protocol === 'modbus_rtu' ? '串口' : 'IP地址'">
@@ -134,7 +162,7 @@
               </el-form-item>
             </el-col>
           </el-row>
-          <el-divider content-position="left">寄存器配置</el-divider>
+          <div class="form-section-title">寄存器配置</div>
           <div v-for="(reg, i) in form.registers" :key="i" class="register-row">
             <el-input v-model="reg.name" placeholder="名称" style="width:120px" />
             <el-input v-model="reg.description" placeholder="描述" style="width:150px" />
@@ -153,7 +181,7 @@
 
         <!-- OPC UA 字段 -->
         <template v-if="form.protocol === 'opcua'">
-          <el-divider content-position="left">OPC UA 配置</el-divider>
+          <div class="form-section-title">OPC UA 配置</div>
           <el-form-item label="端点URL">
             <el-input v-model="form.host" placeholder="opc.tcp://192.168.1.100:4840" />
           </el-form-item>
@@ -161,7 +189,7 @@
 
         <!-- MC/FINS 字段 -->
         <template v-if="form.protocol === 'mc' || form.protocol === 'fins'">
-          <el-divider content-position="left">{{ form.protocol === 'mc' ? '三菱MC协议' : '欧姆龙FINS' }} 配置</el-divider>
+          <div class="form-section-title">{{ form.protocol === 'mc' ? '三菱MC协议' : '欧姆龙FINS' }} 配置</div>
           <el-row :gutter="16">
             <el-col :span="12">
               <el-form-item label="IP地址">
@@ -174,7 +202,7 @@
               </el-form-item>
             </el-col>
           </el-row>
-          <el-divider content-position="left">寄存器配置</el-divider>
+          <div class="form-section-title">寄存器配置</div>
           <div v-for="(reg, i) in form.registers" :key="i" class="register-row">
             <el-input v-model="reg.name" placeholder="名称" style="width:120px" />
             <el-input v-model="reg.description" placeholder="描述" style="width:150px" />
@@ -193,7 +221,7 @@
 
         <!-- MQTT 字段 -->
         <template v-if="form.protocol === 'mqtt'">
-          <el-divider content-position="left">MQTT 配置</el-divider>
+          <div class="form-section-title">MQTT 配置</div>
           <el-row :gutter="16">
             <el-col :span="12">
               <el-form-item label="Broker地址">
@@ -210,7 +238,7 @@
 
         <!-- REST 字段 -->
         <template v-if="form.protocol === 'rest'">
-          <el-divider content-position="left">REST 配置</el-divider>
+          <div class="form-section-title">REST 配置</div>
           <el-form-item label="基础URL">
             <el-input v-model="form.host" placeholder="http://192.168.1.100:8080" />
           </el-form-item>
@@ -220,15 +248,19 @@
           <el-switch v-model="form.enabled" />
         </el-form-item>
       </el-form>
-      <template #footer>
-        <el-button @click="dialogVisible = false">取消</el-button>
-        <el-button type="primary" @click="saveDevice">保存</el-button>
+      <template v-slot:footer>
+        <el-button :disabled="saving" @click="dialogVisible = false">取消</el-button>
+        <el-button type="primary" :loading="saving" @click="saveDevice">保存</el-button>
       </template>
     </el-dialog>
 
     <!-- 测试结果弹窗 -->
-    <el-dialog v-model="testDialogVisible" title="连接测试" width="400px">
-      <el-result :icon="testResult.success ? 'success' : 'error'" :title="testResult.success ? '连接成功' : '连接失败'" :sub-title="testResult.message" />
+    <el-dialog v-model="testDialogVisible" title="连接测试" width="420px">
+      <el-result
+        :icon="testResult.success ? 'success' : 'error'"
+        :title="testResult.success ? '连接成功' : '连接失败'"
+        :sub-title="testResult.message"
+      />
     </el-dialog>
   </div>
 </template>
@@ -238,7 +270,7 @@ import { ref, onMounted, reactive, computed } from 'vue'
 import { ElMessage } from 'element-plus'
 import { Delete } from '@element-plus/icons-vue'
 import { useRouter } from 'vue-router'
-import { devicesApi, type Device, type Register } from '@/api'
+import { devicesApi, type Device } from '@/api'
 import api from '@/api/request'
 import { showActionError } from '@/utils/error'
 
@@ -300,6 +332,8 @@ async function loadPresets() {
 }
 
 const filteredPresets = computed(() => presets.value.filter(p => p.category === presetCategory.value))
+const onlineCount = computed(() => devices.value.filter(d => (d as any).connected).length)
+const offlineCount = computed(() => devices.value.length - onlineCount.value)
 
 onMounted(() => { refreshDevices(); loadPresets() })
 
@@ -416,20 +450,172 @@ async function addAllPresets() {
   } finally { presetBusy.value = false }
 }
 
-function protocolColor(p: string) {
-  const map: Record<string, string> = { modbus_tcp: '', modbus_rtu: 'success', mc: 'warning', fins: 'warning', opcua: 'warning', mqtt: 'info', rest: 'danger' }
-  return map[p] || ''
+// 协议展示名（仅呈现层映射，不改动协议字段值）
+function protocolLabel(p: string) {
+  const map: Record<string, string> = {
+    modbus_tcp: 'Modbus TCP', modbus_rtu: 'Modbus RTU', mc: '三菱 MC',
+    fins: '欧姆龙 FINS', opcua: 'OPC UA', mqtt: 'MQTT', rest: 'REST',
+  }
+  return map[p] || p || '未知'
 }
 </script>
 
 <style scoped>
-.mb-16 { margin-bottom: 16px; }
-.action-bar { display: flex; align-items: center; justify-content: space-between; }
-.card-header { display: flex; align-items: center; justify-content: space-between; }
-.preset-card { border: 1px solid #e4e7ed; border-radius: 6px; padding: 12px; margin-bottom: 12px; cursor: pointer; transition: all 0.2s; }
-.preset-card:hover { border-color: #409eff; background: #f0f7ff; }
-.preset-name { font-weight: bold; font-size: 14px; margin-bottom: 4px; }
-.preset-protocol { margin-bottom: 4px; }
-.preset-desc { font-size: 12px; color: #909399; }
-.register-row { display: flex; gap: 8px; align-items: center; margin-bottom: 8px; }
+.devices-page {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  padding: var(--space-4);
+  background: var(--bg-page);
+  color: var(--text-primary);
+}
+
+.panel__meta {
+  font-size: var(--font-xs);
+  font-weight: var(--weight-normal);
+  color: var(--text-muted);
+}
+
+.panel__body--flush { padding: 0; }
+
+/* ===== 操作栏 ===== */
+.toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+}
+
+.toolbar__actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.toolbar__meta {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+/* ===== 预设卡片 ===== */
+.preset-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: var(--space-3);
+}
+
+.preset-card {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: var(--space-3);
+  border: 1px solid var(--border-base);
+  border-radius: var(--radius-md);
+  background: var(--bg-surface);
+  cursor: pointer;
+  font-family: inherit;
+  transition: border-color var(--duration-fast) var(--ease-out),
+    background var(--duration-fast) var(--ease-out);
+}
+
+.preset-card:hover {
+  border-color: var(--color-brand);
+  background: var(--bg-hover);
+}
+
+.preset-card__name {
+  font-size: var(--font-base);
+  font-weight: var(--weight-semibold);
+  color: var(--text-primary);
+  margin-bottom: var(--space-2);
+}
+
+.preset-card__tag { margin-bottom: var(--space-2); }
+
+.preset-card__desc {
+  font-size: var(--font-xs);
+  color: var(--text-muted);
+  line-height: var(--leading-base);
+}
+
+/* ===== 表格 ===== */
+.device-table { width: 100%; }
+
+.device-table :deep(.el-table__header th.el-table__cell) {
+  background: var(--bg-sunken);
+  color: var(--text-secondary);
+  font-size: var(--font-sm);
+  font-weight: var(--weight-semibold);
+  height: 44px;
+}
+
+.device-table :deep(.el-table__body td.el-table__cell) {
+  font-size: var(--font-sm);
+  color: var(--text-primary);
+  padding: var(--space-3) 0;
+}
+
+.device-table :deep(.el-table__cell) {
+  padding: var(--space-3) 0;
+}
+
+.mono {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: var(--font-sm);
+  color: var(--text-secondary);
+}
+
+/* ===== 行操作分组 ===== */
+.row-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--space-2);
+  white-space: nowrap;
+}
+
+.row-actions__sep {
+  width: 1px;
+  height: 14px;
+  background: var(--border-base);
+  flex: none;
+}
+
+.btn-danger-link { color: var(--color-danger); }
+
+.btn-danger-link:hover {
+  color: var(--color-danger);
+  background: var(--color-danger-soft);
+}
+
+/* ===== 表单 ===== */
+.device-form { font-size: var(--font-base); }
+
+.device-form :deep(.el-form-item__label) {
+  font-size: var(--font-sm);
+  color: var(--text-secondary);
+  padding-right: var(--space-3);
+}
+
+.device-form :deep(.el-form-item) { margin-bottom: var(--space-4); }
+
+.form-section-title {
+  font-size: var(--font-sm);
+  font-weight: var(--weight-semibold);
+  color: var(--text-primary);
+  margin: var(--space-2) 0 var(--space-3);
+  padding-left: var(--space-2);
+  border-left: 3px solid var(--color-brand);
+}
+
+.register-row {
+  display: flex;
+  gap: var(--space-2);
+  align-items: center;
+  margin-bottom: var(--space-2);
+  flex-wrap: wrap;
+}
 </style>

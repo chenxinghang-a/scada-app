@@ -1,267 +1,476 @@
 ﻿<template>
   <div class="config-page">
-    <el-card shadow="hover">
-      <template #header><span>系统配置</span></template>
-      <el-tabs v-model="activeTab">
-        <!-- 系统设置 -->
-        <el-tab-pane label="系统设置" name="system">
-          <el-form label-width="120px" style="max-width:600px">
-            <el-form-item label="系统名称"><el-input v-model="config.system.name" /></el-form-item>
-            <el-form-item label="版本"><el-input :value="appVersion" disabled /></el-form-item>
-            <el-form-item label="Web端口"><el-input-number v-model="config.system.port" :min="1" :max="65535" /></el-form-item>
-            <el-form-item label="Web地址"><el-input v-model="config.system.host" /></el-form-item>
-            <el-form-item label="调试模式"><el-switch v-model="config.system.debug" /></el-form-item>
-            <el-form-item>
-              <el-button type="primary" @click="saveConfig('system')">保存</el-button>
-              <el-button @click="exportConfig">导出配置</el-button>
-              <el-button @click="importConfig">导入配置</el-button>
-            </el-form-item>
-          </el-form>
-        </el-tab-pane>
-
-        <!-- 采集设置 -->
-        <el-tab-pane label="采集设置" name="collection">
-          <el-form label-width="120px" style="max-width:600px">
-            <el-form-item label="默认采集间隔(秒)"><el-input-number v-model="config.collection.interval" :min="1" /></el-form-item>
-            <el-form-item label="连接超时(秒)"><el-input-number v-model="config.collection.timeout" :min="1" /></el-form-item>
-            <el-form-item label="重试次数"><el-input-number v-model="config.collection.retries" :min="0" /></el-form-item>
-            <el-form-item label="重试间隔(秒)"><el-input-number v-model="config.collection.retry_interval" :min="1" /></el-form-item>
-            <el-form-item><el-button type="primary" @click="saveConfig('collection')">保存</el-button></el-form-item>
-          </el-form>
-        </el-tab-pane>
-
-        <!-- 数据库设置 -->
-        <el-tab-pane label="数据库设置" name="database">
-          <el-form label-width="140px" style="max-width:600px">
-            <el-form-item label="原始数据保留(天)"><el-input-number v-model="config.database.retention_days" :min="1" /></el-form-item>
-            <el-form-item label="数据压缩"><el-switch v-model="config.database.compression" /></el-form-item>
-            <el-form-item label="压缩间隔(小时)"><el-input-number v-model="config.database.compression_interval" :min="1" /></el-form-item>
-            <el-form-item><el-button type="primary" @click="saveConfig('database')">保存</el-button></el-form-item>
-          </el-form>
-        </el-tab-pane>
-
-        <!-- 报警规则 -->
-        <el-tab-pane label="报警规则" name="alarms">
-          <el-button type="primary" size="small" class="mb-16" @click="showRuleDialog">添加规则</el-button>
-          <el-table :data="alarmRules" stripe size="small">
-            <el-table-column prop="id" label="ID" width="100" />
-            <el-table-column prop="name" label="名称" />
-            <el-table-column prop="device_id" label="设备" width="140" />
-            <el-table-column prop="condition" label="条件" width="80" />
-            <el-table-column prop="threshold" label="阈值" width="80" />
-            <el-table-column prop="level" label="等级" width="80">
-              <template #default="{ row }">
-                <el-tag :type="row.level === 'critical' ? 'danger' : 'warning'" size="small">{{ row.level }}</el-tag>
-              </template>
-            </el-table-column>
-            <el-table-column prop="enabled" label="启用" width="60">
-              <template #default="{ row }"><el-switch v-model="row.enabled" size="small" @change="toggleRule(row)" /></template>
-            </el-table-column>
-            <el-table-column label="操作" width="120">
-              <template #default="{ row }">
-                <el-button type="primary" link size="small" @click="editRule(row)">编辑</el-button>
-                <el-popconfirm title="确定删除？" @confirm="deleteRule(row.id)">
-                  <template #reference><el-button type="danger" link size="small">删除</el-button></template>
-                </el-popconfirm>
-              </template>
-            </el-table-column>
-          </el-table>
-        </el-tab-pane>
-
-        <!-- 能源费率 -->
-        <el-tab-pane label="能源费率" name="energy">
-          <el-form label-width="140px" style="max-width:600px">
-            <el-form-item label="峰时电价(元/kWh)"><el-input-number v-model="config.energy.peak_price" :min="0" :step="0.01" /></el-form-item>
-            <el-form-item label="平时电价(元/kWh)"><el-input-number v-model="config.energy.flat_price" :min="0" :step="0.01" /></el-form-item>
-            <el-form-item label="谷时电价(元/kWh)"><el-input-number v-model="config.energy.valley_price" :min="0" :step="0.01" /></el-form-item>
-            <el-form-item label="碳排放因子"><el-input-number v-model="config.energy.carbon_factor" :min="0" :step="0.01" /></el-form-item>
-            <el-form-item><el-button type="primary" @click="saveConfig('energy')">保存</el-button></el-form-item>
-          </el-form>
-          <el-divider />
-          <h4>费率预览</h4>
-          <el-descriptions :column="3" border size="small">
-            <el-descriptions-item label="峰时">{{ config.energy.peak_price }} 元/kWh</el-descriptions-item>
-            <el-descriptions-item label="平时">{{ config.energy.flat_price }} 元/kWh</el-descriptions-item>
-            <el-descriptions-item label="谷时">{{ config.energy.valley_price }} 元/kWh</el-descriptions-item>
-          </el-descriptions>
-        </el-tab-pane>
-
-        <!-- 系统状态 -->
-        <el-tab-pane label="系统状态" name="status">
-          <el-descriptions :column="2" border>
-            <el-descriptions-item label="运行模式">
-              <el-tag :type="systemStatus.simulation_mode ? 'warning' : 'success'">{{ systemStatus.simulation_mode ? '模拟模式' : '实时模式' }}</el-tag>
-            </el-descriptions-item>
-            <el-descriptions-item label="设备总数">{{ systemStatus.devices_total || 0 }}</el-descriptions-item>
-            <el-descriptions-item label="在线设备">{{ systemStatus.devices_connected || 0 }}</el-descriptions-item>
-            <el-descriptions-item label="活跃报警">{{ systemStatus.alarms_active || 0 }}</el-descriptions-item>
-            <el-descriptions-item label="数据采集器">
-              <el-tag :type="systemStatus.data_collector_running ? 'success' : 'danger'">{{ systemStatus.data_collector_running ? '运行中' : '已停止' }}</el-tag>
-            </el-descriptions-item>
-          </el-descriptions>
-          <el-divider />
-          <h4>数据库信息</h4>
-          <el-table :data="dbTables" stripe size="small">
-            <el-table-column prop="name" label="表名" />
-            <el-table-column prop="rows" label="记录数" width="120" />
-            <el-table-column prop="size" label="大小" width="120" />
-          </el-table>
-        </el-tab-pane>
-
-        <!-- 报警输出硬件配置 -->
-        <el-tab-pane label="报警输出硬件" name="alarm-hardware">
-          <el-row :gutter="16">
-            <el-col :span="12">
-              <el-card shadow="hover" header="Patlite LR7 光柱配置 (Modbus)">
-                <el-form label-width="120px">
-                  <el-form-item label="启用声光报警器"><el-switch v-model="signalTower.enabled" /></el-form-item>
-                  <el-form-item label="Modbus IP"><el-input v-model="signalTower.host" placeholder="192.168.1.70" /></el-form-item>
-                  <el-form-item label="端口"><el-input-number v-model="signalTower.port" :min="1" :max="65535" /></el-form-item>
-                  <el-form-item label="从站ID"><el-input-number v-model="signalTower.slave_id" :min="1" :max="247" /></el-form-item>
-                  <el-divider>DO 线圈映射</el-divider>
-                  <el-form-item label="红灯 DO"><el-input-number v-model="signalTower.do_mapping.red_light" :min="0" /></el-form-item>
-                  <el-form-item label="黄灯 DO"><el-input-number v-model="signalTower.do_mapping.yellow_light" :min="0" /></el-form-item>
-                  <el-form-item label="绿灯 DO"><el-input-number v-model="signalTower.do_mapping.green_light" :min="0" /></el-form-item>
-                  <el-form-item label="蜂鸣器 DO"><el-input-number v-model="signalTower.do_mapping.buzzer" :min="0" /></el-form-item>
-                  <el-form-item><el-button type="primary" @click="saveSignalTower">保存</el-button></el-form-item>
-                </el-form>
-              </el-card>
-            </el-col>
-            <el-col :span="12">
-              <el-card shadow="hover" header="广播系统配置 (MQTT)">
-                <el-form label-width="120px">
-                  <el-form-item label="启用广播系统"><el-switch v-model="broadcastConfig.enabled" /></el-form-item>
-                  <el-form-item label="MQTT Broker"><el-input v-model="broadcastConfig.mqtt.broker" placeholder="192.168.1.200" /></el-form-item>
-                  <el-form-item label="端口"><el-input-number v-model="broadcastConfig.mqtt.port" :min="1" :max="65535" /></el-form-item>
-                  <el-form-item label="主题前缀"><el-input v-model="broadcastConfig.mqtt.topic_prefix" placeholder="pa/" /></el-form-item>
-                  <el-form-item label="用户名"><el-input v-model="broadcastConfig.mqtt.username" placeholder="可选" /></el-form-item>
-                  <el-form-item label="密码"><el-input v-model="broadcastConfig.mqtt.password" type="password" placeholder="可选" show-password /></el-form-item>
-                  <el-form-item label="广播区域"><el-input v-model="broadcastAreasStr" placeholder="车间A,车间B,仓库,办公楼" /></el-form-item>
-                  <el-form-item><el-button type="primary" @click="saveBroadcastHardware">保存</el-button></el-form-item>
-                </el-form>
-              </el-card>
-            </el-col>
-          </el-row>
-        </el-tab-pane>
-
-        <!-- 日志设置 -->
-        <el-tab-pane label="日志设置" name="logging">
-          <el-form label-width="140px" style="max-width:600px">
-            <el-form-item label="日志级别">
-              <el-select v-model="loggingConfig.level" style="width:100%">
-                <el-option label="DEBUG" value="DEBUG" />
-                <el-option label="INFO" value="INFO" />
-                <el-option label="WARNING" value="WARNING" />
-                <el-option label="ERROR" value="ERROR" />
-              </el-select>
-            </el-form-item>
-            <el-form-item label="日志文件最大(MB)"><el-input-number v-model="loggingConfig.file.max_size_mb" :min="1" /></el-form-item>
-            <el-form-item label="日志备份数"><el-input-number v-model="loggingConfig.file.backup_count" :min="0" /></el-form-item>
-            <el-form-item><el-button type="primary" @click="saveLoggingConfig">保存</el-button></el-form-item>
-          </el-form>
-        </el-tab-pane>
-
-        <!-- 运维管理 -->
-        <el-tab-pane label="运维管理" name="ops">
-          <el-row :gutter="16">
-            <el-col :span="12">
-              <el-card shadow="hover" header="运行模式">
-                <el-form label-width="100px">
-                  <el-form-item label="当前模式">
-                    <el-tag :type="simulationMode ? 'warning' : 'success'" size="large">{{ simulationMode ? '模拟模式' : '实时模式' }}</el-tag>
+    <section class="panel">
+      <div class="panel__header">
+        <span>系统配置</span>
+        <span class="panel__meta">按分区保存，保存后立即写入后端配置文件</span>
+      </div>
+      <div class="panel__body">
+        <el-tabs v-model="activeTab">
+          <!-- 系统设置 -->
+          <el-tab-pane label="系统设置" name="system">
+            <section class="panel section">
+              <div class="panel__header">
+                <span>基础信息</span>
+                <span class="panel__meta">系统名称用于标题栏与登录页</span>
+              </div>
+              <div class="panel__body">
+                <el-form label-width="140px" class="config-form config-form--narrow">
+                  <el-form-item label="系统名称"><el-input v-model="config.system.name" /></el-form-item>
+                  <el-form-item label="版本"><el-input :value="appVersion" disabled /></el-form-item>
+                  <el-form-item label="Web端口">
+                    <el-input-number v-model="config.system.port" :min="1" :max="65535" />
+                    <span class="field-hint">1-65535，修改后需重启后端服务</span>
                   </el-form-item>
-                  <el-form-item label="切换模式">
-                    <el-switch v-model="simulationMode" active-text="模拟" inactive-text="实时" @change="toggleSimulationMode" />
+                  <el-form-item label="Web地址"><el-input v-model="config.system.host" /></el-form-item>
+                  <el-form-item label="调试模式">
+                    <el-switch v-model="config.system.debug" />
+                    <span class="field-hint">生产环境请保持关闭</span>
                   </el-form-item>
                 </el-form>
-              </el-card>
-            </el-col>
-            <el-col :span="12">
-              <el-card shadow="hover" header="系统健康">
-                <div v-if="healthStatus">
-                  <div v-for="(val, key) in healthStatus" :key="key" class="health-row">
-                    <span class="health-key">{{ key }}</span>
-                    <el-tag :type="val ? 'success' : 'danger'" size="small">{{ val ? '正常' : '异常' }}</el-tag>
+              </div>
+              <div class="section__foot">
+                <el-button type="primary" :loading="savingSection === 'system'" @click="saveConfig('system')">保存</el-button>
+                <el-button @click="exportConfig">导出配置</el-button>
+                <el-button @click="importConfig">导入配置</el-button>
+                <span class="save-state" :class="`save-state--${saveStateOf('system', config.system)}`">
+                  {{ saveStateLabel('system', config.system) }}
+                </span>
+              </div>
+            </section>
+          </el-tab-pane>
+
+          <!-- 采集设置 -->
+          <el-tab-pane label="采集设置" name="collection">
+            <section class="panel section">
+              <div class="panel__header">
+                <span>采集与重试</span>
+                <span class="panel__meta">影响所有设备的数据采集节奏</span>
+              </div>
+              <div class="panel__body">
+                <el-form label-width="140px" class="config-form config-form--narrow">
+                  <el-form-item label="默认采集间隔(秒)">
+                    <el-input-number v-model="config.collection.interval" :min="1" />
+                    <span class="field-hint">单设备可在设备管理中覆盖</span>
+                  </el-form-item>
+                  <el-form-item label="连接超时(秒)"><el-input-number v-model="config.collection.timeout" :min="1" /></el-form-item>
+                  <el-form-item label="重试次数"><el-input-number v-model="config.collection.retries" :min="0" /></el-form-item>
+                  <el-form-item label="重试间隔(秒)"><el-input-number v-model="config.collection.retry_interval" :min="1" /></el-form-item>
+                </el-form>
+              </div>
+              <div class="section__foot">
+                <el-button type="primary" :loading="savingSection === 'collection'" @click="saveConfig('collection')">保存</el-button>
+                <span class="save-state" :class="`save-state--${saveStateOf('collection', config.collection)}`">
+                  {{ saveStateLabel('collection', config.collection) }}
+                </span>
+              </div>
+            </section>
+          </el-tab-pane>
+
+          <!-- 数据库设置 -->
+          <el-tab-pane label="数据库设置" name="database">
+            <section class="panel section">
+              <div class="panel__header">
+                <span>数据保留与压缩</span>
+                <span class="panel__meta">超出保留期限的原始数据会被清理</span>
+              </div>
+              <div class="panel__body">
+                <el-form label-width="160px" class="config-form config-form--narrow">
+                  <el-form-item label="原始数据保留(天)"><el-input-number v-model="config.database.retention_days" :min="1" /></el-form-item>
+                  <el-form-item label="数据压缩">
+                    <el-switch v-model="config.database.compression" />
+                    <span class="field-hint">压缩可显著降低磁盘占用</span>
+                  </el-form-item>
+                  <el-form-item label="压缩间隔(小时)"><el-input-number v-model="config.database.compression_interval" :min="1" /></el-form-item>
+                </el-form>
+              </div>
+              <div class="section__foot">
+                <el-button type="primary" :loading="savingSection === 'database'" @click="saveConfig('database')">保存</el-button>
+                <span class="save-state" :class="`save-state--${saveStateOf('database', config.database)}`">
+                  {{ saveStateLabel('database', config.database) }}
+                </span>
+              </div>
+            </section>
+          </el-tab-pane>
+
+          <!-- 报警规则 -->
+          <el-tab-pane label="报警规则" name="alarms">
+            <section class="panel section">
+              <div class="panel__header">
+                <span>报警规则</span>
+                <span class="panel__meta">共 {{ alarmRules.length }} 条</span>
+              </div>
+              <div class="panel__body">
+                <el-button type="primary" size="small" class="section__action" @click="showRuleDialog">添加规则</el-button>
+                <el-table :data="alarmRules" stripe size="small" class="data-table">
+                  <el-table-column prop="id" label="ID" width="110">
+                    <template v-slot:default="{ row }"><span class="mono">{{ row.id }}</span></template>
+                  </el-table-column>
+                  <el-table-column prop="name" label="名称" min-width="140" />
+                  <el-table-column prop="device_id" label="设备" width="150">
+                    <template v-slot:default="{ row }"><span class="mono">{{ row.device_id }}</span></template>
+                  </el-table-column>
+                  <el-table-column prop="condition" label="条件" width="80" align="center" />
+                  <el-table-column prop="threshold" label="阈值" width="90" align="right">
+                    <template v-slot:default="{ row }"><span class="mono">{{ row.threshold }}</span></template>
+                  </el-table-column>
+                  <el-table-column prop="level" label="等级" width="100">
+                    <template v-slot:default="{ row }">
+                      <span class="tag" :class="levelTag(row.level)">{{ levelLabel(row.level) }}</span>
+                    </template>
+                  </el-table-column>
+                  <el-table-column prop="enabled" label="启用" width="70">
+                    <template v-slot:default="{ row }"><el-switch v-model="row.enabled" size="small" @change="toggleRule(row)" /></template>
+                  </el-table-column>
+                  <el-table-column label="操作" width="130" align="right">
+                    <template v-slot:default="{ row }">
+                      <div class="row-actions">
+                        <el-button type="primary" link size="small" @click="editRule(row)">编辑</el-button>
+                        <span class="row-actions__sep" aria-hidden="true"></span>
+                        <el-popconfirm
+                          title="删除后不可恢复，确定删除该规则？"
+                          confirm-button-text="删除"
+                          cancel-button-text="取消"
+                          confirm-button-type="danger"
+                          width="220"
+                          @confirm="deleteRule(row.id)"
+                        >
+                          <template v-slot:reference>
+                            <el-button link size="small" class="btn-danger-link">删除</el-button>
+                          </template>
+                        </el-popconfirm>
+                      </div>
+                    </template>
+                  </el-table-column>
+                  <template v-slot:empty>
+                    <el-empty description="暂无报警规则" :image-size="80">
+                      <el-button type="primary" @click="showRuleDialog">添加规则</el-button>
+                    </el-empty>
+                  </template>
+                </el-table>
+              </div>
+            </section>
+          </el-tab-pane>
+
+          <!-- 能源费率 -->
+          <el-tab-pane label="能源费率" name="energy">
+            <section class="panel section">
+              <div class="panel__header">
+                <span>电价与碳排放</span>
+                <span class="panel__meta">用于能耗成本与碳排核算</span>
+              </div>
+              <div class="panel__body">
+                <el-form label-width="160px" class="config-form config-form--narrow">
+                  <el-form-item label="峰时电价(元/kWh)"><el-input-number v-model="config.energy.peak_price" :min="0" :step="0.01" /></el-form-item>
+                  <el-form-item label="平时电价(元/kWh)"><el-input-number v-model="config.energy.flat_price" :min="0" :step="0.01" /></el-form-item>
+                  <el-form-item label="谷时电价(元/kWh)"><el-input-number v-model="config.energy.valley_price" :min="0" :step="0.01" /></el-form-item>
+                  <el-form-item label="碳排放因子"><el-input-number v-model="config.energy.carbon_factor" :min="0" :step="0.01" /></el-form-item>
+                </el-form>
+              </div>
+              <div class="section__foot">
+                <el-button type="primary" :loading="savingSection === 'energy'" @click="saveConfig('energy')">保存</el-button>
+                <span class="save-state" :class="`save-state--${saveStateOf('energy', config.energy)}`">
+                  {{ saveStateLabel('energy', config.energy) }}
+                </span>
+              </div>
+            </section>
+
+            <section class="panel section">
+              <div class="panel__header"><span>费率预览</span></div>
+              <div class="panel__body">
+                <div class="rate-grid">
+                  <div class="rate-cell">
+                    <div class="metric-label">峰时</div>
+                    <div class="rate-value">{{ config.energy.peak_price }}<span class="metric-unit">元/kWh</span></div>
+                  </div>
+                  <div class="rate-cell">
+                    <div class="metric-label">平时</div>
+                    <div class="rate-value">{{ config.energy.flat_price }}<span class="metric-unit">元/kWh</span></div>
+                  </div>
+                  <div class="rate-cell">
+                    <div class="metric-label">谷时</div>
+                    <div class="rate-value">{{ config.energy.valley_price }}<span class="metric-unit">元/kWh</span></div>
+                  </div>
+                  <div class="rate-cell">
+                    <div class="metric-label">碳排放因子</div>
+                    <div class="rate-value">{{ config.energy.carbon_factor }}<span class="metric-unit">kg/kWh</span></div>
                   </div>
                 </div>
-                <el-empty v-else description="加载中..." :image-size="40" />
-                <el-button size="small" @click="loadHealthStatus" style="margin-top:8px">刷新</el-button>
-              </el-card>
-            </el-col>
-          </el-row>
-          <el-row :gutter="16" style="margin-top:16px">
-            <el-col :span="12">
-              <el-card shadow="hover" header="报警输出配置">
-                <el-form label-width="120px">
-                  <el-form-item label="灯塔模式">
-                    <el-select v-model="alarmOutputConfig.mode" style="width:100%">
-                      <el-option label="自动模式" value="auto" />
-                      <el-option label="手动模式" value="manual" />
-                      <el-option label="禁用" value="disabled" />
+              </div>
+            </section>
+          </el-tab-pane>
+
+          <!-- 系统状态 -->
+          <el-tab-pane label="系统状态" name="status">
+            <section class="panel section">
+              <div class="panel__header">
+                <span>运行状态</span>
+                <span class="panel__meta">来自后端实时状态接口</span>
+              </div>
+              <div class="panel__body">
+                <el-descriptions :column="2" border>
+                  <el-descriptions-item label="运行模式">
+                    <span class="tag" :class="systemStatus.simulation_mode ? 'tag--warning' : 'tag--success'">
+                      {{ systemStatus.simulation_mode ? '模拟模式' : '实时模式' }}
+                    </span>
+                  </el-descriptions-item>
+                  <el-descriptions-item label="设备总数">{{ systemStatus.devices_total || 0 }}</el-descriptions-item>
+                  <el-descriptions-item label="在线设备">{{ systemStatus.devices_connected || 0 }}</el-descriptions-item>
+                  <el-descriptions-item label="活跃报警">{{ systemStatus.alarms_active || 0 }}</el-descriptions-item>
+                  <el-descriptions-item label="数据采集器">
+                    <span class="tag" :class="systemStatus.data_collector_running ? 'tag--success' : 'tag--danger'">
+                      {{ systemStatus.data_collector_running ? '运行中' : '已停止' }}
+                    </span>
+                  </el-descriptions-item>
+                </el-descriptions>
+              </div>
+            </section>
+
+            <section class="panel section">
+              <div class="panel__header"><span>数据库信息</span></div>
+              <div class="panel__body">
+                <el-table :data="dbTables" stripe size="small" class="data-table">
+                  <el-table-column prop="name" label="表名">
+                    <template v-slot:default="{ row }"><span class="mono">{{ row.name }}</span></template>
+                  </el-table-column>
+                  <el-table-column prop="rows" label="记录数" width="140" align="right">
+                    <template v-slot:default="{ row }"><span class="mono">{{ row.rows }}</span></template>
+                  </el-table-column>
+                  <el-table-column prop="size" label="大小" width="120" align="right" />
+                  <template v-slot:empty>
+                    <el-empty description="暂无数据库信息" :image-size="80" />
+                  </template>
+                </el-table>
+              </div>
+            </section>
+          </el-tab-pane>
+
+          <!-- 报警输出硬件配置 -->
+          <el-tab-pane label="报警输出硬件" name="alarm-hardware">
+            <div class="split-grid">
+              <section class="panel section">
+                <div class="panel__header">
+                  <span>Patlite LR7 光柱 (Modbus)</span>
+                  <span class="panel__meta">DO 线圈映射</span>
+                </div>
+                <div class="panel__body">
+                  <el-form label-width="140px" class="config-form">
+                    <el-form-item label="启用声光报警器"><el-switch v-model="signalTower.enabled" /></el-form-item>
+                    <el-form-item label="Modbus IP"><el-input v-model="signalTower.host" placeholder="192.168.1.70" /></el-form-item>
+                    <el-form-item label="端口"><el-input-number v-model="signalTower.port" :min="1" :max="65535" /></el-form-item>
+                    <el-form-item label="从站ID"><el-input-number v-model="signalTower.slave_id" :min="1" :max="247" /></el-form-item>
+                    <div class="form-section-title">DO 线圈映射</div>
+                    <el-form-item label="红灯 DO"><el-input-number v-model="signalTower.do_mapping.red_light" :min="0" /></el-form-item>
+                    <el-form-item label="黄灯 DO"><el-input-number v-model="signalTower.do_mapping.yellow_light" :min="0" /></el-form-item>
+                    <el-form-item label="绿灯 DO"><el-input-number v-model="signalTower.do_mapping.green_light" :min="0" /></el-form-item>
+                    <el-form-item label="蜂鸣器 DO"><el-input-number v-model="signalTower.do_mapping.buzzer" :min="0" /></el-form-item>
+                  </el-form>
+                </div>
+                <div class="section__foot">
+                  <el-button type="primary" :loading="savingSection === 'signalTower'" @click="saveSignalTower">保存</el-button>
+                  <span class="save-state" :class="`save-state--${saveStateOf('signalTower', signalTower)}`">
+                    {{ saveStateLabel('signalTower', signalTower) }}
+                  </span>
+                </div>
+              </section>
+
+              <section class="panel section">
+                <div class="panel__header">
+                  <span>广播系统 (MQTT)</span>
+                  <span class="panel__meta">报警语音播报通道</span>
+                </div>
+                <div class="panel__body">
+                  <el-form label-width="140px" class="config-form">
+                    <el-form-item label="启用广播系统"><el-switch v-model="broadcastConfig.enabled" /></el-form-item>
+                    <el-form-item label="MQTT Broker"><el-input v-model="broadcastConfig.mqtt.broker" placeholder="192.168.1.200" /></el-form-item>
+                    <el-form-item label="端口"><el-input-number v-model="broadcastConfig.mqtt.port" :min="1" :max="65535" /></el-form-item>
+                    <el-form-item label="主题前缀"><el-input v-model="broadcastConfig.mqtt.topic_prefix" placeholder="pa/" /></el-form-item>
+                    <el-form-item label="用户名"><el-input v-model="broadcastConfig.mqtt.username" placeholder="可选" /></el-form-item>
+                    <el-form-item label="密码"><el-input v-model="broadcastConfig.mqtt.password" type="password" placeholder="可选" show-password /></el-form-item>
+                    <el-form-item label="广播区域">
+                      <el-input v-model="broadcastAreasStr" placeholder="车间A,车间B,仓库,办公楼" />
+                      <span class="field-hint">多个区域用英文逗号分隔</span>
+                    </el-form-item>
+                  </el-form>
+                </div>
+                <div class="section__foot">
+                  <el-button type="primary" :loading="savingSection === 'broadcast'" @click="saveBroadcastHardware">保存</el-button>
+                  <span class="save-state" :class="`save-state--${saveStateOf('broadcast', broadcastSnapshot)}`">
+                    {{ saveStateLabel('broadcast', broadcastSnapshot) }}
+                  </span>
+                </div>
+              </section>
+            </div>
+          </el-tab-pane>
+
+          <!-- 日志设置 -->
+          <el-tab-pane label="日志设置" name="logging">
+            <section class="panel section">
+              <div class="panel__header">
+                <span>日志与滚动策略</span>
+                <span class="panel__meta">DEBUG 级别会产生大量日志</span>
+              </div>
+              <div class="panel__body">
+                <el-form label-width="160px" class="config-form config-form--narrow">
+                  <el-form-item label="日志级别">
+                    <el-select v-model="loggingConfig.level" style="width:100%">
+                      <el-option label="DEBUG" value="DEBUG" />
+                      <el-option label="INFO" value="INFO" />
+                      <el-option label="WARNING" value="WARNING" />
+                      <el-option label="ERROR" value="ERROR" />
                     </el-select>
                   </el-form-item>
-                  <el-form-item label="蜂鸣器启用"><el-switch v-model="alarmOutputConfig.buzzer_enabled" /></el-form-item>
-                  <el-form-item label="自动消音(秒)"><el-input-number v-model="alarmOutputConfig.auto_silence_seconds" :min="0" /></el-form-item>
-                  <el-form-item><el-button type="primary" @click="saveAlarmOutputConfig">保存</el-button></el-form-item>
+                  <el-form-item label="日志文件最大(MB)"><el-input-number v-model="loggingConfig.file.max_size_mb" :min="1" /></el-form-item>
+                  <el-form-item label="日志备份数"><el-input-number v-model="loggingConfig.file.backup_count" :min="0" /></el-form-item>
                 </el-form>
-              </el-card>
-            </el-col>
-            <el-col :span="12">
-              <el-card shadow="hover" header="报警升级配置">
-                <el-form label-width="140px">
-                  <el-form-item label="启用报警升级"><el-switch v-model="alarmEscalation.enabled" /></el-form-item>
-                  <el-form-item label="升级阈值(分钟)"><el-input-number v-model="alarmEscalation.timeout_minutes" :min="1" /></el-form-item>
-                  <el-form-item label="升级目标等级">
-                    <el-select v-model="alarmEscalation.escalate_to" style="width:100%">
-                      <el-option label="严重 (critical)" value="critical" />
-                      <el-option label="警告 (warning)" value="warning" />
-                    </el-select>
-                  </el-form-item>
-                  <el-form-item label="通知方式">
-                    <el-checkbox-group v-model="alarmEscalation.notify_methods">
-                      <el-checkbox label="sound">声光报警</el-checkbox>
-                      <el-checkbox label="broadcast">广播通知</el-checkbox>
-                    </el-checkbox-group>
-                  </el-form-item>
-                  <el-form-item><el-button type="primary" @click="saveAlarmEscalation">保存</el-button></el-form-item>
-                </el-form>
-              </el-card>
-            </el-col>
-          </el-row>
-          <el-row :gutter="16" style="margin-top:16px">
-            <el-col :span="24">
-              <el-card shadow="hover" header="数据归档管理">
-                <el-row :gutter="16">
-                  <el-col :span="12">
-                    <el-form label-width="140px">
-                      <el-form-item label="自动归档"><el-switch v-model="archiveConfig.auto_archive" /></el-form-item>
-                      <el-form-item label="归档周期(天)"><el-input-number v-model="archiveConfig.archive_interval_days" :min="1" /></el-form-item>
-                      <el-form-item label="数据保留(天)"><el-input-number v-model="archiveConfig.retention_days" :min="1" /></el-form-item>
-                      <el-form-item label="压缩已归档数据"><el-switch v-model="archiveConfig.compress_archived" /></el-form-item>
-                      <el-form-item>
-                        <el-button type="primary" @click="saveArchiveConfig">保存归档策略</el-button>
-                        <el-button @click="triggerArchive" :loading="archiveLoading">立即归档</el-button>
-                      </el-form-item>
-                    </el-form>
-                  </el-col>
-                  <el-col :span="12">
-                    <el-descriptions :column="1" border size="small">
-                      <el-descriptions-item label="历史数据总量">{{ dbTables.reduce((s, t) => t.name === 'history_data' ? s + t.rows : s, 0) }} 条</el-descriptions-item>
-                      <el-descriptions-item label="归档数据总量">{{ dbTables.reduce((s, t) => t.name === 'history_archive' ? s + t.rows : s, 0) }} 条</el-descriptions-item>
-                      <el-descriptions-item label="数据库大小">{{ (dbInfo as any)?.database_size_mb?.toFixed(2) || '-' }} MB</el-descriptions-item>
-                    </el-descriptions>
-                  </el-col>
-                </el-row>
-              </el-card>
-            </el-col>
-          </el-row>
-        </el-tab-pane>
-      </el-tabs>
-    </el-card>
+              </div>
+              <div class="section__foot">
+                <el-button type="primary" :loading="savingSection === 'logging'" @click="saveLoggingConfig">保存</el-button>
+                <span class="save-state" :class="`save-state--${saveStateOf('logging', loggingConfig)}`">
+                  {{ saveStateLabel('logging', loggingConfig) }}
+                </span>
+              </div>
+            </section>
+          </el-tab-pane>
+
+          <!-- 运维管理 -->
+          <el-tab-pane label="运维管理" name="ops">
+            <div class="split-grid">
+              <section class="panel section">
+                <div class="panel__header">
+                  <span>运行模式</span>
+                  <span class="panel__meta">影响采集数据来源</span>
+                </div>
+                <div class="panel__body">
+                  <el-form label-width="110px" class="config-form">
+                    <el-form-item label="当前模式">
+                      <span class="tag" :class="simulationMode ? 'tag--warning' : 'tag--success'">
+                        {{ simulationMode ? '模拟模式' : '实时模式' }}
+                      </span>
+                    </el-form-item>
+                    <el-form-item label="切换模式">
+                      <el-switch v-model="simulationMode" active-text="模拟" inactive-text="实时" @change="toggleSimulationMode" />
+                      <span class="field-hint">切换会中断当前采集，需二次确认</span>
+                    </el-form-item>
+                  </el-form>
+                </div>
+              </section>
+
+              <section class="panel section">
+                <div class="panel__header">
+                  <span>系统健康</span>
+                  <el-button size="small" @click="loadHealthStatus">刷新</el-button>
+                </div>
+                <div class="panel__body">
+                  <div v-if="healthStatus" class="health-list">
+                    <div v-for="(val, key) in healthStatus" :key="key" class="health-row">
+                      <span class="health-key mono">{{ key }}</span>
+                      <span class="tag" :class="val ? 'tag--success' : 'tag--danger'">{{ val ? '正常' : '异常' }}</span>
+                    </div>
+                  </div>
+                  <el-empty v-else description="加载中..." :image-size="70" />
+                </div>
+              </section>
+            </div>
+
+            <div class="split-grid">
+              <section class="panel section">
+                <div class="panel__header"><span>报警输出配置</span></div>
+                <div class="panel__body">
+                  <el-form label-width="140px" class="config-form">
+                    <el-form-item label="灯塔模式">
+                      <el-select v-model="alarmOutputConfig.mode" style="width:100%">
+                        <el-option label="自动模式" value="auto" />
+                        <el-option label="手动模式" value="manual" />
+                        <el-option label="禁用" value="disabled" />
+                      </el-select>
+                    </el-form-item>
+                    <el-form-item label="蜂鸣器启用"><el-switch v-model="alarmOutputConfig.buzzer_enabled" /></el-form-item>
+                    <el-form-item label="自动消音(秒)"><el-input-number v-model="alarmOutputConfig.auto_silence_seconds" :min="0" /></el-form-item>
+                  </el-form>
+                </div>
+                <div class="section__foot">
+                  <el-button type="primary" :loading="savingSection === 'alarmOutput'" @click="saveAlarmOutputConfig">保存</el-button>
+                  <span class="save-state" :class="`save-state--${saveStateOf('alarmOutput', alarmOutputConfig)}`">
+                    {{ saveStateLabel('alarmOutput', alarmOutputConfig) }}
+                  </span>
+                </div>
+              </section>
+
+              <section class="panel section">
+                <div class="panel__header"><span>报警升级配置</span></div>
+                <div class="panel__body">
+                  <el-form label-width="150px" class="config-form">
+                    <el-form-item label="启用报警升级"><el-switch v-model="alarmEscalation.enabled" /></el-form-item>
+                    <el-form-item label="升级阈值(分钟)"><el-input-number v-model="alarmEscalation.timeout_minutes" :min="1" /></el-form-item>
+                    <el-form-item label="升级目标等级">
+                      <el-select v-model="alarmEscalation.escalate_to" style="width:100%">
+                        <el-option label="严重 (critical)" value="critical" />
+                        <el-option label="警告 (warning)" value="warning" />
+                      </el-select>
+                    </el-form-item>
+                    <el-form-item label="通知方式">
+                      <el-checkbox-group v-model="alarmEscalation.notify_methods">
+                        <el-checkbox label="sound">声光报警</el-checkbox>
+                        <el-checkbox label="broadcast">广播通知</el-checkbox>
+                      </el-checkbox-group>
+                    </el-form-item>
+                  </el-form>
+                </div>
+                <div class="section__foot">
+                  <el-button type="primary" :loading="savingSection === 'alarmEscalation'" @click="saveAlarmEscalation">保存</el-button>
+                  <span class="save-state" :class="`save-state--${saveStateOf('alarmEscalation', alarmEscalation)}`">
+                    {{ saveStateLabel('alarmEscalation', alarmEscalation) }}
+                  </span>
+                </div>
+              </section>
+            </div>
+
+            <section class="panel section">
+              <div class="panel__header">
+                <span>数据归档管理</span>
+                <span class="panel__meta">归档后历史数据会迁移到归档表</span>
+              </div>
+              <div class="panel__body">
+                <div class="split-grid split-grid--tight">
+                  <el-form label-width="150px" class="config-form">
+                    <el-form-item label="自动归档"><el-switch v-model="archiveConfig.auto_archive" /></el-form-item>
+                    <el-form-item label="归档周期(天)"><el-input-number v-model="archiveConfig.archive_interval_days" :min="1" /></el-form-item>
+                    <el-form-item label="数据保留(天)"><el-input-number v-model="archiveConfig.retention_days" :min="1" /></el-form-item>
+                    <el-form-item label="压缩已归档数据"><el-switch v-model="archiveConfig.compress_archived" /></el-form-item>
+                  </el-form>
+                  <div class="archive-stats">
+                    <div class="archive-stat">
+                      <div class="metric-label">历史数据总量</div>
+                      <div class="archive-stat__value mono">{{ dbTables.reduce((s, t) => t.name === 'history_data' ? s + t.rows : s, 0) }}<span class="metric-unit">条</span></div>
+                    </div>
+                    <div class="archive-stat">
+                      <div class="metric-label">归档数据总量</div>
+                      <div class="archive-stat__value mono">{{ dbTables.reduce((s, t) => t.name === 'history_archive' ? s + t.rows : s, 0) }}<span class="metric-unit">条</span></div>
+                    </div>
+                    <div class="archive-stat">
+                      <div class="metric-label">数据库大小</div>
+                      <div class="archive-stat__value mono">{{ (dbInfo as any)?.database_size_mb?.toFixed(2) || '-' }}<span class="metric-unit">MB</span></div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+              <div class="section__foot">
+                <el-button type="primary" :loading="savingSection === 'archive'" @click="saveArchiveConfig">保存归档策略</el-button>
+                <el-button @click="triggerArchive" :loading="archiveLoading">立即归档</el-button>
+                <span class="save-state" :class="`save-state--${saveStateOf('archive', archiveConfig)}`">
+                  {{ saveStateLabel('archive', archiveConfig) }}
+                </span>
+              </div>
+            </section>
+          </el-tab-pane>
+        </el-tabs>
+      </div>
+    </section>
 
     <!-- 报警规则弹窗 -->
-    <el-dialog v-model="ruleDialogVisible" :title="isEditRule ? '编辑规则' : '添加规则'" width="500px">
-      <el-form :model="ruleForm" label-width="80px">
+    <el-dialog v-model="ruleDialogVisible" :title="isEditRule ? '编辑规则' : '添加规则'" width="520px">
+      <el-form :model="ruleForm" label-width="90px" class="config-form">
         <el-form-item label="名称"><el-input v-model="ruleForm.name" /></el-form-item>
         <el-form-item label="设备">
           <el-select v-model="ruleForm.device_id" style="width:100%">
@@ -290,7 +499,7 @@
         </el-form-item>
         <el-form-item label="启用"><el-switch v-model="ruleForm.enabled" /></el-form-item>
       </el-form>
-      <template #footer>
+      <template v-slot:footer>
         <el-button @click="ruleDialogVisible = false">取消</el-button>
         <el-button type="primary" @click="saveRule">保存</el-button>
       </template>
@@ -356,6 +565,29 @@ const ruleForm = reactive({ id: '', name: '', device_id: '', register_name: '', 
 // 最近一次 GET /config 的原始内容：保存时用于保留界面上未暴露的嵌套字段
 const rawConfig = ref<any>({})
 
+// ===== 保存状态：对比"已落盘快照"与当前表单，避免改完未保存却看起来已保存 =====
+const baseline = ref<Record<string, string>>({})
+const savingSection = ref('')
+
+function markBaseline(key: string, snapshot: unknown) {
+  baseline.value = { ...baseline.value, [key]: JSON.stringify(snapshot) }
+}
+
+function saveStateOf(key: string, snapshot: unknown): 'saved' | 'dirty' | 'unknown' {
+  const base = baseline.value[key]
+  if (base === undefined) return 'unknown'
+  return base === JSON.stringify(snapshot) ? 'saved' : 'dirty'
+}
+
+function saveStateLabel(key: string, snapshot: unknown) {
+  const state = saveStateOf(key, snapshot)
+  if (state === 'unknown') return '未加载'
+  return state === 'dirty' ? '有未保存修改' : '已保存'
+}
+
+// 广播配置的待保存内容含 MQTT 子对象与区域字符串，单独组一个快照
+const broadcastSnapshot = computed(() => ({ ...broadcastConfig, areas: broadcastAreasStr.value }))
+
 const dbTables = computed(() => {
   if (!dbInfo.value) return []
   // 后端返回扁平结构，转换为表格数据
@@ -367,6 +599,15 @@ const dbTables = computed(() => {
     { name: 'history_archive', rows: info.archive_records || 0, size: '-' },
   ]
 })
+
+// 等级 → 标签样式/显示名（不改变后端 alarm_level 取值）
+const LEVEL_MAP: Record<string, { label: string; tag: string }> = {
+  critical: { label: '严重', tag: 'tag--danger' },
+  warning: { label: '警告', tag: 'tag--warning' },
+  info: { label: '信息', tag: 'tag--info' },
+}
+function levelTag(level: string) { return LEVEL_MAP[level]?.tag || 'tag--offline' }
+function levelLabel(level: string) { return LEVEL_MAP[level]?.label || level }
 
 onMounted(async () => {
   try { const data = await devicesApi.getAll(); devices.value = data.devices || [] } catch (e: any) { console.warn('[Config] 加载设备列表失败:', e?.message || e) }
@@ -410,6 +651,10 @@ async function loadConfig() {
         if (c.database.compression?.enabled != null) config.database.compression = !!c.database.compression.enabled
         if (c.database.compression?.interval_hours != null) config.database.compression_interval = c.database.compression.interval_hours
       }
+      // 仅在成功读到后端配置时记录基线，否则加载失败会误显示"已保存"
+      markBaseline('system', config.system)
+      markBaseline('collection', config.collection)
+      markBaseline('database', config.database)
     }
   } catch (e: any) { console.warn('[Config] 加载系统配置失败:', e?.message || e) }
 }
@@ -425,6 +670,7 @@ async function loadEnergyConfig() {
       if (t.valley != null) config.energy.valley_price = t.valley
     }
     if (data?.carbon_factor != null) config.energy.carbon_factor = data.carbon_factor
+    markBaseline('energy', config.energy)
   } catch (e: any) { console.warn('[Config] 加载电价配置失败:', e?.message || e) }
 }
 
@@ -489,10 +735,13 @@ async function persistSection(section: string) {
 }
 
 async function saveConfig(section: string) {
+  savingSection.value = section
   try {
     await persistSection(section)
+    markBaseline(section, (config as any)[section])
     ElMessage.success('配置已保存')
   } catch (e: any) { showActionError('保存配置', e) }
+  finally { savingSection.value = '' }
 }
 
 function showRuleDialog() {
@@ -570,28 +819,36 @@ async function loadAlarmOutputConfig() {
   try {
     const data = await alarmsApi.getAlarmOutputConfig()
     if (data) Object.assign(alarmOutputConfig, data)
+    markBaseline('alarmOutput', alarmOutputConfig)
   } catch (e: any) { console.warn('[Config] 报警输出配置加载失败:', e?.message || e) }
 }
 
 async function saveAlarmOutputConfig() {
+  savingSection.value = 'alarmOutput'
   try {
     await alarmsApi.setAlarmOutputConfig(alarmOutputConfig)
+    markBaseline('alarmOutput', alarmOutputConfig)
     ElMessage.success('报警输出配置已保存')
   } catch (e: any) { showActionError('保存报警输出配置', e) }
+  finally { savingSection.value = '' }
 }
 
 async function loadAlarmEscalation() {
   try {
     const data = await alarmsApi.getAlarmOutputConfig()
     if (data?.escalation) Object.assign(alarmEscalation, data.escalation)
+    markBaseline('alarmEscalation', alarmEscalation)
   } catch (e: any) { console.warn('[Config] 报警升级配置加载失败:', e?.message || e) }
 }
 
 async function saveAlarmEscalation() {
+  savingSection.value = 'alarmEscalation'
   try {
     await systemApi.saveConfig('alarm_escalation', { ...alarmEscalation })
+    markBaseline('alarmEscalation', alarmEscalation)
     ElMessage.success('报警升级配置已保存')
   } catch (e: any) { showActionError('保存报警升级配置', e) }
+  finally { savingSection.value = '' }
 }
 
 function loadArchiveConfig() {
@@ -599,14 +856,18 @@ function loadArchiveConfig() {
   // 如果 loadConfig 中没有 archive 段，尝试单独拉取
   systemApi.getConfig().then(data => {
     if (data?.config?.archive) Object.assign(archiveConfig, data.config.archive)
+    markBaseline('archive', archiveConfig)
   }).catch((e: any) => { console.warn('[Config] 归档配置加载失败:', e?.message || e) })
 }
 
 async function saveArchiveConfig() {
+  savingSection.value = 'archive'
   try {
     await systemApi.saveConfig('archive', archiveConfig)
+    markBaseline('archive', archiveConfig)
     ElMessage.success('归档策略已保存')
   } catch (e: any) { showActionError('保存归档策略', e) }
+  finally { savingSection.value = '' }
 }
 
 async function triggerArchive() {
@@ -630,17 +891,21 @@ async function loadSignalTowerConfig() {
       if (st.slave_id) signalTower.slave_id = st.slave_id
       if (st.do_mapping) Object.assign(signalTower.do_mapping, st.do_mapping)
     }
+    markBaseline('signalTower', signalTower)
   } catch (e: any) { console.warn('[Config] 光柱配置加载失败:', e?.message || e) }
 }
 
 async function saveSignalTower() {
+  savingSection.value = 'signalTower'
   try {
     await alarmsApi.setAlarmOutputConfig({
       enabled: signalTower.enabled,
       signal_tower: { host: signalTower.host, port: signalTower.port, slave_id: signalTower.slave_id, do_mapping: { ...signalTower.do_mapping } },
     })
+    markBaseline('signalTower', signalTower)
     ElMessage.success('报警输出硬件配置已保存')
   } catch (e: any) { showActionError('保存报警输出硬件配置', e) }
+  finally { savingSection.value = '' }
 }
 
 // ========== 广播系统硬件配置 ==========
@@ -656,15 +921,19 @@ async function loadBroadcastHardwareConfig() {
         broadcastAreasStr.value = bc.areas.join(',')
       }
     }
+    markBaseline('broadcast', broadcastSnapshot.value)
   } catch (e: any) { console.warn('[Config] 广播配置加载失败:', e?.message || e) }
 }
 
 async function saveBroadcastHardware() {
+  savingSection.value = 'broadcast'
   try {
     const areas = broadcastAreasStr.value.split(',').map(s => s.trim()).filter(Boolean)
     await alarmsApi.setBroadcastConfig({ enabled: broadcastConfig.enabled, mqtt: { ...broadcastConfig.mqtt }, areas })
+    markBaseline('broadcast', broadcastSnapshot.value)
     ElMessage.success('广播系统配置已保存')
   } catch (e: any) { showActionError('保存广播配置', e) }
+  finally { savingSection.value = '' }
 }
 
 // ========== 日志设置 ==========
@@ -676,14 +945,18 @@ async function loadLoggingConfig() {
       if (lc.level) loggingConfig.level = lc.level
       if (lc.file) Object.assign(loggingConfig.file, lc.file)
     }
+    markBaseline('logging', loggingConfig)
   } catch (e: any) { console.warn('[Config] 日志配置加载失败:', e?.message || e) }
 }
 
 async function saveLoggingConfig() {
+  savingSection.value = 'logging'
   try {
     await systemApi.saveConfig('logging', { level: loggingConfig.level, file: { ...loggingConfig.file } })
+    markBaseline('logging', loggingConfig)
     ElMessage.success('日志设置已保存')
   } catch (e: any) { showActionError('保存日志配置', e) }
+  finally { savingSection.value = '' }
 }
 
 function exportConfig() {
@@ -731,7 +1004,7 @@ function importConfig() {
       // 逐段保存，按后端真实结构落盘；汇总失败段，避免"看起来已保存"
       const failed: string[] = []
       for (const section of matchedSections) {
-        try { await persistSection(section) } catch (err: any) {
+        try { await persistSection(section); markBaseline(section, (config as any)[section]) } catch (err: any) {
           console.warn(`[Config] 导入段 ${section} 保存失败:`, err?.message || err)
           failed.push(section)
         }
@@ -750,7 +1023,230 @@ function importConfig() {
 </script>
 
 <style scoped>
-.mb-16 { margin-bottom: 16px; }
-.health-row { display: flex; align-items: center; justify-content: space-between; padding: 6px 0; border-bottom: 1px solid #f0f0f0; }
-.health-key { font-size: 13px; color: #333; }
+.config-page {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  padding: var(--space-4);
+  background: var(--bg-page);
+  color: var(--text-primary);
+}
+
+.panel__meta {
+  font-size: var(--font-xs);
+  font-weight: var(--weight-normal);
+  color: var(--text-muted);
+}
+
+/* 分区卡片：嵌套在外层 tab 容器内，去掉阴影避免层叠过重 */
+.section {
+  box-shadow: none;
+  border-radius: var(--radius-md);
+  margin-bottom: var(--space-4);
+}
+
+.section:last-child { margin-bottom: 0; }
+
+.section__foot {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+  padding: var(--space-3) var(--space-4);
+  border-top: 1px solid var(--border-base);
+  background: var(--bg-sunken);
+  border-radius: 0 0 var(--radius-md) var(--radius-md);
+}
+
+.section__action { margin-bottom: var(--space-3); }
+
+/* ===== 保存状态指示 ===== */
+.save-state {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  font-size: var(--font-xs);
+  font-weight: var(--weight-medium);
+  padding: 2px var(--space-2);
+  border-radius: var(--radius-sm);
+  margin-left: auto;
+}
+
+.save-state--saved {
+  background: var(--color-success-soft);
+  color: var(--color-success);
+}
+
+.save-state--dirty {
+  background: var(--color-warning-soft);
+  color: var(--color-warning);
+}
+
+.save-state--unknown {
+  background: var(--bg-hover);
+  color: var(--text-muted);
+}
+
+/* ===== 表单 ===== */
+.config-form :deep(.el-form-item__label) {
+  font-size: var(--font-sm);
+  color: var(--text-secondary);
+  line-height: var(--leading-base);
+}
+
+.config-form :deep(.el-form-item) {
+  margin-bottom: var(--space-4);
+  align-items: center;
+}
+
+.config-form :deep(.el-form-item__content) {
+  font-size: var(--font-base);
+  gap: var(--space-2);
+}
+
+.config-form--narrow { max-width: 660px; }
+
+.field-hint {
+  font-size: var(--font-xs);
+  color: var(--text-muted);
+  line-height: var(--leading-base);
+}
+
+.form-section-title {
+  font-size: var(--font-sm);
+  font-weight: var(--weight-semibold);
+  color: var(--text-primary);
+  margin: var(--space-2) 0 var(--space-3);
+  padding-left: var(--space-2);
+  border-left: 3px solid var(--color-brand);
+}
+
+/* ===== 栅格 ===== */
+.split-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(360px, 1fr));
+  gap: var(--space-4);
+}
+
+.split-grid--tight { gap: var(--space-4); grid-template-columns: minmax(320px, 1fr) minmax(240px, 320px); }
+
+@media (max-width: 1000px) {
+  .split-grid--tight { grid-template-columns: 1fr; }
+}
+
+/* ===== 费率预览 ===== */
+.rate-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: var(--space-3);
+}
+
+.rate-cell {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  padding: var(--space-3);
+  border: 1px solid var(--border-base);
+  border-radius: var(--radius-md);
+  background: var(--bg-sunken);
+}
+
+.rate-value {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: var(--font-xl);
+  font-weight: var(--weight-semibold);
+  color: var(--text-primary);
+}
+
+/* ===== 归档统计 ===== */
+.archive-stats {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: var(--space-3);
+  border: 1px solid var(--border-base);
+  border-radius: var(--radius-md);
+  background: var(--bg-sunken);
+}
+
+.archive-stat {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.archive-stat__value {
+  font-size: var(--font-lg);
+  font-weight: var(--weight-semibold);
+  color: var(--text-primary);
+}
+
+/* ===== 表格 ===== */
+.data-table { width: 100%; }
+
+.data-table :deep(.el-table__header th.el-table__cell) {
+  background: var(--bg-sunken);
+  color: var(--text-secondary);
+  font-size: var(--font-sm);
+  font-weight: var(--weight-semibold);
+}
+
+.data-table :deep(.el-table__body td.el-table__cell) {
+  font-size: var(--font-sm);
+  color: var(--text-primary);
+}
+
+.mono {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: var(--font-sm);
+  color: var(--text-secondary);
+}
+
+/* ===== 行操作 ===== */
+.row-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--space-2);
+  white-space: nowrap;
+}
+
+.row-actions__sep {
+  width: 1px;
+  height: 14px;
+  background: var(--border-base);
+  flex: none;
+}
+
+.btn-danger-link { color: var(--color-danger); }
+
+.btn-danger-link:hover {
+  color: var(--color-danger);
+  background: var(--color-danger-soft);
+}
+
+/* ===== 健康列表 ===== */
+.health-list {
+  display: flex;
+  flex-direction: column;
+}
+
+.health-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: var(--space-2) 0;
+  border-bottom: 1px solid var(--border-base);
+}
+
+.health-row:last-child { border-bottom: none; }
+
+.health-key {
+  font-size: var(--font-sm);
+  color: var(--text-primary);
+}
 </style>
