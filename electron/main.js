@@ -10,11 +10,19 @@ try { const u = require('./updater'); setupUpdater = u.setupUpdater; checkForUpd
 const { isFirstRun, markComplete } = require('./first-run')
 
 // ============ 常量 ============
-const BACKEND_PORT = 5000
+// 端口默认回退到 5000（向后兼容 / 模拟模式）。真实模式下后端监听 5001，
+// 实际端口以运行时文件 runtime.json 为准（见 getRuntimePort / syncBackendPort）。
+let BACKEND_PORT = 5000
 const BACKEND_HOST = '127.0.0.1'
 const HEALTH_ENDPOINT = '/api/health/status'
 const isDev = !app.isPackaged
 const MAX_BACKEND_RESTARTS = 5
+
+// 后端运行时端口文件：后端启动后写入 {port,host,pid,mode,started_at}。
+// 路径与后端 paths.RUNTIME_JSON_PATH 对齐 —— <backend_dir>/data/runtime.json。
+// 后端冻结（PyInstaller onefile）时 backend 目录即 scada-backend.exe 所在目录，
+// 开发/打包布局下 getBackendPath() 已能稳定解析该目录，故此处直接拼接。
+const RUNTIME_JSON_PATH = path.join(path.dirname(getBackendPath()), 'data', 'runtime.json')
 
 // ============ 状态 ============
 let mainWindow = null
@@ -55,6 +63,19 @@ function sendToRenderer(channel, data) {
   }
 }
 
+// 把当前解析出的后端端口注入渲染进程（仅 main.js 侧，无需改动 preload/src）。
+// 前端约定：从 window.__BACKEND_PORT__ 读取实际端口用于 axios baseURL / WebSocket，
+// 回退值 5000 与历史行为一致。main.js 在端口确定或变更时调用本函数（带去重）。
+let _lastPushedPort = null
+function pushBackendPortToRenderer() {
+  const p = Number(BACKEND_PORT) || 5000
+  if (p === _lastPushedPort) return
+  _lastPushedPort = p
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.executeJavaScript(`window.__BACKEND_PORT__ = ${p};`).catch(() => {})
+  }
+}
+
 // ============ 端口 & 健康检查 ============
 function isPortOpen(port) {
   return new Promise((resolve) => {
@@ -66,9 +87,31 @@ function isPortOpen(port) {
   })
 }
 
-function checkBackendHealth() {
+// 读取后端写入的 runtime.json，拿回本次启动的真实端口。
+// 读不到（后端尚未写入/文件被删）时返回 null，调用方回退到 BACKEND_PORT 或探测。
+function readRuntimePort() {
+  try {
+    const txt = fs.readFileSync(RUNTIME_JSON_PATH, 'utf-8')
+    const obj = JSON.parse(txt)
+    if (obj && Number.isInteger(obj.port) && obj.port > 0) return obj.port
+  } catch (e) {
+    // 文件不存在 / 解析失败：视为暂无，不报错（后端可能正在启动）
+  }
+  return null
+}
+
+// 把 runtime.json 中的端口同步到模块级 BACKEND_PORT（仅在确有值时更新），
+// 返回当前生效端口。供健康检查、托盘菜单、IPC 统一取用。
+function syncBackendPort() {
+  const p = readRuntimePort()
+  if (p) { BACKEND_PORT = p; pushBackendPortToRenderer() }
+  return BACKEND_PORT
+}
+
+function checkBackendHealth(port) {
+  const targetPort = Number.isInteger(port) ? port : syncBackendPort()
   return new Promise((resolve) => {
-    const req = http.get(`http://${BACKEND_HOST}:${BACKEND_PORT}${HEALTH_ENDPOINT}`, { timeout: 2000 }, (res) => {
+    const req = http.get(`http://${BACKEND_HOST}:${targetPort}${HEALTH_ENDPOINT}`, { timeout: 2000 }, (res) => {
       let body = ''
       res.on('data', c => body += c)
       res.on('end', () => resolve(res.statusCode >= 200 && res.statusCode < 400))
@@ -78,19 +121,42 @@ function checkBackendHealth() {
   })
 }
 
+// 启动时确定后端端口：
+//   1) 优先读 runtime.json（后端已写好真实端口）；
+//   2) 读不到则探测 5000 / 5001 哪个能通健康检查；
+//   3) 都没有则回退 5000（向后兼容）。
+async function resolveBackendPort() {
+  const rp = readRuntimePort()
+  if (rp) { BACKEND_PORT = rp; console.log(`runtime.json 指定端口: ${rp}`); pushBackendPortToRenderer(); return rp }
+  for (const cand of [5000, 5001]) {
+    if (await isPortOpen(cand) && await checkBackendHealth(cand)) {
+      BACKEND_PORT = cand
+      console.log(`探测到后端端口: ${cand}`)
+      pushBackendPortToRenderer()
+      return cand
+    }
+  }
+  console.warn('未从 runtime.json / 探测获得后端端口，回退 5000')
+  BACKEND_PORT = 5000
+  pushBackendPortToRenderer()
+  return 5000
+}
+
 function waitForBackendNonBlocking() {
   const startTime = Date.now()
   const TIMEOUT = 60000
   const check = async () => {
     if (Date.now() - startTime > TIMEOUT) {
       console.warn('后端健康检查超时(60s)')
-      sendToRenderer('backend-status-changed', { healthy: false, timeout: true })
+      sendToRenderer('backend-status-changed', { healthy: false, timeout: true, port: BACKEND_PORT })
       return
     }
-    if (await checkBackendHealth()) {
+    // 每轮重新读取 runtime.json（后端启动后才会写入/覆盖），以拿到真实端口
+    const port = syncBackendPort()
+    if (await checkBackendHealth(port)) {
       backendHealthy = true; backendRestartCount = 0
-      scheduleTrayUpdate(); sendToRenderer('backend-status-changed', { healthy: true })
-      console.log('后端健康检查通过')
+      scheduleTrayUpdate(); sendToRenderer('backend-status-changed', { healthy: true, port: BACKEND_PORT })
+      console.log(`后端健康检查通过 (port=${port})`)
     } else {
       setTimeout(check, 1500)
     }
@@ -107,7 +173,7 @@ function startHealthMonitor() {
     if (was !== backendHealthy) {
       console.log(`后端状态: ${backendHealthy ? '在线' : '离线'}`)
       scheduleTrayUpdate()
-      sendToRenderer('backend-status-changed', { healthy: backendHealthy })
+      sendToRenderer('backend-status-changed', { healthy: backendHealthy, port: BACKEND_PORT })
     }
     if (!backendHealthy && backendOwnedByUs && !backendProcess && !isQuitting) attemptRestart()
   }, 10000)
@@ -169,6 +235,8 @@ function killProcessTree(pid) {
 }
 
 async function startBackend() {
+  // 先用 runtime.json（或探测）确定真实端口，避免 5000/5001 错配
+  syncBackendPort()
   if (await isPortOpen(BACKEND_PORT)) {
     if (await checkBackendHealth()) {
       console.log('端口已有健康后端，跳过启动')
@@ -397,6 +465,9 @@ app.whenReady().then(async () => {
     }
   }
 
+  // 启动前先确定后端真实端口（读 runtime.json，否则探测 5000/5001，回退 5000）
+  await resolveBackendPort()
+
   startBackend().then(started => {
     if (started) waitForBackendNonBlocking()
   })
@@ -420,8 +491,8 @@ app.on('before-quit', (e) => {
 // ============ IPC ============
 ipcMain.handle('get-app-version', () => app.getVersion())
 ipcMain.handle('get-backend-status', async () => ({
-  running: backendHealthy, port: BACKEND_PORT,
-  portOpen: await isPortOpen(BACKEND_PORT), ownedByUs: backendOwnedByUs,
+  running: backendHealthy, port: syncBackendPort(),
+  portOpen: await isPortOpen(syncBackendPort()), ownedByUs: backendOwnedByUs,
 }))
 ipcMain.handle('get-system-info', () => getSystemInfo())
 ipcMain.handle('run-diagnostics', async () => ({
