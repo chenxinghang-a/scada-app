@@ -7,7 +7,7 @@
           <el-icon><Refresh /></el-icon>
           刷新
         </el-button>
-        <el-select v-model="historyHours" @change="loadHistory" size="small" style="width: 120px">
+        <el-select v-model="historyHours" @change="onHistoryRangeChange" size="small" style="width: 120px">
           <el-option label="1小时" :value="1" />
           <el-option label="6小时" :value="6" />
           <el-option label="24小时" :value="24" />
@@ -195,6 +195,7 @@ function getProgressColor(percent: number | undefined): string {
 
 // 刷新实时指标
 async function refreshMetrics() {
+  if (loading.value) return   // 30s 轮询与手动刷新重入保护
   loading.value = true
   try {
     realtimeMetrics.value = await performanceApi.getRealtimeMetrics()
@@ -207,22 +208,36 @@ async function refreshMetrics() {
   }
 }
 
+// 时间范围切换：历史趋势与摘要必须一起刷新，否则摘要仍是旧区间数据
+function onHistoryRangeChange() {
+  loadHistory()
+  loadSummary()
+}
+
+// 快速切换时间范围时慢响应会覆盖新数据，用请求序号丢弃过期响应
+let historyReqId = 0
+
 // 加载历史数据
 async function loadHistory() {
+  const reqId = ++historyReqId
   try {
     const result = await performanceApi.getMetricsHistory(historyHours.value)
+    if (reqId !== historyReqId) return
     historyData.value = result.data || []
     await nextTick()
     updateChart()
   } catch (e) {
-    showActionError('获取历史数据', e)
+    if (reqId === historyReqId) showActionError('获取历史数据', e)
   }
 }
 
 // 加载摘要
 async function loadSummary() {
+  const hours = historyHours.value
   try {
-    summary.value = await performanceApi.getMetricsSummary(historyHours.value)
+    const data = await performanceApi.getMetricsSummary(hours)
+    if (hours !== historyHours.value) return   // 期间用户已切换范围，丢弃过期摘要
+    summary.value = data
   } catch (e) {
     showActionError('获取指标摘要', e)
   }
@@ -230,7 +245,12 @@ async function loadSummary() {
 
 // 更新图表
 function updateChart() {
-  if (!cpuChart.value || !historyData.value.length) return
+  if (!cpuChart.value) return
+  // 新时间范围没有数据时清空旧曲线，避免残留上一个区间的图
+  if (!historyData.value.length) {
+    cpuChartInstance?.clear()
+    return
+  }
 
   if (!cpuChartInstance) {
     cpuChartInstance = echarts.init(cpuChart.value)

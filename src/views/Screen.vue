@@ -82,10 +82,14 @@ let charts: Record<string, echarts.ECharts> = {}
 let socket: any = null
 let refreshTimer: ReturnType<typeof setInterval>
 let clockTimer: ReturnType<typeof setInterval>
+let disposed = false            // 组件卸载后丢弃迟到的响应，避免重建已 dispose 的图表
+let loadingData = false         // loadData 重入保护
+let loadingI40 = false          // loadI40 重入保护
+const subscribed = new Set<string>()  // 已向 WS 订阅的设备，避免重复订阅/漏订阅
 
 function getVal(deviceId: string, reg: string) {
   const v = deviceValues[`${deviceId}:${reg}`]
-  return v != null ? v.toFixed(1) : '--'
+  return Number.isFinite(v) ? (v as number).toFixed(1) : '--'
 }
 
 function fmtTime(t: string) { return t ? new Date(t).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', second: '2-digit' }) : '-' }
@@ -96,8 +100,12 @@ function formatUptime(s: number) {
 }
 
 async function loadData() {
+  // 10s 定时器与 WS alarm 事件都会触发本函数，慢响应时会叠加并发请求，这里做重入保护
+  if (loadingData) return
+  loadingData = true
   try {
     const status = await systemApi.getStatus()
+    if (disposed) return
     const devs = Array.isArray(status.devices) ? status.devices : Object.values(status.devices || {})
     devices.value = devs
     kpi.online = devs.filter((d: any) => d.connected).length
@@ -109,15 +117,18 @@ async function loadData() {
     kpi.quality = total > 0 ? Math.round(c.successful_collections / total * 100) : 100
     kpi.uptime = formatUptime(status.uptime_seconds || 0)
     renderDevicePie(devs)
+    subscribeDevices()
   } catch (e: any) { console.warn('[Screen] 加载失败:', e?.message || e) }
 
   try {
     const a = await alarmsApi.getAll({ limit: 30 })
+    if (disposed) return
     alarms.value = a?.alarms || []
   } catch (e: any) { console.warn('[Screen] 加载失败:', e?.message || e) }
 
   try {
     const data = await dataApi.getRealtime() as any
+    if (disposed) return
     if (data?.data) {
       data.data.forEach((item: any) => {
         if (item.device_id && item.register_name && item.value != null) {
@@ -127,9 +138,12 @@ async function loadData() {
       renderTrend(data.data)
     }
   } catch (e: any) { console.warn('[Screen] 加载失败:', e?.message || e) }
+  finally { loadingData = false }
 }
 
 async function loadI40() {
+  if (loadingI40) return
+  loadingI40 = true
   try {
     const [oee, health, energy, spcViolations] = await Promise.all([
       industry40Api.getOEE().catch(() => null),
@@ -137,9 +151,11 @@ async function loadI40() {
       industry40Api.getEnergy().catch(() => null),
       industry40Api.getSPCViolations().catch(() => null),
     ])
+    if (disposed) return
     if (oee && typeof oee === 'object' && Object.keys(oee).length) renderOEEGauge(Object.values(oee))
     if (health && typeof health === 'object' && Object.keys(health).length) renderHealthBar(Object.values(health))
-    if (energy?.summary) renderEnergyBar(energy.summary)
+    // 后端 /industry40/energy 返回扁平的能耗汇总（无 summary 外层）
+    if (energy && typeof energy === 'object' && Object.keys(energy).length) renderEnergyBar(energy)
     // SPC 控制图：用第一个设备的第一个寄存器数据渲染
     if (devices.value.length) {
       const firstDev = devices.value[0]
@@ -147,6 +163,7 @@ async function loadI40() {
       const firstReg = regs[0]?.name || 'temperature'
       try {
         const spcData = await industry40Api.getSPC(firstDev.device_id, firstReg) as any
+        if (disposed) return
         // 后端 /api/industry40/spc/<d>/<r> 返回 {control_chart, capability}，
         // control_chart = {xbar:{points,ucl,cl,lcl}, r_chart:{...}, violations}
         const cc = spcData?.control_chart
@@ -162,6 +179,7 @@ async function loadI40() {
       } catch (e: any) { console.warn('[Screen] 加载失败:', e?.message || e) }
     }
   } catch (e: any) { console.warn('[Screen] 加载失败:', e?.message || e) }
+  finally { loadingI40 = false }
 }
 
 function renderDevicePie(devs: any[]) {
@@ -182,9 +200,12 @@ function renderDevicePie(devs: any[]) {
 }
 
 function renderOEEGauge(devices: any[]) {
-  if (!oeeGaugeRef.value) return
+  if (disposed || !oeeGaugeRef.value) return
   if (!charts.oeeGauge) charts.oeeGauge = echarts.init(oeeGaugeRef.value)
-  const avg = devices.reduce((s, d) => s + d.oee_percent, 0) / devices.length
+  // 缺字段/空数组会让均值变成 NaN，直接跳过渲染
+  const values = devices.map(d => Number(d?.oee_percent)).filter(v => Number.isFinite(v))
+  if (!values.length) return
+  const avg = values.reduce((s, v) => s + v, 0) / values.length
   charts.oeeGauge.setOption({
     series: [{
       type: 'gauge', startAngle: 200, endAngle: -20, min: 0, max: 100,
@@ -257,7 +278,7 @@ function renderSPCChart(data: any) {
 }
 
 function renderTrend(data: any[]) {
-  if (!trendRef.value) return
+  if (disposed || !trendRef.value) return
   if (!charts.trend) charts.trend = echarts.init(trendRef.value)
   const grouped: Record<string, number[]> = {}
   data.forEach(item => {
@@ -281,6 +302,16 @@ function renderTrend(data: any[]) {
   })
 }
 
+function subscribeDevices() {
+  if (!socket?.connected) return
+  devices.value.forEach((d: any) => {
+    if (d.device_id && !subscribed.has(d.device_id)) {
+      socket.emit('subscribe', { device_id: d.device_id })
+      subscribed.add(d.device_id)
+    }
+  })
+}
+
 function connectSocket() {
   const baseUrl = getWsBaseUrl()
   const token = getAuthToken()
@@ -291,7 +322,8 @@ function connectSocket() {
     reconnectionDelay: 3000,
   })
   socket.on('connect', () => {
-    devices.value.forEach((d: any) => { if (d.device_id) socket.emit('subscribe', { device_id: d.device_id }) })
+    subscribed.clear()   // 重连后需重新订阅
+    subscribeDevices()
   })
   socket.on('data_update', (data: any) => {
     if (data?.device_id && data?.register_name && data.value != null) {
@@ -311,10 +343,12 @@ onMounted(() => {
 })
 
 onUnmounted(() => {
+  disposed = true
   clearInterval(refreshTimer)
   clearInterval(clockTimer)
   socket?.disconnect()
   Object.values(charts).forEach(c => c.dispose())
+  charts = {}
   window.removeEventListener('resize', handleResize)
 })
 

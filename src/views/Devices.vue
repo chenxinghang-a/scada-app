@@ -259,6 +259,8 @@ const form = reactive<any>({
 
 const testResult = reactive({ success: false, message: '' })
 const deviceFormRef = ref<any>(null)
+const saving = ref(false)        // 保存中标记，防止连点重复创建设备
+const presetBusy = ref(false)    // 预设添加中标记，防止并发重复添加
 const deviceRules = {
   device_id: [{ required: true, message: '请输入设备ID', trigger: 'blur' }],
   name: [{ required: true, message: '请输入设备名称', trigger: 'blur' }],
@@ -341,9 +343,11 @@ function addRegister() {
 }
 
 async function saveDevice() {
+  if (saving.value) return
   if (deviceFormRef.value) {
     try { await deviceFormRef.value.validate() } catch { return }
   }
+  saving.value = true
   try {
     if (isEdit.value) {
       await devicesApi.update(form.device_id, form)
@@ -360,6 +364,7 @@ async function saveDevice() {
     dialogVisible.value = false
     refreshDevices()
   } catch (e: any) { showActionError('保存设备', e) }
+  finally { saving.value = false }
 }
 
 async function deleteDevice(device: Device) {
@@ -384,19 +389,31 @@ function viewData(device: Device) {
 }
 
 async function addPreset(preset: any) {
+  if (presetBusy.value) return
+  presetBusy.value = true
   try {
-    await api.post('/devices/presets/add', { preset_id: preset.id })
+    // 后端失败时返回 200 + {success:false,message}，必须显式判断，否则会假成功
+    const res: any = await api.post('/devices/presets/add', { preset_id: preset.id })
+    if (res?.success === false) { ElMessage.error(res?.message || `添加预设「${preset.name}」失败`); return }
     ElMessage.success(`已添加: ${preset.name}`)
     refreshDevices()
-  } catch (e: any) { if (e?.message) console.error('[Devices] 操作失败:', e) }
+  } catch (e: any) {
+    // 之前只打 console，用户看不到任何反馈；改为明确报错
+    showActionError(`添加预设「${preset.name}」`, e)
+  } finally { presetBusy.value = false }
 }
 
 async function addAllPresets() {
+  if (presetBusy.value) return
+  presetBusy.value = true
   try {
-    await api.post('/devices/presets/add-all')
+    const res: any = await api.post('/devices/presets/add-all')
+    if (res?.success === false) { ElMessage.error(res?.message || '添加全部预设失败'); return }
     ElMessage.success('全部预设设备已添加')
     refreshDevices()
-  } catch (e: any) { if (e?.message) console.error('[Devices] 操作失败:', e) }
+  } catch (e: any) {
+    showActionError('添加全部预设', e)
+  } finally { presetBusy.value = false }
 }
 
 function protocolColor(p: string) {

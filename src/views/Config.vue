@@ -301,7 +301,7 @@
 <script setup lang="ts">
 import { ref, onMounted, reactive, computed } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { systemApi, devicesApi, alarmsApi, type Device } from '@/api'
+import { systemApi, devicesApi, alarmsApi, industry40Api, type Device } from '@/api'
 import { showActionError } from '@/utils/error'
 
 // 从 package.json 读取版本号
@@ -353,6 +353,9 @@ const config = reactive({
 
 const ruleForm = reactive({ id: '', name: '', device_id: '', register_name: '', condition: '>', threshold: 0, level: 'warning', enabled: true })
 
+// 最近一次 GET /config 的原始内容：保存时用于保留界面上未暴露的嵌套字段
+const rawConfig = ref<any>({})
+
 const dbTables = computed(() => {
   if (!dbInfo.value) return []
   // 后端返回扁平结构，转换为表格数据
@@ -368,6 +371,7 @@ const dbTables = computed(() => {
 onMounted(async () => {
   try { const data = await devicesApi.getAll(); devices.value = data.devices || [] } catch (e: any) { console.warn('[Config] 加载设备列表失败:', e?.message || e) }
   loadConfig()
+  loadEnergyConfig()
   loadSystemStatus()
   loadAlarmRules()
   loadSimulationMode()
@@ -384,13 +388,44 @@ async function loadConfig() {
   try {
     const data = await systemApi.getConfig()
     if (data?.config) {
-      const c = data.config
-      if (c.system) Object.assign(config.system, c.system)
-      if (c.collection) Object.assign(config.collection, c.collection)
-      if (c.database) Object.assign(config.database, c.database)
-      if (c.energy) Object.assign(config.energy, c.energy)
+      const c = data.config as any
+      rawConfig.value = c
+      if (c.system?.name) config.system.name = c.system.name
+      // Web 端口/地址/调试模式在 system.yaml 的 web 段，不在 system 段
+      if (c.web) {
+        if (c.web.port != null) config.system.port = c.web.port
+        if (c.web.host) config.system.host = c.web.host
+        if (c.web.debug != null) config.system.debug = !!c.web.debug
+      }
+      // 采集设置：后端键名是 default_interval / retry.max_attempts / retry.interval_seconds
+      if (c.collection) {
+        if (c.collection.default_interval != null) config.collection.interval = c.collection.default_interval
+        if (c.collection.timeout != null) config.collection.timeout = c.collection.timeout
+        if (c.collection.retry?.max_attempts != null) config.collection.retries = c.collection.retry.max_attempts
+        if (c.collection.retry?.interval_seconds != null) config.collection.retry_interval = c.collection.retry.interval_seconds
+      }
+      // 数据库设置：后端键名是 retention.raw_data_days / compression.enabled / compression.interval_hours
+      if (c.database) {
+        if (c.database.retention?.raw_data_days != null) config.database.retention_days = c.database.retention.raw_data_days
+        if (c.database.compression?.enabled != null) config.database.compression = !!c.database.compression.enabled
+        if (c.database.compression?.interval_hours != null) config.database.compression_interval = c.database.compression.interval_hours
+      }
     }
   } catch (e: any) { console.warn('[Config] 加载系统配置失败:', e?.message || e) }
+}
+
+// 电价/碳排因子存在 energy.yaml，由 /industry40/energy/tariff 读写（system.yaml 无 energy 段）
+async function loadEnergyConfig() {
+  try {
+    const data: any = await industry40Api.getEnergyTariff()
+    const t = data?.tariff
+    if (t) {
+      if (t.peak != null) config.energy.peak_price = t.peak
+      if (t.flat != null) config.energy.flat_price = t.flat
+      if (t.valley != null) config.energy.valley_price = t.valley
+    }
+    if (data?.carbon_factor != null) config.energy.carbon_factor = data.carbon_factor
+  } catch (e: any) { console.warn('[Config] 加载电价配置失败:', e?.message || e) }
 }
 
 async function loadSystemStatus() {
@@ -405,9 +440,57 @@ async function loadAlarmRules() {
   try { const data = await alarmsApi.getRules(); alarmRules.value = data.rules || [] } catch (e: any) { console.warn('[Config] 加载报警规则失败:', e?.message || e) }
 }
 
+// 按后端实际 YAML 结构组装配置段（键名对齐 system.yaml，避免写入无效键甚至把 dict 覆盖成 bool）
+function buildPayload(section: string): Record<string, unknown> {
+  if (section === 'collection') {
+    return {
+      default_interval: config.collection.interval,
+      timeout: config.collection.timeout,
+      retry: {
+        ...(rawConfig.value?.collection?.retry || {}),
+        max_attempts: config.collection.retries,
+        interval_seconds: config.collection.retry_interval,
+      },
+    }
+  }
+  if (section === 'database') {
+    return {
+      retention: { ...(rawConfig.value?.database?.retention || {}), raw_data_days: config.database.retention_days },
+      compression: {
+        ...(rawConfig.value?.database?.compression || {}),
+        enabled: config.database.compression,
+        interval_hours: config.database.compression_interval,
+      },
+    }
+  }
+  return { ...(config as any)[section] }
+}
+
+// 只负责发请求，失败向上抛，由调用方决定提示方式
+async function persistSection(section: string) {
+  if (section === 'energy') {
+    await industry40Api.setEnergyTariff({
+      tariff: {
+        peak: config.energy.peak_price,
+        flat: config.energy.flat_price,
+        valley: config.energy.valley_price,
+      },
+      carbon_factor: config.energy.carbon_factor,
+    })
+    return
+  }
+  if (section === 'system') {
+    // 名称在 system 段，Web 端口/地址/调试在 web 段，不能混写
+    await systemApi.saveConfig('system', { name: config.system.name })
+    await systemApi.saveConfig('web', { port: config.system.port, host: config.system.host, debug: config.system.debug })
+    return
+  }
+  await systemApi.saveConfig(section, buildPayload(section))
+}
+
 async function saveConfig(section: string) {
   try {
-    await systemApi.saveConfig(section, (config as any)[section])
+    await persistSection(section)
     ElMessage.success('配置已保存')
   } catch (e: any) { showActionError('保存配置', e) }
 }
@@ -609,8 +692,11 @@ function exportConfig() {
   const a = document.createElement('a')
   a.href = url
   a.download = `smartscada-config-${new Date().toISOString().slice(0, 10)}.json`
+  document.body.appendChild(a)
   a.click()
-  URL.revokeObjectURL(url)
+  a.remove()
+  // 立即 revoke 有概率把尚未开始的下载取消掉，延后释放
+  setTimeout(() => URL.revokeObjectURL(url), 1000)
   ElMessage.success('配置已导出')
 }
 
@@ -635,14 +721,26 @@ function importConfig() {
         { confirmButtonText: '确定导入', cancelButtonText: '取消', type: 'warning' }
       )
       for (const section of matchedSections) {
-        Object.assign((config as any)[section], imported[section])
+        const dst = (config as any)[section]
+        const src = imported[section]
+        // 只覆盖界面上已知的字段，忽略 __proto__ 等危险键和未知键
+        for (const key of Object.keys(dst)) {
+          if (Object.prototype.hasOwnProperty.call(src, key)) dst[key] = src[key]
+        }
       }
-      // 自动保存所有配置段
+      // 逐段保存，按后端真实结构落盘；汇总失败段，避免"看起来已保存"
+      const failed: string[] = []
       for (const section of matchedSections) {
-        try { await systemApi.saveConfig(section, config[section as keyof typeof config]) } catch (e: any) { console.warn(`[Config] 导入段 ${section} 保存失败:`, e?.message || e) }
+        try { await persistSection(section) } catch (err: any) {
+          console.warn(`[Config] 导入段 ${section} 保存失败:`, err?.message || err)
+          failed.push(section)
+        }
       }
-      ElMessage.success('配置已导入并保存')
+      await loadConfig()
+      if (failed.length) ElMessage.error(`配置已导入，但以下配置段保存失败: ${failed.join(', ')}`)
+      else ElMessage.success('配置已导入并保存')
     } catch (e: any) {
+      if (e === 'cancel' || e === 'close') return   // 用户取消导入不算错误
       console.error('[Config] 导入失败:', e)
       ElMessage.error('配置文件格式错误: ' + (e?.message || '未知错误'))
     }

@@ -199,11 +199,15 @@ const coilForm = reactive({ device_id: '', register_name: '', value: true })
 
 // 监听线圈表单设备变化，自动加载寄存器（独立于寄存器表单）
 watch(() => coilForm.device_id, async (deviceId) => {
+  // 换设备必须清空已选线圈，否则会拿旧设备的线圈名去查新设备地址
+  coilForm.register_name = ''
   if (deviceId) {
     try {
       const data = await devicesApi.getById(deviceId)
       coilRegisters.value = data.device?.registers || []
     } catch (e: any) { console.warn('[Control] 加载失败:', e?.message || e) }
+  } else {
+    coilRegisters.value = []
   }
 })
 
@@ -230,6 +234,8 @@ async function loadDevices() {
 }
 
 async function onDeviceChange(deviceId: string) {
+  // 换设备必须清空已选寄存器，避免用旧寄存器名匹配不到新设备地址
+  regForm.register_name = ''
   try {
     const data = await devicesApi.getById(deviceId)
     currentRegisters.value = data.device?.registers || []
@@ -245,8 +251,27 @@ async function loadSafetyStatus() {
       eStop.reason = data.estop.reason || ''
       eStop.time = data.estop.time || ''
     }
-    interlocks.value = Array.isArray(data.interlocks) ? data.interlocks : []
-    deviceHealth.value = Array.isArray(data.health) ? data.health : []
+    // 后端 /control/status 返回 interlocks.rules 字典：{rule_id: {name, description, triggered, bypassed}}
+    const rawInterlocks = (data.interlocks as any)?.rules ?? data.interlocks
+    interlocks.value = rawInterlocks && typeof rawInterlocks === 'object' && !Array.isArray(rawInterlocks)
+      ? Object.entries(rawInterlocks as Record<string, any>).map(([id, r]) => ({
+          id,
+          name: r?.name || id,
+          description: r?.description || r?.condition || '',
+          status: r?.triggered ? 'triggered' : r?.bypassed ? 'bypassed' : 'normal',
+        }))
+      : Array.isArray(rawInterlocks) ? rawInterlocks : []
+    // 后端字段为 device_health.devices：{device_id: {status:'connected'|'disconnected', avg_response_ms, name}}
+    const rawHealth = (data.device_health as any)?.devices ?? data.health
+    const healthList = rawHealth && typeof rawHealth === 'object' && !Array.isArray(rawHealth)
+      ? Object.entries(rawHealth as Record<string, any>).map(([id, h]) => ({ device_id: id, ...(h || {}) }))
+      : Array.isArray(rawHealth) ? rawHealth : []
+    deviceHealth.value = healthList.map((h: any) => ({
+      device_id: h.device_id,
+      name: h.name || h.device_id,
+      connected: h.connected ?? h.status === 'connected',
+      response_time: h.avg_response_ms ?? h.response_time ?? 0,
+    }))
   } catch (e: any) { console.warn('[Control] 加载失败:', e?.message || e) }
 }
 
@@ -269,9 +294,10 @@ async function writeRegister() {
   if (!regForm.device_id || !regForm.register_name) { ElMessage.warning('请选择设备和寄存器'); return }
   const address = findRegisterAddress(regForm.device_id, regForm.register_name)
   if (address === undefined) { ElMessage.error('无法找到寄存器地址'); return }
+  // 先占锁再弹确认框：否则确认框未关闭时连点会发起多次写入
+  controlLoading.value = true
   try {
     await ElMessageBox.confirm(`确认写入 ${regForm.register_name} (地址${address}) = ${regForm.value}？`, '确认操作', { type: 'warning' })
-    controlLoading.value = true
     await controlApi.writeRegister(regForm.device_id, address, regForm.value)
     ElMessage.success('写入成功')
     loadLogs()
@@ -284,9 +310,9 @@ async function writeCoil() {
   if (!coilForm.device_id || !coilForm.register_name) { ElMessage.warning('请选择设备和线圈'); return }
   const address = findRegisterAddress(coilForm.device_id, coilForm.register_name)
   if (address === undefined) { ElMessage.error('无法找到线圈地址'); return }
+  controlLoading.value = true
   try {
     await ElMessageBox.confirm(`确认写入 ${coilForm.register_name} (地址${address}) = ${coilForm.value ? 'ON' : 'OFF'}？`, '确认操作', { type: 'warning' })
-    controlLoading.value = true
     await controlApi.writeCoil(coilForm.device_id, address, coilForm.value)
     ElMessage.success('写入成功')
     loadLogs()
@@ -296,9 +322,9 @@ async function writeCoil() {
 
 async function triggerEStop() {
   if (controlLoading.value) return
+  controlLoading.value = true
   try {
     await ElMessageBox.confirm('确定执行紧急停止？此操作将停止所有设备！', '紧急停止', { type: 'error', confirmButtonText: '执行急停' })
-    controlLoading.value = true
     await controlApi.eStop()
     ElMessage.success('急停已执行')
     loadSafetyStatus()
@@ -307,35 +333,48 @@ async function triggerEStop() {
 }
 
 async function resetEStop() {
+  if (controlLoading.value) return
+  controlLoading.value = true
   try {
     await ElMessageBox.confirm('确定复位急停？确认现场人员已安全后再操作！', '复位急停', { type: 'warning', confirmButtonText: '确认复位' })
     await controlApi.eStopReset()
     ElMessage.success('急停已重置')
     loadSafetyStatus()
   } catch (e: any) { if (e !== 'cancel') showActionError('复位急停', e) }
+  finally { controlLoading.value = false }
 }
 
+// 联锁操作按 id 防重入，避免连点对同一联锁重复旁路/恢复
+const pendingInterlocks = new Set<string>()
+
 async function bypassInterlock(id: string) {
+  if (pendingInterlocks.has(id)) return
+  pendingInterlocks.add(id)
   try {
-    await controlApi.bypassInterlock(id)
-    ElMessage.success('联锁已旁路')
-    loadSafetyStatus()
+    const res: any = await controlApi.bypassInterlock(id)
+    // 后端失败时返回 200 + {success:false}，必须显式判断，否则会假成功
+    if (res?.success === false) ElMessage.error(res?.message || '联锁旁路失败')
+    else ElMessage.success('联锁已旁路')
   } catch (e: any) { showActionError('旁路联锁', e) }
+  finally { pendingInterlocks.delete(id); loadSafetyStatus() }
 }
 
 async function restoreInterlock(id: string) {
+  if (pendingInterlocks.has(id)) return
+  pendingInterlocks.add(id)
   try {
-    await controlApi.restoreInterlock(id)
-    ElMessage.success('联锁已恢复')
-    loadSafetyStatus()
+    const res: any = await controlApi.restoreInterlock(id)
+    if (res?.success === false) ElMessage.error(res?.message || '联锁恢复失败')
+    else ElMessage.success('联锁已恢复')
   } catch (e: any) { showActionError('恢复联锁', e) }
+  finally { pendingInterlocks.delete(id); loadSafetyStatus() }
 }
 
 async function batchControl(action: string) {
   if (controlLoading.value) return
+  controlLoading.value = true
   try {
     await ElMessageBox.confirm(`确定执行「${action === 'start' ? '启动全部' : action === 'stop' ? '停止全部' : '重置全部'}」？`, '批量控制', { type: 'warning' })
-    controlLoading.value = true
     await controlApi.batchControl(action)
     ElMessage.success('指令已发送')
     loadLogs()

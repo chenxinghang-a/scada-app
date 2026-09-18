@@ -116,6 +116,7 @@ const loading = ref(false)
 const logsLoading = ref(false)
 const dialogVisible = ref(false)
 const isEdit = ref(false)
+const saving = ref(false)
 const form = reactive({ username: '', password: '', display_name: '', role: 'viewer' })
 
 // 角色统计（computed避免模板中重复filter）
@@ -151,6 +152,7 @@ function editUser(user: User) {
 }
 
 async function saveUser() {
+  if (saving.value) return
   if (!isEdit.value) {
     if (!form.username.trim()) { ElMessage.warning('请输入用户名'); return }
     if (!form.password || form.password.length < 8) { ElMessage.warning('密码长度至少8位'); return }
@@ -158,6 +160,7 @@ async function saveUser() {
     if (!/[a-z]/.test(form.password)) { ElMessage.warning('密码必须包含小写字母'); return }
     if (!/[0-9]/.test(form.password)) { ElMessage.warning('密码必须包含数字'); return }
   }
+  saving.value = true
   try {
     if (isEdit.value) {
       await authApi.updateUser(form.username, { display_name: form.display_name, role: form.role })
@@ -168,6 +171,7 @@ async function saveUser() {
     dialogVisible.value = false
     refreshUsers()
   } catch (e: any) { showActionError(isEdit.value ? '更新用户' : '添加用户', e) }
+  finally { saving.value = false }
 }
 
 async function deleteUser(username: string) {
@@ -191,7 +195,11 @@ async function resetPassword(user: User) {
     if (!newPwd) return
     await authApi.updateUser(user.username, { password: newPwd })
     ElMessage.success(`用户 ${user.username} 密码已重置`)
-  } catch { /* cancelled */ }
+  } catch (e: any) {
+    // 取消不提示；但接口/校验失败必须反馈，之前被静默吞掉会让人误以为改密成功
+    if (e === 'cancel' || e === 'close') return
+    showActionError('重置密码', e)
+  }
 }
 
 function actionLabel(action: string) {

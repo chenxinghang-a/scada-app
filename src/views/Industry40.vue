@@ -277,7 +277,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, computed, onMounted, onUnmounted } from 'vue'
+import { ref, reactive, computed, onMounted, onUnmounted, nextTick } from 'vue'
 import * as echarts from 'echarts'
 import { industry40Api, type OEERecord, type HealthScore, type EdgeStatus, type EdgeRule } from '@/api'
 import { devicesApi } from '@/api'
@@ -361,6 +361,13 @@ const twinConnections = computed(() => {
 function healthColor(v: number) { return v >= 80 ? '#22c55e' : v >= 60 ? '#84cc16' : v >= 40 ? '#f59e0b' : '#ef4444' }
 function oeeColor(v: number) { return v >= 85 ? '#22c55e' : v >= 65 ? '#f59e0b' : '#ef4444' }
 function trendArrow(t: string) { return t === 'rising' ? '↑' : t === 'falling' ? '↓' : '→' }
+// 后端多个接口返回以 device_id / "device:register" 为键的字典（axios 拦截器已解开 {success,data}），
+// 统一转成数组后再交给表格/图表，避免字段名错配导致列表恒为空
+function toList(v: any): any[] {
+  if (Array.isArray(v)) return v
+  if (v && typeof v === 'object') return Object.entries(v).map(([id, item]: any) => ({ device_id: id, ...(item || {}) }))
+  return []
+}
 
 // ========== 数据加载 ==========
 async function loadOverview() {
@@ -402,15 +409,17 @@ function renderProcessFlow(data: any) {
 async function loadPredictive() {
   try {
     const [h, a] = await Promise.all([industry40Api.getHealthScores(), industry40Api.getMaintenanceAlerts()])
-    healthScores.value = h?.health_scores || []
-    maintenanceAlerts.value = a?.alerts || []
+    // /industry40/health 返回 {device_id:register: {...}} 字典，/industry40/maintenance-alerts 返回数组
+    healthScores.value = toList(h)
+    maintenanceAlerts.value = toList(a)
   } catch (e: any) { console.warn('[Industry40] 加载失败:', e?.message || e) }
 }
 
 async function loadOEE() {
   try {
     const data = await industry40Api.getOEE()
-    oeeRecords.value = data?.devices || []
+    // /industry40/oee 返回 {device_id: {oee_percent, availability, ...}} 字典
+    oeeRecords.value = toList(data)
     renderOEECharts()
   } catch (e: any) { console.warn('[Industry40] 加载失败:', e?.message || e) }
 }
@@ -463,7 +472,9 @@ async function loadSPC() {
     // 后端返回 { control_chart: { xbar_chart, r_chart, ... }, capability: {...} }
     const controlChart = chart?.control_chart || chart?.chart_data
     spc.capability = chart?.capability || null
-    spc.violations = v?.violations || []
+    // /industry40/spc/violations 返回数组，且判异记录本身不带 device_id
+    const violations = Array.isArray(v) ? v : (v?.violations || [])
+    spc.violations = violations.map((item: any) => ({ ...item, device_id: item.device_id || spc.deviceId }))
     renderSPCCharts(controlChart)
   } catch (e: any) { console.warn('[Industry40] 加载失败:', e?.message || e) }
 }
@@ -504,14 +515,17 @@ async function loadEnergy() {
     const [e, c, p] = await Promise.all([
       industry40Api.getEnergy(), industry40Api.getEnergyCost(), industry40Api.getEnergyPower(),
     ])
-    const s = e?.summary || {}
-    energy.total_kwh = s.total_kwh?.toFixed(1) || 0
-    energy.total_cost = s.total_cost?.toFixed(0) || 0
-    energy.carbon_kg = s.carbon_kg?.toFixed(1) || 0
-    energy.equivalent_trees = s.equivalent_trees?.toFixed(0) || 0
-    energy.peak_kwh = s.peak_kwh || 0
-    energy.flat_kwh = s.flat_kwh || 0
-    energy.valley_kwh = s.valley_kwh || 0
+    // /industry40/energy 返回扁平的能耗汇总（system 无 summary 外层），字段名为
+    // total_energy_kwh / electricity_cost / carbon_emission_kg / peak_kwh / flat_kwh / valley_kwh
+    const s: any = e || {}
+    const num = (v: any) => (Number.isFinite(Number(v)) ? Number(v) : 0)
+    energy.total_kwh = num(s.total_energy_kwh ?? s.total_kwh).toFixed(1)
+    energy.total_cost = num(s.electricity_cost ?? s.total_cost).toFixed(0)
+    energy.carbon_kg = num(s.carbon_emission_kg ?? s.carbon_kg).toFixed(1)
+    energy.equivalent_trees = s.equivalent_trees != null ? num(s.equivalent_trees).toFixed(0) : '-'
+    energy.peak_kwh = num(s.peak_kwh)
+    energy.flat_kwh = num(s.flat_kwh)
+    energy.valley_kwh = num(s.valley_kwh)
     renderEnergyCharts()
   } catch (e: any) { console.warn('[Industry40] 加载失败:', e?.message || e) }
 }
@@ -551,14 +565,19 @@ async function loadEdge() {
     const [s, r, l] = await Promise.all([
       industry40Api.getEdgeStatus(), industry40Api.getEdgeRules(), industry40Api.getEdgeLog(),
     ])
-    Object.assign(edgeStatus, s || {})
+    // /industry40/edge/status 返回 pid_controllers_count（不是 pid_controllers）
+    const st: any = s || {}
+    edgeStatus.rules_count = st.rules_count ?? 0
+    edgeStatus.interlocks_count = st.interlocks_count ?? 0
+    edgeStatus.pid_controllers = st.pid_controllers_count ?? st.pid_controllers ?? 0
     const rules = r?.rules || {}
     const interlocks = r?.interlocks || {}
     edgeRules.value = [
       ...Object.entries(rules).map(([id, v]: any) => ({ ...v, rule_id: id, type: '规则' })),
       ...Object.entries(interlocks).map(([id, v]: any) => ({ ...v, rule_id: id, type: '联锁' })),
     ]
-    edgeLog.value = l?.log || []
+    // /industry40/edge/log 直接返回数组
+    edgeLog.value = toList(l)
   } catch (e: any) { console.warn('[Industry40] 加载失败:', e?.message || e) }
 }
 
@@ -568,17 +587,18 @@ async function loadTwin() {
       industry40Api.getDevicesStatus(), industry40Api.getHealthScores(), industry40Api.getOEE(),
       industry40Api.getEnergyPower().catch(() => null),
     ])
+    // 以上接口都返回字典（devices 为 {device_id:{status,since}}，power 为 {device_id:{power_kw}}），
+    // 之前直接当数组 forEach 会抛 “forEach is not a function”，整个孪生页空白
     const healthMap = new Map<string, number>()
-    ;(health?.health_scores || []).forEach((h: any) => healthMap.set(h.device_id, h.health_score))
+    toList(health).forEach((h: any) => healthMap.set(h.device_id, h.health_score))
     const oeeMap = new Map<string, number>()
-    ;(oee?.devices || []).forEach((o: any) => oeeMap.set(o.device_id, o.oee_percent))
+    toList(oee).forEach((o: any) => oeeMap.set(o.device_id, o.oee_percent))
     const powerMap = new Map<string, number>()
-    ;(energyPower?.devices || []).forEach((p: any) => powerMap.set(p.device_id, p.power_kw || p.power || 0))
+    toList((energyPower as any)?.devices ?? energyPower).forEach((p: any) => powerMap.set(p.device_id, p.power_kw || p.power || 0))
 
     // 动态生成设备布局：用 TWIN_MAP 匹配已知设备，未知设备自动排列
-    const knownIds = Object.keys(TWIN_MAP)
     let unknownIdx = 0
-    twinDevices.value = (devs?.devices || []).map((d: any) => {
+    twinDevices.value = toList(devs).map((d: any) => {
       const m = TWIN_MAP[d.device_id]
       if (m) {
         return {
@@ -627,23 +647,53 @@ const vibrationSpectrumRef = ref<HTMLElement>()
 async function loadVibration() {
   try {
     const data = await industry40Api.getVibrationAll()
-    vibrationData.value = data?.vibrations || data?.devices || []
+    // /industry40/vibration 返回 {device_id: {rms, zone, health_score, ...}} 字典
+    vibrationData.value = toList(data).map((r: any) => ({
+      device_id: r.device_id,
+      vibration_value: r.rms ?? r.vibration_value,
+      iso_grade: r.zone || r.iso_grade,
+      bearing_status: r.bearing_status,
+      updated_at: r.updated_at,
+    }))
   } catch (e: any) { console.warn('[Industry40] 加载失败:', e?.message || e) }
 }
 
+// 快速连点不同设备时，慢响应会覆盖新数据，用请求序号丢弃过期响应
+let vibrationReqId = 0
+
 async function onVibrationDeviceClick(row: any) {
+  const reqId = ++vibrationReqId
   vibrationSelectedDevice.value = row.device_id
+  vibrationSpectrum.value = []
+  vibrationBearing.value = null
   // 加载频谱
   try {
     const specData = await industry40Api.getVibrationSpectrum(row.device_id)
+    if (reqId !== vibrationReqId) return
     vibrationSpectrum.value = specData?.spectrum || []
     renderVibrationSpectrum(specData)
-  } catch (e: any) { console.warn('[Industry40] 加载失败:', e?.message || e) }
+  } catch (e: any) { if (reqId === vibrationReqId) console.warn('[Industry40] 加载失败:', e?.message || e) }
   // 加载轴承数据
   try {
     const bearingData = await industry40Api.getVibrationBearing(row.device_id)
-    vibrationBearing.value = bearingData?.bearing || bearingData || null
-  } catch (e: any) { console.warn('[Industry40] 加载失败:', e?.message || e); vibrationBearing.value = null }
+    if (reqId !== vibrationReqId) return
+    // 后端返回 {diagnosis, fault_count, bearing_faults:{BPFO:{detected_frequency_hz},...}}，
+    // 补齐模板使用的 status/bearing_type/bpfo... 字段，否则面板全部显示 "-"
+    const b = bearingData?.bearing || bearingData || null
+    vibrationBearing.value = b ? {
+      ...b,
+      bearing_type: b.bearing_type || b.diagnosis,
+      status: b.status || (b.fault_count ? 'fault' : 'normal'),
+      bpfo: b.bpfo ?? b.bearing_faults?.BPFO?.detected_frequency_hz,
+      bpfi: b.bpfi ?? b.bearing_faults?.BPFI?.detected_frequency_hz,
+      bsf: b.bsf ?? b.bearing_faults?.BSF?.detected_frequency_hz,
+      ftf: b.ftf ?? b.bearing_faults?.FTF?.detected_frequency_hz,
+    } : null
+  } catch (e: any) {
+    if (reqId !== vibrationReqId) return
+    console.warn('[Industry40] 加载失败:', e?.message || e)
+    vibrationBearing.value = null
+  }
 }
 
 function renderVibrationSpectrum(data: any) {
@@ -696,6 +746,8 @@ const loaders: Record<string, () => any> = {
 
 function onTabChange(tab: string) {
   loaders[tab]?.()
+  // 刚从隐藏状态切回来时容器已有尺寸，补一次 resize（隐藏期间 resize 会把图表压成 0 尺寸）
+  nextTick(() => resizeVisibleCharts())
 }
 
 // ========== 生命周期 ==========
@@ -710,9 +762,18 @@ onUnmounted(() => {
   clearInterval(refreshTimer)
   window.removeEventListener('resize', handleResize)
   Object.values(charts).forEach(c => c.dispose())
+  charts = {}
 })
 
-function handleResize() { Object.values(charts).forEach(c => c.resize()) }
+// 隐藏的 tab-pane 尺寸为 0，此时 resize 会让图表永久变成 0×0，必须跳过
+function resizeVisibleCharts() {
+  Object.values(charts).forEach(c => {
+    const el = c.getDom()
+    if (el && el.clientWidth > 0 && el.clientHeight > 0) c.resize()
+  })
+}
+
+function handleResize() { resizeVisibleCharts() }
 </script>
 
 <style scoped>
