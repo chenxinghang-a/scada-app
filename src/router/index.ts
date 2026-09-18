@@ -87,17 +87,48 @@ const router = createRouter({
         },
       ],
     },
+    // 404 兜底：未知 hash 路径不再渲染空白页
+    {
+      path: '/:pathMatch(.*)*',
+      name: 'NotFound',
+      redirect: '/dashboard',
+    },
   ],
 })
 
+// 判断访问令牌是否已过期（仅解析 exp，解析失败一律视为未过期，避免误登出）
+function isTokenExpired(token: string): boolean {
+  try {
+    const payload = token.split('.')[1]
+    if (!payload) return false
+    const base64 = payload.replace(/-/g, '+').replace(/_/g, '/')
+    const padded = base64 + '='.repeat((4 - (base64.length % 4)) % 4)
+    const exp = JSON.parse(atob(padded))?.exp
+    return typeof exp === 'number' && exp * 1000 <= Date.now()
+  } catch {
+    return false
+  }
+}
+
 // 路由守卫 - 检查登录状态 + 强制改密 + 角色权限
 router.beforeEach((to, _from, next) => {
-  const token = localStorage.getItem('auth_token')
+  let token = localStorage.getItem('auth_token')
+
+  // 访问令牌已过期且没有刷新令牌 → 会话不可恢复，清理残留凭证，避免守卫放行后所有请求 401
+  // （若存在刷新令牌，则交给响应拦截器静默续期，不在这里登出）
+  if (token && !localStorage.getItem('scada_refresh_token') && isTokenExpired(token)) {
+    localStorage.removeItem('auth_token')
+    localStorage.removeItem('scada_user')
+    localStorage.removeItem('scada_must_change_password')
+    document.cookie = 'token=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT'
+    token = null
+  }
+
   const mustChangePwd = localStorage.getItem('scada_must_change_password')
 
   // 未登录 → 跳登录页
   if (to.path !== '/login' && to.path !== '/force-change-password' && !token) {
-    next('/login')
+    next({ path: '/login', query: { redirect: to.fullPath } })
     return
   }
 
@@ -109,22 +140,28 @@ router.beforeEach((to, _from, next) => {
 
   // 角色权限检查
   if (to.meta?.roles) {
+    let role = ''
     try {
       const user = JSON.parse(localStorage.getItem('scada_user') || '{}')
-      const allowedRoles = to.meta.roles as string[]
-      if (!user.role || !allowedRoles.includes(user.role)) {
-        if (!token) {
-          next('/login')
-        } else {
-          // 有 token 但角色不匹配 → 重定向到仪表盘（不放行未授权页面）
-          next('/dashboard')
-        }
-        return
-      }
+      role = typeof user?.role === 'string' ? user.role : ''
     } catch {
       // JSON 解析失败 → user 缓存损坏，只清 user 不清 token，重定向到登录
       localStorage.removeItem('scada_user')
       next('/login')
+      return
+    }
+    const allowedRoles = to.meta.roles as string[]
+    if (!role || !allowedRoles.includes(role)) {
+      if (!token) {
+        next('/login')
+      } else if (to.path === '/dashboard') {
+        // 仪表盘本身也是受限页，再跳仪表盘会形成自跳/无权限页循环 → 回登录页重认证
+        localStorage.removeItem('scada_user')
+        next('/login')
+      } else {
+        // 有 token 但角色不匹配 → 重定向到仪表盘（不放行未授权页面）
+        next('/dashboard')
+      }
       return
     }
   }

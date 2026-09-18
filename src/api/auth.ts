@@ -19,7 +19,10 @@ export const authApi = {
       token: string
       refresh_token: string
       user: UserInfo
+      /** 首次登录/密码被重置时后端返回 'must_change_password' */
+      status?: string
       must_change_password?: boolean
+      message?: string
     } | null>
   },
 

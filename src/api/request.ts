@@ -117,6 +117,31 @@ export function resetCsrfToken() {
   csrfAttempted = false
 }
 
+// 只有幂等方法允许在网络错误后自动重试；POST/PUT/PATCH/DELETE 可能是控制写入/急停，重试会造成重复危险动作
+const RETRYABLE_METHODS = ['get', 'head', 'options']
+
+// 会话失效时统一清理本地凭证并跳转登录页（isRedirectingToLogin 抑制重复提示/重复跳转）
+function clearSessionAndRedirect() {
+  try {
+    const store = useAuthStore()
+    store.token = null
+    store.refreshToken = null
+    store.user = null
+  } catch { /* store 未初始化时忽略 */ }
+  localStorage.removeItem('auth_token')
+  localStorage.removeItem('scada_refresh_token')
+  localStorage.removeItem('scada_user')
+  localStorage.removeItem('scada_must_change_password')
+  document.cookie = 'token=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT'
+  if (isRedirectingToLogin) return
+  isRedirectingToLogin = true
+  setTimeout(() => { isRedirectingToLogin = false }, 2000)
+  if (router.currentRoute.value.path === '/login') return
+  const currentPath = router.currentRoute.value.fullPath
+  router.push({ path: '/login', query: { redirect: currentPath || '/dashboard' } })
+  ElMessage.error('登录已过期，请重新登录')
+}
+
 // 响应拦截器 - 统一错误处理 + token 自动刷新 + success/data 信封解包 + 网络重试
 api.interceptors.response.use(
   (response) => {
@@ -128,10 +153,21 @@ api.interceptors.response.use(
     return data
   },
   async (error) => {
-    const originalConfig = error.config as AxiosRequestConfig & { _retry?: boolean; _retryCount?: number }
+    // 请求被主动取消（组件卸载/切换页面/超时中止）：静默失败，既不重试也不提示
+    if (axios.isCancel(error)) {
+      return Promise.reject(error)
+    }
 
-    // 网络错误自动重试（最多3次，指数退避）
-    if (!error.response && !originalConfig._retry) {
+    const originalConfig = error.config as AxiosRequestConfig & { _retry?: boolean; _retryCount?: number }
+    // 拦截器抛错等异常可能没有 config，避免后续读属性崩溃
+    if (!originalConfig) {
+      return Promise.reject(error)
+    }
+
+    const method = String(originalConfig.method || 'get').toLowerCase()
+
+    // 网络错误自动重试（最多3次，指数退避，仅限幂等方法）
+    if (!error.response && !originalConfig._retry && RETRYABLE_METHODS.includes(method)) {
       const maxRetries = 3
       const retryCount = originalConfig._retryCount || 0
 
@@ -145,10 +181,26 @@ api.interceptors.response.use(
 
     if (error.response) {
       const { status, data } = error.response
+      // 该请求发出时携带的 token；无 token 的请求（如登录）不参与刷新与登出逻辑
+      const usedToken = String((originalConfig.headers as any)?.Authorization || '')
+
+      // 会话正在清理中：直接失败，避免对已失效的 refresh_token 反复刷新
+      if (status === 401 && isRedirectingToLogin) {
+        return Promise.reject(error)
+      }
 
       // 401 且未重试过 → 尝试刷新 token
-      if (status === 401 && !originalConfig._retry) {
+      if (status === 401 && usedToken && !originalConfig._retry) {
         originalConfig._retry = true
+
+        // 并发 401 的迟到响应：token 已被其它请求刷新 → 直接用新 token 重试，不重复刷新
+        const currentToken = localStorage.getItem('auth_token')
+        if (currentToken && `Bearer ${currentToken}` !== usedToken) {
+          if (originalConfig.headers) {
+            originalConfig.headers.Authorization = `Bearer ${currentToken}`
+          }
+          return api(originalConfig)
+        }
 
         if (!isRefreshing) {
           isRefreshing = true
@@ -166,21 +218,7 @@ api.interceptors.response.use(
             // 刷新失败，清除登录状态
             refreshQueue.forEach(cb => cb.reject(new Error('refresh failed')))
             refreshQueue = []
-            if (!isRedirectingToLogin) {
-              isRedirectingToLogin = true
-              // 同步清理 Pinia store
-              try { const store = useAuthStore(); store.token = null; store.refreshToken = null; store.user = null } catch {}
-              localStorage.removeItem('auth_token')
-              localStorage.removeItem('scada_refresh_token')
-              localStorage.removeItem('scada_user')
-              localStorage.removeItem('scada_must_change_password')
-              document.cookie = 'token=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT'
-              const currentPath = router.currentRoute.value.fullPath
-              const redirect = currentPath && currentPath !== '/login' ? currentPath : '/dashboard'
-              router.push({ path: '/login', query: { redirect } })
-              ElMessage.error('登录已过期，请重新登录')
-              setTimeout(() => { isRedirectingToLogin = false }, 2000)
-            }
+            clearSessionAndRedirect()
             // 必须 reject，否则调用方收到 undefined 会崩溃
             return Promise.reject(refreshErr)
           } finally {
@@ -202,11 +240,17 @@ api.interceptors.response.use(
         }
       }
 
+      // 已刷新过 token 仍返回 401 → 会话确实失效，清理并跳登录（否则用户会卡在全 401 的页面）
+      if (status === 401 && originalConfig._retry) {
+        clearSessionAndRedirect()
+        return Promise.reject(error)
+      }
+
       if (status === 403) {
         ElMessage.error('权限不足')
       } else if (status !== 401) {
-        // 非 401/403 错误不跳转，只提示
-        ElMessage.error(data?.error || `请求失败 (${status})`)
+        // 非 401/403 错误不跳转，只提示（后端错误体可能用 error 或 message 字段）
+        ElMessage.error(data?.error || data?.message || `请求失败 (${status})`)
       }
     } else {
       // 网络错误不跳转，只提示

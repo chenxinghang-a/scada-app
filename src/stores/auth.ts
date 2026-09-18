@@ -33,6 +33,14 @@ export const useAuthStore = defineStore('auth', () => {
       if (data.refresh_token) localStorage.setItem('scada_refresh_token', data.refresh_token)
       else localStorage.removeItem('scada_refresh_token')
       localStorage.setItem('scada_user', JSON.stringify(data.user))
+      // 首次登录/密码被重置：后端用 status='must_change_password' 表达（无 must_change_password 字段），
+      // 这里归一化成布尔字段并写盘，供路由守卫的强制改密闸门使用
+      const mustChange = data.must_change_password === true || data.status === 'must_change_password'
+      data.must_change_password = mustChange
+      if (mustChange) localStorage.setItem('scada_must_change_password', 'true')
+      else localStorage.removeItem('scada_must_change_password')
+      // 清除上一个会话遗留的 CSRF token
+      resetCsrfToken()
       // 设置cookie对齐原项目（httponly由后端设置，前端设置SameSite=Lax）
       document.cookie = `token=${encodeURIComponent(data.token)}; path=/; SameSite=Lax`
     }
@@ -45,6 +53,8 @@ export const useAuthStore = defineStore('auth', () => {
       const data = await authApi.verify()
       if (data.valid) {
         user.value = data.user
+        // 同步到 localStorage：路由守卫按 localStorage 的 scada_user 判角色，不同步会导致权限判断用旧角色
+        localStorage.setItem('scada_user', JSON.stringify(data.user))
         return true
       }
       // token 确实无效（服务端明确返回 invalid）
@@ -79,6 +89,8 @@ export const useAuthStore = defineStore('auth', () => {
     localStorage.removeItem('scada_must_change_password')
     // 清除cookie（对齐原项目）
     document.cookie = 'token=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT'
+    // 清除 CSRF 缓存，避免登出后带着旧会话的 CSRF token 发请求
+    resetCsrfToken()
   }
 
   // 从 localStorage 恢复用户信息
