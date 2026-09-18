@@ -8,7 +8,11 @@ import App from './App.vue'
 import router from './router'
 import i18n from './locales'
 import { installErrorLogger } from './composables/useErrorLogger'
+// 样式引入顺序：设计令牌(变量) → 全局基础 → 主题(深色) → 响应式
+import './styles/design-tokens.css'
 import './assets/style.css'
+import './styles/dark-mode.css'
+import './styles/responsive.css'
 
 // 安装全局错误日志上报
 installErrorLogger()

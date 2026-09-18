@@ -150,12 +150,14 @@ html, body, #app {
   animation: pulse-glow 2s infinite;
 }
 
-/* 工业风格卡片 */
+/* 工业风格卡片（用令牌，纯色，不使用渐变——渐变会削弱数据本身的视觉权重） */
 .industrial-card {
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-  color: white;
-  border-radius: 12px;
-  padding: 20px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-base);
+  color: var(--text-primary);
+  border-radius: var(--radius-lg);
+  padding: var(--space-5);
+  box-shadow: var(--shadow-sm);
 }
 
 /* 状态指示灯 */
