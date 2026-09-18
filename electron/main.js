@@ -68,12 +68,13 @@ function sendToRenderer(channel, data) {
 // 回退值 5000 与历史行为一致。main.js 在端口确定或变更时调用本函数（带去重）。
 let _lastPushedPort = null
 function pushBackendPortToRenderer() {
+  // 窗口还没建（--hidden 自启动）/已销毁时不能置去重标记：否则窗口稍后创建时
+  // 会因为端口"已推送过"而永远拿不到 __BACKEND_PORT__，前端一直用回退的 5000。
+  if (!mainWindow || mainWindow.isDestroyed()) return
   const p = Number(BACKEND_PORT) || 5000
   if (p === _lastPushedPort) return
   _lastPushedPort = p
-  if (mainWindow && !mainWindow.isDestroyed()) {
-    mainWindow.webContents.executeJavaScript(`window.__BACKEND_PORT__ = ${p};`).catch(() => {})
-  }
+  mainWindow.webContents.executeJavaScript(`window.__BACKEND_PORT__ = ${p};`).catch(() => {})
 }
 
 // ============ 端口 & 健康检查 ============
@@ -288,19 +289,29 @@ async function startBackend() {
   }
 }
 
+let restartTimer = null
+let restartPending = false // 防重入：exit 回调与健康巡检可能同时触发重启，重复 spawn 会起两个后端
+
 async function attemptRestart() {
+  if (restartPending) return
   backendRestartCount++
   if (backendRestartCount > MAX_BACKEND_RESTARTS) {
     console.error(`重启 ${MAX_BACKEND_RESTARTS} 次仍失败`)
     sendToRenderer('backend-status-changed', { healthy: false, restartFailed: true })
     return
   }
+  restartPending = true
   const delay = Math.min(2000 * backendRestartCount, 20000)
   console.log(`${delay / 1000}s 后重启 (${backendRestartCount}/${MAX_BACKEND_RESTARTS})`)
   scheduleTrayUpdate()
-  setTimeout(async () => {
-    if (isQuitting) return
-    if (await startBackend()) waitForBackendNonBlocking()
+  restartTimer = setTimeout(async () => {
+    restartTimer = null
+    if (isQuitting) { restartPending = false; return }
+    try {
+      if (await startBackend()) waitForBackendNonBlocking()
+    } finally {
+      restartPending = false
+    }
   }, delay)
 }
 
@@ -353,6 +364,9 @@ function quitApp() {
   isQuitting = true
   console.log('正在退出应用...')
   stopHealthMonitor()
+  // 取消待触发/延时中的重启，避免退出瞬间又拉一个后端进程起来
+  if (restartTimer) { clearTimeout(restartTimer); restartTimer = null }
+  restartPending = false
 
   quitPromise = killBackend().then(() => {
     if (tray) { tray.destroy(); tray = null }
@@ -406,6 +420,13 @@ function createWindow() {
 
   if (isDev) { mainWindow.loadURL('http://localhost:5173'); mainWindow.webContents.openDevTools() }
   else mainWindow.loadFile(path.join(__dirname, '..', 'dist', 'index.html'))
+
+  // 页面加载完成后再注入一次端口：resolveBackendPort() 往往在页面 commit 之前就跑完了，
+  // 那次 executeJavaScript 会随旧文档一起作废；刷新/二次加载时同样需要重新注入。
+  mainWindow.webContents.on('did-finish-load', () => {
+    _lastPushedPort = null
+    pushBackendPortToRenderer()
+  })
 
   let closeAttempts = 0
   mainWindow.once('ready-to-show', () => mainWindow.show())

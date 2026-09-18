@@ -251,8 +251,12 @@ onMounted(async () => {
   // 监听 Electron 后端状态变更（实时推送）
   const win = window as any
   if (win.electronAPI?.onBackendStatusChanged) {
-    cleanupBackendListener = win.electronAPI.onBackendStatusChanged((data: { healthy: boolean }) => {
+    cleanupBackendListener = win.electronAPI.onBackendStatusChanged((data: { healthy: boolean; port?: number }) => {
       appStore.backendOnline = data.healthy
+      // 端口可能在后端就绪后才被 Electron 注入，这里同步刷新展示值（否则遮罩上一直是回退端口）
+      if (typeof data?.port === 'number' && String(data.port) !== backendPort.value) {
+        backendPort.value = String(data.port)
+      }
     })
   }
 })

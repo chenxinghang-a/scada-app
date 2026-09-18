@@ -23,6 +23,7 @@ export function lttbDownsample(
   data: [number, number][],
   targetCount: number
 ): [number, number][] {
+  if (targetCount <= 0) return []
   if (data.length <= targetCount) return data
   if (targetCount < 3) return data.slice(0, targetCount)
 
@@ -37,17 +38,24 @@ export function lttbDownsample(
     const bucketStart = Math.floor((i - 1) * bucketSize) + 1
     const bucketEnd = Math.min(Math.floor(i * bucketSize) + 1, data.length - 1)
 
-    // 计算下一个bucket的平均点
+    // 计算下一个bucket的平均点（末桶为空时 nextBucketLen=0，除零会得到 NaN 平均点，
+    // 使面积比较全部失败；此时退化为用自身点作参考）
     const nextBucketStart = Math.floor(i * bucketSize) + 1
     const nextBucketEnd = Math.min(Math.floor((i + 1) * bucketSize) + 1, data.length - 1)
     let avgX = 0, avgY = 0
     const nextBucketLen = nextBucketEnd - nextBucketStart
-    for (let j = nextBucketStart; j < nextBucketEnd; j++) {
-      avgX += data[j][0]
-      avgY += data[j][1]
+    if (nextBucketLen > 0) {
+      for (let j = nextBucketStart; j < nextBucketEnd; j++) {
+        avgX += data[j][0]
+        avgY += data[j][1]
+      }
+      avgX /= nextBucketLen
+      avgY /= nextBucketLen
+    } else {
+      const last = data[data.length - 1]
+      avgX = last[0]
+      avgY = last[1]
     }
-    avgX /= nextBucketLen
-    avgY /= nextBucketLen
 
     // 在当前bucket中找到面积最大的点
     let maxArea = -1

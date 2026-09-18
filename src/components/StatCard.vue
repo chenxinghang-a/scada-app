@@ -20,7 +20,10 @@ const props = defineProps<{
 const displayValue = computed(() => {
   if (props.value === undefined || props.value === null) return '-'
   if (typeof props.value === 'number') {
-    const d = props.decimals ?? 0
+    // NaN / Infinity 直接 toFixed 会显示成 "NaN" / "Infinity"
+    if (!Number.isFinite(props.value)) return '-'
+    // decimals 越界（负数或 >100）时 toFixed 会抛 RangeError
+    const d = Math.min(100, Math.max(0, Math.trunc(Number(props.decimals ?? 0)) || 0))
     return props.value.toFixed(d) + (props.suffix || '')
   }
   return props.value

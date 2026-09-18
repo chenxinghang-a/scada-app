@@ -75,8 +75,9 @@ onErrorCaptured((err, instance, info) => {
 
 function handleError(err: any, info?: string) {
   hasError.value = true
-  errorMessage.value = err.message || t('errorBoundary.unknownError')
-  errorStack.value = err.stack || ''
+  // 子组件可能 throw 任意值（字符串/null/undefined），取 .message 会二次抛错
+  errorMessage.value = err?.message || t('errorBoundary.unknownError')
+  errorStack.value = err?.stack || ''
 
   // 上报错误
   reportError(err instanceof Error ? err : new Error(err?.message || String(err)), info)
@@ -90,10 +91,12 @@ function handleError(err: any, info?: string) {
 }
 
 function autoRetry() {
+  if (retryTimer) clearTimeout(retryTimer) // 连续报错时不要留下多个待触发定时器
   isRetrying.value = true
   const delay = props.retryDelay * Math.pow(2, retryCount.value)
 
   retryTimer = setTimeout(() => {
+    retryTimer = null
     retryCount.value++
     hasError.value = false
     errorMessage.value = ''
@@ -121,6 +124,7 @@ if (typeof window !== 'undefined') {
 }
 
 function handleRetry() {
+  if (retryTimer) { clearTimeout(retryTimer); retryTimer = null } // 手动重试后不要再被自动重试定时器清状态
   retryCount.value++
   hasError.value = false
   errorMessage.value = ''
@@ -129,6 +133,7 @@ function handleRetry() {
 }
 
 function handleGoHome() {
+  if (retryTimer) { clearTimeout(retryTimer); retryTimer = null }
   hasError.value = false
   router.push('/dashboard')
 }
@@ -189,61 +194,6 @@ onUnmounted(() => {
 @keyframes spin {
   from { transform: rotate(0deg); }
   to { transform: rotate(360deg); }
-}
-
-.error-details {
-  background: #f5f7fa;
-  border-radius: 4px;
-  padding: 12px;
-  margin-bottom: 16px;
-  text-align: left;
-  overflow-x: auto;
-}
-
-.error-details pre {
-  margin: 0;
-  font-size: 12px;
-  color: #909399;
-  white-space: pre-wrap;
-  word-break: break-all;
-}
-
-.error-actions {
-  display: flex;
-  justify-content: center;
-  gap: 12px;
-}
-</style>
-
-<style scoped>
-.error-boundary {
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  min-height: 400px;
-  padding: 20px;
-}
-
-.error-card {
-  max-width: 600px;
-  width: 100%;
-}
-
-.error-header {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 16px;
-  font-weight: bold;
-}
-
-.error-content {
-  text-align: center;
-}
-
-.error-message {
-  color: #606266;
-  margin-bottom: 16px;
 }
 
 .error-details {

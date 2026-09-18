@@ -175,4 +175,25 @@ export default {
     timeout: '请求超时',
     unknown: '未知错误',
   },
+
+  // 错误边界
+  errorBoundary: {
+    title: '页面出现异常',
+    unknownError: '未知错误',
+    retry: '重试',
+    retrying: '正在重试...（{count}）',
+    goHome: '返回首页',
+    showDetails: '显示详情',
+    hideDetails: '隐藏详情',
+  },
+
+  // 表单校验
+  validation: {
+    required: '{field}不能为空',
+    minLength: '{field}最少{min}个字符',
+    maxLength: '{field}最多{max}个字符',
+    min: '{field}不能小于{min}',
+    max: '{field}不能大于{max}',
+    pattern: '{field}格式不正确',
+  },
 }

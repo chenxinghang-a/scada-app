@@ -56,7 +56,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted } from 'vue'
+import { ref, onMounted, onUnmounted, watch } from 'vue'
 import * as echarts from 'echarts'
 import { Delete } from '@element-plus/icons-vue'
 import { devicesApi, dataApi, type Device } from '@/api'
@@ -116,8 +116,13 @@ function addComparison() {
 
 function removeComparison(index: number) {
   comparisons.value.splice(index, 1)
-  updateChart()
 }
+
+let updateSeq = 0
+
+// 设备/参数/时间范围变更后重新拉取数据重绘（此前只有"删除对比"会触发刷新，
+// 新增对比项并选好参数后图表一直是空的）
+watch(comparisons, () => { updateChart() }, { deep: true })
 
 function getDeviceRegisters(deviceId: string) {
   const device = devices.value.find(d => d.device_id === deviceId)
@@ -125,10 +130,13 @@ function getDeviceRegisters(deviceId: string) {
 }
 
 async function updateChart() {
-  if (!chart || comparisons.value.length === 0) return
+  if (!chart) return
+  const seq = ++updateSeq
 
   const series: any[] = []
   const legendData: string[] = []
+  // 本地累计后一次性赋值：避免重复调用时 statistics 越滚越多、残留已删除项的统计
+  const stats: Statistic[] = []
 
   for (const comp of comparisons.value) {
     if (!comp.deviceId || !comp.registerName || comp.timeRange.length !== 2) continue
@@ -160,7 +168,7 @@ async function updateChart() {
         const variance = values.reduce((a, b) => a + Math.pow(b - avg, 2), 0) / values.length
         const stddev = Math.sqrt(variance)
 
-        statistics.value.push({
+        stats.push({
           name,
           avg: avg.toFixed(2),
           min: min.toFixed(2),
@@ -173,6 +181,18 @@ async function updateChart() {
     }
   }
 
+  // 期间又有新的刷新请求（用户改了配置）：丢弃本次结果，防止旧结果覆盖新结果
+  if (seq !== updateSeq) return
+
+  statistics.value = stats
+
+  if (series.length === 0) {
+    // 没有可绘制的曲线：清空画布，避免上一次的曲线残留在图上
+    chart.clear()
+    return
+  }
+
+  // notMerge=true：删除对比项后旧 series 不会残留
   chart.setOption({
     tooltip: {
       trigger: 'axis',
@@ -187,7 +207,7 @@ async function updateChart() {
       type: 'value',
     },
     series,
-  })
+  }, true)
 }
 
 function handleResize() {

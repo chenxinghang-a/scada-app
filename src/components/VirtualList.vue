@@ -19,7 +19,7 @@
         <div
           v-for="item in visibleItems"
           :key="item.index"
-          :style="{ height: `${itemHeight}px` }"
+          :style="{ height: `${safeItemHeight}px` }"
           class="virtual-list-item"
         >
           <slot :item="item.data" :index="item.index" />
@@ -70,15 +70,22 @@ const props = withDefaults(defineProps<Props>(), {
 const containerRef = ref<HTMLElement | null>(null)
 const scrollTop = ref(0)
 
+// itemHeight 为 0/负数/NaN 时会导致除零：startIndex/offsetY 变成 NaN，
+// 可见项算不出来（列表空白）且 top: NaNpx 是非法样式。非法值回退到默认行高。
+const safeItemHeight = computed(() => {
+  const h = Number(props.itemHeight)
+  return Number.isFinite(h) && h > 0 ? h : 48
+})
+
 // 总高度
-const totalHeight = computed(() => props.items.length * props.itemHeight)
+const totalHeight = computed(() => props.items.length * safeItemHeight.value)
 
 // 可见项数量
-const visibleCount = computed(() => Math.ceil(props.height / props.itemHeight) + props.buffer * 2)
+const visibleCount = computed(() => Math.ceil(props.height / safeItemHeight.value) + props.buffer * 2)
 
 // 起始索引
 const startIndex = computed(() => {
-  const idx = Math.floor(scrollTop.value / props.itemHeight) - props.buffer
+  const idx = Math.floor(scrollTop.value / safeItemHeight.value) - props.buffer
   return Math.max(0, idx)
 })
 
@@ -88,7 +95,7 @@ const endIndex = computed(() => {
 })
 
 // 偏移量
-const offsetY = computed(() => startIndex.value * props.itemHeight)
+const offsetY = computed(() => startIndex.value * safeItemHeight.value)
 
 // 可见项
 const visibleItems = computed(() => {

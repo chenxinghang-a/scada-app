@@ -95,8 +95,14 @@ function show() {
 }
 
 async function generateReport() {
+  if (generating.value) return // 防重复提交（按钮 loading 生效前可能连点两次）
   if (!form.timeRange || form.timeRange.length !== 2) {
     ElMessage.warning('请选择时间范围')
+    return
+  }
+  if (form.type === 'device' && form.deviceIds.length === 0) {
+    // 不选设备会走到下面的 else 分支，导出成报警报表
+    ElMessage.warning('请选择至少一个设备')
     return
   }
 
@@ -111,7 +117,7 @@ async function generateReport() {
 
     let blob: Blob
 
-    if (form.type === 'device' && form.deviceIds.length > 0) {
+    if (form.type === 'device') {
       // 设备报表
       const deviceId = form.deviceIds[0]
       blob = await dataApi.exportDevice(deviceId, params) as unknown as Blob
@@ -120,13 +126,31 @@ async function generateReport() {
       blob = await dataApi.exportAlarms(params) as unknown as Blob
     }
 
-    // 下载文件
+    if (!(blob instanceof Blob)) {
+      throw new Error('后端返回的报表数据格式不正确')
+    }
+
+    // 后端出错时可能以 200 + JSON 错误体返回（responseType: blob），
+    // 直接下载会得到一个内容为报错 JSON 的假报表文件
+    if (blob.type && blob.type.includes('json')) {
+      let msg = '报表生成失败'
+      try {
+        const parsed = JSON.parse(await blob.text())
+        msg = parsed?.error || parsed?.message || msg
+      } catch { /* 非 JSON 文本，保留默认文案 */ }
+      throw new Error(msg)
+    }
+
+    // 下载文件（先挂到 DOM 再点击，并延迟释放 URL：立即 revoke 会在下载启动前
+    // 使 blob URL 失效，导致偶发下载失败）
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
     a.href = url
     a.download = `report_${form.type}_${new Date().toISOString().slice(0, 10)}.${form.format}`
+    document.body.appendChild(a)
     a.click()
-    URL.revokeObjectURL(url)
+    a.remove()
+    setTimeout(() => URL.revokeObjectURL(url), 0)
 
     ElMessage.success('报表生成成功')
     visible.value = false

@@ -116,7 +116,12 @@ export const rules = {
   pattern(regex: RegExp, message?: string): ValidationRule {
     return {
       name: 'pattern',
-      validator: (v) => !v || regex.test(String(v)),
+      validator: (v) => {
+        if (!v) return true
+        // 带 g/y 标志的正则 test() 会保留 lastIndex，导致同一值反复校验结果交替真假
+        regex.lastIndex = 0
+        return regex.test(String(v))
+      },
       message: message || '格式不正确',
     }
   },

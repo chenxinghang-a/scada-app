@@ -175,4 +175,25 @@ export default {
     timeout: 'Request timeout',
     unknown: 'Unknown error',
   },
+
+  // Error boundary
+  errorBoundary: {
+    title: 'Something went wrong',
+    unknownError: 'Unknown error',
+    retry: 'Retry',
+    retrying: 'Retrying... ({count})',
+    goHome: 'Back to dashboard',
+    showDetails: 'Show details',
+    hideDetails: 'Hide details',
+  },
+
+  // Form validation
+  validation: {
+    required: '{field} is required',
+    minLength: '{field} must be at least {min} characters',
+    maxLength: '{field} must be at most {max} characters',
+    min: '{field} must be greater than or equal to {min}',
+    max: '{field} must be less than or equal to {max}',
+    pattern: 'Invalid format for {field}',
+  },
 }
