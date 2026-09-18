@@ -1,58 +1,108 @@
 ﻿<template>
-  <div class="screen">
+  <!-- 大屏固定深色：局部 data-theme="dark" 让 design-tokens.css 的深色变量在本作用域生效，
+       与全局主题无关，且不复制任何色值 -->
+  <div class="screen-root" data-theme="dark">
     <!-- 顶部 KPI -->
-    <div class="screen-topbar">
-      <div class="topbar-title"><router-link to="/dashboard" style="color:#fff;text-decoration:none;margin-right:12px">← 返回</router-link>🏭 工业数据大屏</div>
-      <div class="topbar-kpi">
-        <div class="kpi-item"><span class="kpi-label">设备在线</span><span class="kpi-val">{{ kpi.online }}/{{ kpi.total }}</span></div>
-        <div class="kpi-item"><span class="kpi-label">活动报警</span><span class="kpi-val alarm">{{ kpi.alarms }}</span></div>
-        <div class="kpi-item"><span class="kpi-label">采集吞吐</span><span class="kpi-val">{{ kpi.rate }} 条/分</span></div>
-        <div class="kpi-item"><span class="kpi-label">数据质量</span><span class="kpi-val">{{ kpi.quality }}%</span></div>
-        <div class="kpi-item"><span class="kpi-label">运行时间</span><span class="kpi-val">{{ kpi.uptime }}</span></div>
+    <header class="screen-topbar">
+      <div class="topbar-title">
+        <router-link to="/dashboard" class="topbar-back">← 返回</router-link>
+        <span class="topbar-name">工业数据大屏</span>
       </div>
-      <div class="topbar-clock">{{ clock }}</div>
-    </div>
+      <div class="topbar-kpi">
+        <div class="screen-kpi">
+          <span class="metric-label">设备在线</span>
+          <span class="metric-value metric-value--lg">
+            {{ kpi.online }}<span class="metric-unit">/{{ kpi.total }}</span>
+          </span>
+        </div>
+        <div class="screen-kpi">
+          <span class="metric-label">活动报警</span>
+          <span class="metric-value metric-value--lg" :class="{ 'screen-kpi__val--alarm': kpi.alarms > 0 }">{{ kpi.alarms }}</span>
+        </div>
+        <div class="screen-kpi">
+          <span class="metric-label">采集吞吐</span>
+          <span class="metric-value metric-value--lg">{{ kpi.rate }}<span class="metric-unit">条/分</span></span>
+        </div>
+        <div class="screen-kpi">
+          <span class="metric-label">数据质量</span>
+          <span class="metric-value metric-value--lg">{{ kpi.quality }}<span class="metric-unit">%</span></span>
+        </div>
+        <div class="screen-kpi">
+          <span class="metric-label">运行时间</span>
+          <span class="metric-value metric-value--lg">{{ kpi.uptime }}</span>
+        </div>
+      </div>
+      <div class="topbar-clock metric-value">{{ clock }}</div>
+    </header>
 
-    <!-- 三列布局 -->
+    <!-- 三列栅格 -->
     <div class="screen-body">
       <!-- 左列 -->
-      <div class="screen-col left">
-        <div class="screen-panel"><div class="panel-title">设备状态分布</div><div ref="devicePieRef" class="chart-area"></div></div>
-        <div class="screen-panel"><div class="panel-title">OEE 综合效率</div><div ref="oeeGaugeRef" class="chart-area"></div></div>
-        <div class="screen-panel"><div class="panel-title">能源消耗趋势</div><div ref="energyBarRef" class="chart-area"></div></div>
+      <div class="screen-col">
+        <section class="panel screen-panel">
+          <h3 class="screen-panel__title">设备状态分布</h3>
+          <div ref="devicePieRef" class="chart-area"></div>
+        </section>
+        <section class="panel screen-panel">
+          <h3 class="screen-panel__title">OEE 综合效率</h3>
+          <div ref="oeeGaugeRef" class="chart-area"></div>
+        </section>
+        <section class="panel screen-panel">
+          <h3 class="screen-panel__title">能源消耗趋势</h3>
+          <div ref="energyBarRef" class="chart-area"></div>
+        </section>
       </div>
 
       <!-- 中列 -->
-      <div class="screen-col center">
-        <div class="screen-panel main-trend"><div class="panel-title">实时趋势</div><div ref="trendRef" class="chart-area-lg"></div></div>
-        <div class="screen-panel"><div class="panel-title">工艺参数</div>
+      <div class="screen-col">
+        <section class="panel screen-panel screen-panel--main">
+          <h3 class="screen-panel__title">实时趋势</h3>
+          <div ref="trendRef" class="chart-area"></div>
+        </section>
+        <section class="panel screen-panel">
+          <h3 class="screen-panel__title">工艺参数</h3>
           <div class="params-table">
             <div class="pt-header"><span>设备</span><span>温度</span><span>压力</span><span>功率</span><span>状态</span></div>
             <div v-for="d in devices" :key="d.device_id" class="pt-row">
-              <span>{{ d.name || d.device_id }}</span>
-              <span>{{ getVal(d.device_id, 'temperature') }}</span>
-              <span>{{ getVal(d.device_id, 'pressure') }}</span>
-              <span>{{ getVal(d.device_id, 'power') }}</span>
-              <span :class="'st-'+(d.connected?'on':'off')">{{ d.connected?'在线':'离线' }}</span>
+              <span class="pt-name">{{ d.name || d.device_id }}</span>
+              <span class="pt-num">{{ getVal(d.device_id, 'temperature') }}</span>
+              <span class="pt-num">{{ getVal(d.device_id, 'pressure') }}</span>
+              <span class="pt-num">{{ getVal(d.device_id, 'power') }}</span>
+              <span class="tag" :class="d.connected ? 'tag--success' : 'tag--offline'">{{ d.connected ? '在线' : '离线' }}</span>
+            </div>
+            <div v-if="!devices.length" class="pt-empty">
+              <el-empty description="暂无设备数据" :image-size="48" />
             </div>
           </div>
-        </div>
+        </section>
       </div>
 
       <!-- 右列 -->
-      <div class="screen-col right">
-        <div class="screen-panel"><div class="panel-title">实时报警</div>
+      <div class="screen-col">
+        <section class="panel screen-panel">
+          <h3 class="screen-panel__title">实时报警</h3>
           <div class="alarm-scroll">
-            <div v-for="a in alarms" :key="a.id||a.alarm_id" class="alarm-row" :class="'lvl-'+a.alarm_level">
-              <span class="alarm-lvl">{{ a.alarm_level==='critical'?'CRIT':a.alarm_level==='warning'?'HIGH':'LOW' }}</span>
-              <span class="alarm-msg">{{ a.alarm_message || a.id }}</span>
-              <span class="alarm-time">{{ fmtTime(a.last_trigger_time||a.timestamp) }}</span>
+            <div v-for="a in alarms" :key="a.id||a.alarm_id" class="alarm-row">
+              <span class="level-bar" :class="levelBarClass(a.alarm_level)"></span>
+              <span class="alarm-row__prio" :class="'alarm-row__prio--' + levelKey(a.alarm_level)">
+                {{ a.alarm_level==='critical'?'CRIT':a.alarm_level==='warning'?'HIGH':'LOW' }}
+              </span>
+              <span class="alarm-row__msg">{{ a.alarm_message || a.id }}</span>
+              <span class="alarm-row__time">{{ fmtTime(a.last_trigger_time||a.timestamp) }}</span>
             </div>
-            <div v-if="!alarms.length" class="alarm-empty">暂无报警</div>
+            <div v-if="!alarms.length" class="alarm-empty">
+              <el-empty description="暂无活动报警" :image-size="48" />
+            </div>
           </div>
-        </div>
-        <div class="screen-panel"><div class="panel-title">SPC 控制图</div><div ref="spcRef" class="chart-area"></div></div>
-        <div class="screen-panel"><div class="panel-title">设备健康度</div><div ref="healthBarRef" class="chart-area"></div></div>
+        </section>
+        <section class="panel screen-panel">
+          <h3 class="screen-panel__title">SPC 控制图</h3>
+          <div ref="spcRef" class="chart-area"></div>
+        </section>
+        <section class="panel screen-panel">
+          <h3 class="screen-panel__title">设备健康度</h3>
+          <div ref="healthBarRef" class="chart-area"></div>
+        </section>
       </div>
     </div>
   </div>
@@ -64,6 +114,27 @@ import * as echarts from 'echarts'
 import { io } from 'socket.io-client'
 import { systemApi, alarmsApi, industry40Api, dataApi } from '@/api'
 import { getAuthToken, getWsBaseUrl } from '@/api/request'
+import { registerScadaTheme } from '@/utils/echartsTheme'
+
+registerScadaTheme(echarts)
+
+/** 大屏固定深色：图表直接用 echartsTheme.ts 注册的深色主题（不跟随全局 html[data-theme]） */
+const SCREEN_CHART_THEME = 'scada-dark'
+
+/**
+ * 读取设计令牌（canvas 内无法使用 CSS 变量）。
+ * 作用域取 .screen-root，因此拿到的是深色主题值，无需在 JS 里复制任何色值。
+ */
+function cssToken(name: string): string {
+  if (typeof document === 'undefined') return ''
+  const el = document.querySelector('.screen-root') || document.documentElement
+  return getComputedStyle(el).getPropertyValue(name).trim()
+}
+
+function levelKey(level: string): 'critical' | 'warning' | 'info' {
+  return level === 'critical' ? 'critical' : level === 'warning' ? 'warning' : 'info'
+}
+function levelBarClass(level: string): string { return `level-bar--${levelKey(level)}` }
 
 const clock = ref('')
 const devices = ref<any[]>([])
@@ -86,6 +157,13 @@ let disposed = false            // 组件卸载后丢弃迟到的响应，避免
 let loadingData = false         // loadData 重入保护
 let loadingI40 = false          // loadI40 重入保护
 const subscribed = new Set<string>()  // 已向 WS 订阅的设备，避免重复订阅/漏订阅
+
+// 统一初始化入口：所有图表都用同一套已注册主题
+function ensureChart(name: string, el: HTMLElement | undefined): echarts.ECharts | null {
+  if (disposed || !el) return null
+  if (!charts[name]) charts[name] = echarts.init(el, SCREEN_CHART_THEME)
+  return charts[name]
+}
 
 function getVal(deviceId: string, reg: string) {
   const v = deviceValues[`${deviceId}:${reg}`]
@@ -183,103 +261,110 @@ async function loadI40() {
 }
 
 function renderDevicePie(devs: any[]) {
-  if (!devicePieRef.value) return
-  if (!charts.devicePie) charts.devicePie = echarts.init(devicePieRef.value)
+  const chart = ensureChart('devicePie', devicePieRef.value)
+  if (!chart) return
   const online = devs.filter(d => d.connected).length
-  charts.devicePie.setOption({
+  chart.setOption({
     tooltip: { trigger: 'item' },
     series: [{
-      type: 'pie', radius: ['40%', '70%'],
+      type: 'pie', radius: ['42%', '70%'],
       data: [
-        { value: online, name: '在线', itemStyle: { color: '#22c55e' } },
-        { value: devs.length - online, name: '离线', itemStyle: { color: '#ef4444' } },
+        { value: online, name: '在线', itemStyle: { color: cssToken('--color-success') } },
+        { value: devs.length - online, name: '离线', itemStyle: { color: cssToken('--color-offline') } },
       ],
-      label: { color: '#ccc', fontSize: 11 },
+      label: { fontSize: 13 },
     }],
-  })
+  }, true)
 }
 
 function renderOEEGauge(devices: any[]) {
-  if (disposed || !oeeGaugeRef.value) return
-  if (!charts.oeeGauge) charts.oeeGauge = echarts.init(oeeGaugeRef.value)
+  const chart = ensureChart('oeeGauge', oeeGaugeRef.value)
+  if (!chart) return
   // 缺字段/空数组会让均值变成 NaN，直接跳过渲染
   const values = devices.map(d => Number(d?.oee_percent)).filter(v => Number.isFinite(v))
   if (!values.length) return
   const avg = values.reduce((s, v) => s + v, 0) / values.length
-  charts.oeeGauge.setOption({
+  chart.setOption({
     series: [{
       type: 'gauge', startAngle: 200, endAngle: -20, min: 0, max: 100,
-      axisLine: { lineStyle: { width: 15, color: [[0.5, '#ff4444'], [0.65, '#ffaa00'], [0.85, '#a0d911'], [1, '#22c55e']] } },
-      pointer: { itemStyle: { color: '#00d4ff' } },
-      detail: { valueAnimation: true, formatter: '{value}%', fontSize: 20, color: '#fff' },
+      axisLine: { lineStyle: { width: 16, color: [
+        [0.5, cssToken('--color-danger')],
+        [0.85, cssToken('--color-warning')],
+        [1, cssToken('--color-success')],
+      ] } },
+      pointer: { itemStyle: { color: cssToken('--color-brand') } },
+      detail: { valueAnimation: true, formatter: '{value}%', fontSize: 32 },
       data: [{ value: avg.toFixed(1) }],
-      title: { color: '#999', fontSize: 11 },
     }],
-  })
+  }, true)
 }
 
 function renderHealthBar(scores: any[]) {
-  if (!healthBarRef.value) return
-  if (!charts.healthBar) charts.healthBar = echarts.init(healthBarRef.value)
+  const chart = ensureChart('healthBar', healthBarRef.value)
+  if (!chart) return
   const top8 = scores.slice(0, 8)
-  charts.healthBar.setOption({
+  chart.setOption({
     tooltip: { trigger: 'axis' },
-    xAxis: { type: 'value', max: 100, axisLabel: { color: '#999', fontSize: 10 } },
-    yAxis: { type: 'category', data: top8.map(s => s.device_id), axisLabel: { color: '#ccc', fontSize: 10 } },
-    grid: { left: 80, right: 10, top: 5, bottom: 5 },
+    xAxis: { type: 'value', max: 100 },
+    yAxis: { type: 'category', data: top8.map(s => s.device_id) },
+    grid: { left: 8, right: 24, top: 8, bottom: 8, containLabel: true },
     series: [{
       type: 'bar', barWidth: 12,
       data: top8.map(s => ({
         value: s.health_score,
-        itemStyle: { color: s.health_score >= 80 ? '#22c55e' : s.health_score >= 60 ? '#f59e0b' : '#ef4444' },
+        itemStyle: {
+          color: s.health_score >= 80
+            ? cssToken('--color-success')
+            : s.health_score >= 60 ? cssToken('--color-warning') : cssToken('--color-danger'),
+        },
       })),
-      label: { show: true, position: 'right', formatter: '{c}%', color: '#ccc', fontSize: 10 },
+      label: { show: true, position: 'right', formatter: '{c}%', fontSize: 12 },
     }],
-  })
+  }, true)
 }
 
 function renderEnergyBar(summary: any) {
-  if (!energyBarRef.value) return
-  if (!charts.energyBar) charts.energyBar = echarts.init(energyBarRef.value)
-  charts.energyBar.setOption({
+  const chart = ensureChart('energyBar', energyBarRef.value)
+  if (!chart) return
+  chart.setOption({
     tooltip: { trigger: 'axis' },
-    xAxis: { type: 'category', data: ['峰时', '平时', '谷时'], axisLabel: { color: '#ccc' } },
-    yAxis: { type: 'value', name: 'kWh', axisLabel: { color: '#999' } },
+    xAxis: { type: 'category', data: ['峰时', '平时', '谷时'] },
+    yAxis: { type: 'value', name: 'kWh' },
+    grid: { left: 8, right: 16, top: 32, bottom: 8, containLabel: true },
     series: [{
       type: 'bar', barWidth: '40%',
       data: [
-        { value: summary.peak_kwh || 0, itemStyle: { color: '#ef4444' } },
-        { value: summary.flat_kwh || 0, itemStyle: { color: '#f59e0b' } },
-        { value: summary.valley_kwh || 0, itemStyle: { color: '#22c55e' } },
+        { value: summary.peak_kwh || 0, itemStyle: { color: cssToken('--color-danger') } },
+        { value: summary.flat_kwh || 0, itemStyle: { color: cssToken('--color-warning') } },
+        { value: summary.valley_kwh || 0, itemStyle: { color: cssToken('--color-success') } },
       ],
     }],
-  })
+  }, true)
 }
 
 function renderSPCChart(data: any) {
-  if (!spcRef.value) return
-  if (!charts.spc) charts.spc = echarts.init(spcRef.value)
+  const chart = ensureChart('spc', spcRef.value)
+  if (!chart) return
   const values = data.values || data.points || []
-  charts.spc.setOption({
+  chart.setOption({
     tooltip: { trigger: 'axis' },
-    xAxis: { type: 'category', data: values.map((_: any, i: number) => i + 1), axisLabel: { color: '#999', fontSize: 9 } },
-    yAxis: { type: 'value', axisLabel: { color: '#999', fontSize: 9 }, splitLine: { lineStyle: { color: 'rgba(255,255,255,0.06)' } } },
-    grid: { left: 40, right: 10, top: 20, bottom: 20 },
+    xAxis: { type: 'category', data: values.map((_: any, i: number) => i + 1) },
+    yAxis: { type: 'value' },
+    grid: { left: 8, right: 16, top: 24, bottom: 8, containLabel: true },
     series: [{
       type: 'line', data: values, smooth: true, symbol: 'none',
-      lineStyle: { color: '#06b6d4', width: 1.5 },
-      markLine: { silent: true, lineStyle: { width: 1 }, data: [
-        { yAxis: data.ucl, lineStyle: { color: '#ef4444', type: 'dashed' }, label: { formatter: 'UCL', color: '#ef4444', fontSize: 9 } },
-        { yAxis: data.cl, lineStyle: { color: '#22c55e' }, label: { formatter: 'CL', color: '#22c55e', fontSize: 9 } },
-        { yAxis: data.lcl, lineStyle: { color: '#ef4444', type: 'dashed' }, label: { formatter: 'LCL', color: '#ef4444', fontSize: 9 } },
+      markLine: { silent: true, lineStyle: { width: 1, type: 'dashed' }, data: [
+        { yAxis: data.ucl, name: 'UCL', lineStyle: { color: cssToken('--color-danger'), type: 'dashed' }, label: { formatter: 'UCL' } },
+        { yAxis: data.cl, name: 'CL', lineStyle: { color: cssToken('--color-success'), type: 'solid' }, label: { formatter: 'CL' } },
+        { yAxis: data.lcl, name: 'LCL', lineStyle: { color: cssToken('--color-danger'), type: 'dashed' }, label: { formatter: 'LCL' } },
       ]},
     }],
-  })
+  }, true)
 }
 
 function renderTrend(data: any[]) {
-  if (disposed || !trendRef.value) return
-  if (!charts.trend) charts.trend = echarts.init(trendRef.value)
+  const chart = ensureChart('trend', trendRef.value)
+  if (!chart) return
   const grouped: Record<string, number[]> = {}
   data.forEach(item => {
     if (!grouped[item.register_name]) grouped[item.register_name] = []
@@ -288,18 +373,20 @@ function renderTrend(data: any[]) {
   const keys = Object.keys(grouped).slice(0, 4)
   const maxLen = Math.max(...keys.map(k => grouped[k].length), 1)
   const xData = Array.from({ length: maxLen }, (_, i) => i + 1)
-  charts.trend.setOption({
-    tooltip: { trigger: 'axis' },
-    legend: { top: 0, right: 0, textStyle: { color: '#999', fontSize: 10 }, itemWidth: 10, itemHeight: 2 },
-    grid: { left: 50, right: 10, top: 25, bottom: 20 },
-    xAxis: { type: 'category', data: xData, axisLabel: { color: '#999', fontSize: 10 }, splitLine: { show: false } },
-    yAxis: { type: 'value', axisLabel: { color: '#999', fontSize: 10 }, splitLine: { lineStyle: { color: 'rgba(255,255,255,0.06)' } } },
-    series: keys.map((k, i) => ({
+  // setOption(..., true) 会重建图例，需带回用户已勾选的系列
+  const prevLegend = (chart.getOption() as any)?.legend?.[0]?.selected
+  chart.setOption({
+    tooltip: { trigger: 'axis', axisPointer: { type: 'cross' } },
+    legend: { top: 0, right: 0, type: 'scroll', selected: prevLegend && Object.keys(prevLegend).length ? prevLegend : undefined },
+    grid: { left: 8, right: 16, top: 36, bottom: 8, containLabel: true },
+    xAxis: { type: 'category', data: xData },
+    yAxis: { type: 'value', scale: true },
+    // 系列颜色由统一主题色板分配，页面不再自带颜色数组
+    series: keys.map(k => ({
       name: k, type: 'line', smooth: true, symbol: 'none',
-      lineStyle: { width: 1.5, color: ['#6366f1', '#06b6d4', '#f59e0b', '#ef4444'][i] },
       data: grouped[k],
     })),
-  })
+  }, true)
 }
 
 function subscribeDevices() {
@@ -356,38 +443,143 @@ function handleResize() { Object.values(charts).forEach(c => c.resize()) }
 </script>
 
 <style scoped>
-.screen { height: 100vh; background: #0a0e27; color: #e0e0e0; display: flex; flex-direction: column; overflow: hidden; font-family: 'Segoe UI', 'Microsoft YaHei', sans-serif; }
-.screen-topbar { display: flex; align-items: center; justify-content: space-between; padding: 8px 20px; background: linear-gradient(90deg, #1a1a3e, #0a0e27); border-bottom: 1px solid rgba(79,70,229,0.3); }
-.topbar-title { font-size: 18px; font-weight: 700; color: #fff; }
-.topbar-kpi { display: flex; gap: 24px; }
-.kpi-item { text-align: center; }
-.kpi-label { display: block; font-size: 10px; color: #999; }
-.kpi-val { font-size: 18px; font-weight: 700; color: #00d4ff; }
-.kpi-val.alarm { color: #ef4444; }
-.topbar-clock { font-size: 16px; color: #6366f1; font-weight: 600; font-variant-numeric: tabular-nums; }
-.screen-body { flex: 1; display: flex; gap: 8px; padding: 8px; min-height: 0; }
-.screen-col { display: flex; flex-direction: column; gap: 8px; min-height: 0; }
-.screen-col.left, .screen-col.right { flex: 0 0 22%; }
-.screen-col.center { flex: 1; }
-.screen-panel { background: rgba(255,255,255,0.03); border: 1px solid rgba(79,70,229,0.2); border-radius: 8px; padding: 8px; flex: 1; min-height: 0; display: flex; flex-direction: column; }
-.screen-panel.main-trend { flex: 2; }
-.panel-title { font-size: 12px; color: #999; margin-bottom: 4px; font-weight: 600; }
+/* 大屏固定深色：这里只写布局，颜色全部来自 design-tokens（data-theme="dark" 作用域） */
+.screen-root {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  overflow: hidden;
+  background: var(--bg-page);
+  color: var(--text-primary);
+  font-family: var(--font-sans);
+}
+
+/* ==================== 顶栏 ==================== */
+.screen-topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+  padding: var(--space-2) var(--space-5);
+  background: var(--bg-surface);
+  border-bottom: 1px solid var(--border-base);
+  flex: none;
+}
+.topbar-title { display: flex; align-items: center; gap: var(--space-3); flex: none; }
+.topbar-back { color: var(--color-brand); font-size: var(--font-sm); text-decoration: none; }
+.topbar-back:hover { text-decoration: underline; }
+.topbar-name {
+  font-size: var(--font-xl);
+  font-weight: var(--weight-semibold);
+  color: var(--text-primary);
+}
+.topbar-kpi { display: flex; gap: var(--space-6); flex-wrap: wrap; }
+.screen-kpi { display: flex; flex-direction: column; align-items: center; gap: var(--space-1); }
+.screen-kpi__val--alarm { color: var(--color-danger); }
+.topbar-clock {
+  flex: none;
+  font-variant-numeric: tabular-nums;
+  color: var(--color-brand);
+}
+
+/* ==================== 三列栅格 ==================== */
+.screen-body {
+  flex: 1;
+  display: grid;
+  grid-template-columns: 23fr 54fr 23fr;
+  gap: var(--space-3);
+  padding: var(--space-3);
+  min-height: 0;
+}
+.screen-col {
+  display: grid;
+  grid-template-rows: 1fr 1fr 1fr;
+  gap: var(--space-3);
+  min-height: 0;
+}
+.screen-panel {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  padding: 0;
+  overflow: hidden;
+}
+.screen-panel--main { grid-row: span 2; }
+.screen-panel__title {
+  flex: none;
+  margin: 0;
+  padding: var(--space-2) var(--space-3);
+  border-bottom: 1px solid var(--border-base);
+  font-size: var(--font-sm);
+  font-weight: var(--weight-semibold);
+  color: var(--text-secondary);
+}
 .chart-area { flex: 1; min-height: 0; }
-.chart-area-lg { flex: 1; min-height: 0; }
-.params-table { flex: 1; overflow-y: auto; font-size: 11px; }
-.pt-header, .pt-row { display: grid; grid-template-columns: 1.5fr 1fr 1fr 1fr 0.6fr; padding: 4px 0; border-bottom: 1px solid rgba(255,255,255,0.05); }
-.pt-header { color: #999; font-weight: 600; }
-.pt-row span { color: #e0e0e0; }
-.st-on { color: #22c55e; }
-.st-off { color: #ef4444; }
-.alarm-scroll { flex: 1; overflow-y: auto; }
-.alarm-row { padding: 6px; border-bottom: 1px solid rgba(255,255,255,0.05); display: flex; gap: 6px; align-items: center; font-size: 11px; }
-.alarm-row.lvl-critical { border-left: 3px solid #ef4444; }
-.alarm-row.lvl-warning { border-left: 3px solid #f59e0b; }
-.alarm-lvl { font-weight: 700; font-size: 10px; min-width: 36px; }
-.lvl-critical .alarm-lvl { color: #ef4444; }
-.lvl-warning .alarm-lvl { color: #f59e0b; }
-.alarm-msg { flex: 1; color: #e0e0e0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.alarm-time { color: #999; font-size: 10px; }
-.alarm-empty { text-align: center; color: #666; padding: 20px; }
+
+/* ==================== 工艺参数表 ==================== */
+.params-table { flex: 1; min-height: 0; overflow-y: auto; }
+.pt-header,
+.pt-row {
+  display: grid;
+  grid-template-columns: 1.6fr 1fr 1fr 1fr 0.7fr;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  border-bottom: 1px solid var(--border-subtle);
+}
+.pt-header {
+  position: sticky;
+  top: 0;
+  background: var(--bg-sunken);
+  color: var(--text-muted);
+  font-size: var(--font-xs);
+  font-weight: var(--weight-medium);
+}
+.pt-row { font-size: var(--font-sm); color: var(--text-primary); }
+.pt-row:hover { background: var(--bg-hover); }
+.pt-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pt-num {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  color: var(--text-primary);
+}
+.pt-row .tag { justify-self: start; }
+.pt-empty { padding: var(--space-4) 0; }
+
+/* ==================== 报警 ==================== */
+.alarm-scroll { flex: 1; min-height: 0; overflow-y: auto; padding: var(--space-1); }
+.alarm-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  border-bottom: 1px solid var(--border-subtle);
+  font-size: var(--font-sm);
+}
+.alarm-row:hover { background: var(--bg-hover); }
+.alarm-row__prio {
+  flex: none;
+  min-width: 40px;
+  font-size: var(--font-xs);
+  font-weight: var(--weight-semibold);
+}
+.alarm-row__prio--critical { color: var(--color-danger); }
+.alarm-row__prio--warning { color: var(--color-warning); }
+.alarm-row__prio--info { color: var(--color-info); }
+.alarm-row__msg {
+  flex: 1;
+  min-width: 0;
+  color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.alarm-row__time {
+  flex: none;
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: var(--font-xs);
+  color: var(--text-muted);
+}
+.alarm-empty { padding: var(--space-4) 0; }
 </style>

@@ -1,53 +1,105 @@
 ﻿<template>
   <div class="dashboard">
-    <!-- KPI 行 -->
+    <!-- KPI 行：主 KPI（OEE / 活动报警）+ 次要 KPI，每个带迷你可视化 -->
     <div class="kpi-row">
-      <div class="kpi" :class="{ warn: kpi.oee < 85 }">
-        <div class="kpi-label">OEE 综合效率</div>
-        <div class="kpi-value">{{ kpi.oee }}%</div>
-        <div class="kpi-sub">目标 ≥85%</div>
+      <!-- 主 KPI：OEE，细进度条 + 目标对标线 -->
+      <div class="kpi kpi--primary" :class="{ 'kpi--warn': kpi.oee < OEE_TARGET, 'kpi--bad': kpi.oee < OEE_WARN }">
+        <div class="kpi__head">
+          <span class="metric-label">OEE 综合效率</span>
+          <span class="tag" :class="kpi.oee >= OEE_TARGET ? 'tag--success' : 'tag--warning'">
+            {{ kpi.oee >= OEE_TARGET ? '达标' : '未达标' }}
+          </span>
+        </div>
+        <div class="metric-value metric-value--lg">{{ kpi.oee }}<span class="metric-unit">%</span></div>
+        <div class="kpi-bar" :title="`目标 ${OEE_TARGET}%`">
+          <div class="kpi-bar__fill" :class="oeeBarClass" :style="{ width: clampPct(kpi.oee) + '%' }"></div>
+          <div class="kpi-bar__target" :style="{ left: OEE_TARGET + '%' }"></div>
+        </div>
+        <div class="kpi__foot">目标 ≥{{ OEE_TARGET }}%</div>
       </div>
-      <div class="kpi" :class="{ warn: kpi.online < kpi.total }">
-        <div class="kpi-label">设备状态</div>
-        <div class="kpi-value"><span>{{ kpi.online }}</span>/<span>{{ kpi.total }}</span></div>
-        <div class="kpi-sub">在线/总数</div>
-      </div>
-      <div class="kpi" :class="{ alarm: kpi.alarmCount > 0 }">
-        <div class="kpi-label">活动报警</div>
-        <div class="kpi-value">{{ kpi.alarmCount }}</div>
-        <div class="kpi-sub">未确认: <span>{{ kpi.unacked }}</span></div>
-      </div>
+
+      <!-- 次要 KPI：设备在线分布 -->
       <div class="kpi">
-        <div class="kpi-label">采集吞吐</div>
-        <div class="kpi-value">{{ kpi.rate }} <small>条/分</small></div>
+        <div class="kpi__head">
+          <span class="metric-label">设备状态</span>
+          <span class="tag" :class="kpi.online < kpi.total ? 'tag--warning' : 'tag--success'">在线率 {{ onlinePctText }}%</span>
+        </div>
+        <div class="metric-value">{{ kpi.online }}<span class="metric-unit">/ {{ kpi.total }} 台</span></div>
+        <div class="mini-split" :title="`在线 ${kpi.online} 台 / 离线 ${offlineKpi} 台`">
+          <span class="mini-split__on" :style="{ width: onlinePct + '%' }"></span>
+          <span class="mini-split__off" :style="{ width: (100 - onlinePct) + '%' }"></span>
+        </div>
+        <div class="kpi__foot">离线 {{ offlineKpi }} 台</div>
       </div>
-      <div class="kpi">
-        <div class="kpi-label">数据质量</div>
-        <div class="kpi-value">{{ kpi.quality }}%</div>
-        <div class="kpi-sub">成功率</div>
+
+      <!-- 主 KPI：活动报警，等级分段条 -->
+      <div class="kpi kpi--primary" :class="{ 'kpi--alarm': kpi.alarmCount > 0 }">
+        <div class="kpi__head">
+          <span class="metric-label">活动报警</span>
+          <span class="tag" :class="kpi.unacked > 0 ? 'tag--warning' : 'tag--success'">未确认 {{ kpi.unacked }}</span>
+        </div>
+        <div class="metric-value metric-value--lg">{{ kpi.alarmCount }}<span class="metric-unit">条</span></div>
+        <div class="alarm-seg" :title="`CRIT ${kpi.crit} / HIGH ${kpi.high} / MED ${kpi.med}`">
+          <span v-for="s in alarmSegments" :key="s.key" class="alarm-seg__item" :class="s.cls" :style="{ width: s.pct + '%' }"></span>
+        </div>
+        <div class="alarm-seg__legend">
+          <span v-for="s in alarmSegments" :key="s.key" class="alarm-seg__lg">
+            <i class="alarm-seg__dot" :class="s.cls"></i>{{ s.label }} {{ s.count }}
+          </span>
+        </div>
       </div>
+
+      <!-- 次要 KPI：采集吞吐，迷你 sparkline -->
       <div class="kpi">
-        <div class="kpi-label">运行时间</div>
-        <div class="kpi-value">{{ kpi.uptime }}</div>
-        <div class="kpi-sub">{{ kpi.mode }}</div>
+        <div class="kpi__head">
+          <span class="metric-label">采集吞吐</span>
+        </div>
+        <div class="metric-value">{{ kpi.rate }}<span class="metric-unit">条/分</span></div>
+        <svg class="spark" viewBox="0 0 100 28" preserveAspectRatio="none" aria-hidden="true">
+          <polygon class="spark__area" :points="sparkAreaPoints" />
+          <polyline class="spark__line" :points="sparkPoints" />
+        </svg>
+        <div class="kpi__foot">近 {{ rateHistory.length }} 个采样点</div>
+      </div>
+
+      <!-- 次要 KPI：数据质量，细进度条 + 目标对标线 -->
+      <div class="kpi">
+        <div class="kpi__head">
+          <span class="metric-label">数据质量</span>
+          <span class="tag" :class="kpi.quality >= QUALITY_TARGET ? 'tag--success' : 'tag--warning'">成功率</span>
+        </div>
+        <div class="metric-value">{{ kpi.quality }}<span class="metric-unit">%</span></div>
+        <div class="kpi-bar" :title="`目标 ${QUALITY_TARGET}%`">
+          <div class="kpi-bar__fill" :class="qualityBarClass" :style="{ width: clampPct(kpi.quality) + '%' }"></div>
+          <div class="kpi-bar__target" :style="{ left: QUALITY_TARGET + '%' }"></div>
+        </div>
+        <div class="kpi__foot">目标 ≥{{ QUALITY_TARGET }}%</div>
+      </div>
+
+      <!-- 次要 KPI：运行时间 -->
+      <div class="kpi">
+        <div class="kpi__head">
+          <span class="metric-label">运行时间</span>
+          <span class="tag tag--info">{{ kpi.mode }}</span>
+        </div>
+        <div class="metric-value">{{ kpi.uptime }}</div>
+        <div class="kpi__foot">自系统启动累计</div>
       </div>
     </div>
 
-    <!-- 告警闪烁横幅 -->
-    <div v-if="latestAlarm" class="alarm-banner" :style="bannerStyle" @click="$router.push('/alarms')">
-      <div class="banner-content">
-        <span class="banner-icon">⚠️</span>
-        <span class="banner-text">{{ latestAlarm.alarm_message }}</span>
-        <span class="banner-device">{{ latestAlarm.device_id }}</span>
-        <button class="banner-close" @click.stop="dismissBanner">×</button>
-      </div>
+    <!-- 报警提示横幅：等级色条 + 语义底色，不做整行闪烁 -->
+    <div v-if="latestAlarm" class="alarm-banner" :class="bannerClass" @click="$router.push('/alarms')">
+      <span class="level-bar" :class="levelBarClass(latestAlarm.alarm_level)"></span>
+      <span class="banner-text">{{ latestAlarm.alarm_message }}</span>
+      <span class="tag tag--danger">{{ latestAlarm.device_id }}</span>
+      <button class="banner-close" @click.stop="dismissBanner" aria-label="关闭">×</button>
     </div>
 
-    <!-- 主区域 -->
+    <!-- 主区域：设备优先 -->
     <div class="main-area">
       <!-- 设备卡片网格 -->
-      <div class="device-panel">
-        <div class="dev-filter-bar">
+      <div class="panel device-panel">
+        <div class="panel__header dev-filter-bar">
           <div class="dev-filter-tabs">
             <button class="dev-tab" :class="{ active: devFilter === 'all' }" @click="setDevFilter('all')">全部 {{ allDeviceList.length }}</button>
             <button class="dev-tab" :class="{ active: devFilter === 'online' }" @click="setDevFilter('online')">在线 {{ onlineCount }}</button>
@@ -68,13 +120,17 @@
           <div v-for="d in pagedDeviceList" :key="getDeviceId(d)" class="dev-card" @click="selectDevice(getDeviceId(d))">
             <div class="dev-status" :class="getDeviceStatusClass(d)"></div>
             <div class="dev-info">
-              <div class="dev-name">{{ d.name || d.device_id }} <span class="dev-state-tag" :class="getDeviceStatusClass(d)">{{ getDeviceStatusText(d) }}</span><span v-if="d.zone" class="dev-zone-tag">{{ d.zone }}</span></div>
-              <div class="dev-meta">{{ d.protocol || 'modbus_tcp' }} · {{ d.host || '' }}</div>
+              <div class="dev-name">
+                <span class="dev-name__text">{{ d.name || d.device_id }}</span>
+                <span class="tag" :class="statusTagClass(d)">{{ getDeviceStatusText(d) }}</span>
+                <span v-if="d.zone" class="tag tag--info">{{ d.zone }}</span>
+              </div>
+              <div class="dev-meta">{{ d.protocol || 'modbus_tcp' }} · {{ d.host || '—' }}</div>
               <div class="dev-values">
-                <span v-for="r in (d.registers || []).slice(0, 2)" :key="r.name" class="dev-val">
-                  <span class="label">{{ getShortLabel(r.name) }}</span>
-                  <span class="num" :style="{ color: getDeviceValueColor(getDeviceId(d), r.name) }">{{ getDeviceValue(getDeviceId(d), r.name) }}</span>
-                  <span v-if="getDeviceQuality(getDeviceId(d), r.name) != null" class="quality-dot" :style="{ background: getQualityColor(getDeviceQuality(getDeviceId(d), r.name)) }" :title="getQualityLabel(getDeviceQuality(getDeviceId(d), r.name))"></span>
+                <span v-for="r in (d.registers || []).slice(0, 3)" :key="r.name" class="dev-val">
+                  <span class="dev-val__label">{{ getShortLabel(r.name) }}</span>
+                  <span class="dev-val__num" :style="{ color: getDeviceValueColor(getDeviceId(d), r.name) }">{{ getDeviceValue(getDeviceId(d), r.name) }}</span>
+                  <span v-if="getDeviceQuality(getDeviceId(d), r.name) != null" class="quality-dot" :class="getQualityLevel(getDeviceQuality(getDeviceId(d), r.name))" :title="getQualityLabel(getDeviceQuality(getDeviceId(d), r.name))"></span>
                 </span>
               </div>
             </div>
@@ -82,7 +138,9 @@
               {{ d.stopped ? '▶' : '■' }}
             </button>
           </div>
-          <div v-if="pagedDeviceList.length === 0" class="dev-empty">暂无匹配设备</div>
+          <div v-if="pagedDeviceList.length === 0" class="grid-empty">
+            <el-empty description="暂无匹配设备" :image-size="64" />
+          </div>
         </div>
 
         <!-- 分页 -->
@@ -96,40 +154,54 @@
       </div>
 
       <!-- 报警面板 -->
-      <div class="alarm-panel">
-        <div class="alarm-header">
+      <div class="panel alarm-panel">
+        <div class="panel__header alarm-header">
           <span>实时报警</span>
           <span class="alarm-badges">
-            <span class="badge-crit">CRIT: {{ kpi.crit }}</span>
-            <span class="badge-high">HIGH: {{ kpi.high }}</span>
-            <span class="badge-med">MED: {{ kpi.med }}</span>
+            <span class="tag tag--danger">CRIT: {{ kpi.crit }}</span>
+            <span class="tag tag--warning">HIGH: {{ kpi.high }}</span>
+            <span class="tag tag--info">MED: {{ kpi.med }}</span>
           </span>
         </div>
         <div class="alarm-list">
-          <div v-if="alarms.length === 0" class="alarm-empty">暂无活动报警</div>
-          <div v-for="a in alarms.slice(0, 20)" :key="a.id || a.alarm_id" class="alarm-row" :class="{ unacked: !a.acknowledged }">
-            <span class="alarm-prio" :class="getAlarmLevel(a.alarm_level)">{{ getAlarmPrioText(a.alarm_level) }}</span>
-            <span class="alarm-time">{{ formatAlarmTime(a.last_trigger_time || a.timestamp) }}</span>
-            <span class="alarm-device">{{ (a.device_id || '').substring(0, 12) }}</span>
-            <span class="alarm-msg">{{ a.alarm_message || a.id }}</span>
-            <span class="alarm-pv">{{ getAlarmPV(a) }}</span>
-            <span v-if="(a.trigger_count || 1) > 1" class="alarm-count">×{{ a.trigger_count }}</span>
-            <button v-if="!a.acknowledged" class="alarm-ack-btn" @click="ackAlarm(a.alarm_id || a.id || '', a.device_id, a.register_name)">确认</button>
+          <div v-if="alarms.length === 0" class="alarm-empty">
+            <el-empty description="暂无活动报警，系统运行正常" :image-size="64" />
+          </div>
+          <div v-for="a in alarms.slice(0, 20)" :key="a.id || a.alarm_id" class="alarm-row">
+            <span
+              class="level-bar"
+              :class="[levelBarClass(a.alarm_level), a.acknowledged ? '' : pulseClass(a.alarm_level)]"
+            ></span>
+            <div class="alarm-row__main">
+              <div class="alarm-row__line1">
+                <span class="alarm-row__device">{{ a.device_id || '-' }}</span>
+                <span class="alarm-row__prio" :class="'alarm-row__prio--' + levelKey(a.alarm_level)">{{ getAlarmPrioText(a.alarm_level) }}</span>
+                <span class="alarm-row__time">{{ formatAlarmTime(a.last_trigger_time || a.timestamp) }}</span>
+                <span v-if="(a.trigger_count || 1) > 1" class="alarm-row__count">×{{ a.trigger_count }}</span>
+                <button v-if="!a.acknowledged" class="alarm-row__ack" @click="ackAlarm(a.alarm_id || a.id || '', a.device_id, a.register_name)">确认</button>
+                <span v-else class="tag tag--offline alarm-row__acked">已确认</span>
+              </div>
+              <div class="alarm-row__line2">
+                <span class="alarm-row__msg">{{ a.alarm_message || a.id }}</span>
+                <span v-if="getAlarmPV(a)" class="alarm-row__pv">{{ getAlarmPV(a) }}</span>
+              </div>
+            </div>
           </div>
         </div>
       </div>
     </div>
 
     <!-- 趋势图 -->
-    <div class="trend-area">
-      <div class="trend-header">
+    <div class="panel trend-area">
+      <div class="panel__header trend-header">
         <span class="trend-title">实时趋势</span>
-        <div style="display:flex;gap:6px;align-items:center">
-          <select v-model="selectedDeviceId" @change="onDeviceChange" class="trend-device-select">
+        <div class="trend-tools">
+          <select v-model="selectedDeviceId" @change="onDeviceChange" class="trend-select">
             <option v-for="d in allDeviceList" :key="getDeviceId(d)" :value="getDeviceId(d)">{{ d.name || d.device_id }}</option>
           </select>
-          <button class="trend-btn" @click="exportChartData">📊 导出图表</button>
-          <button class="trend-btn" @click="exportAllData">📥 导出全部</button>
+          <span class="tag tag--info">{{ trendSeriesCount }} 个指标</span>
+          <button class="trend-btn" @click="exportChartData">导出图表</button>
+          <button class="trend-btn" @click="exportAllData">导出全部</button>
         </div>
       </div>
       <div ref="trendChartRef" class="trend-chart"></div>
@@ -157,8 +229,18 @@ import { systemApi, devicesApi, dataApi, alarmsApi, industry40Api, type DeviceSt
 import { getAuthToken, getWsBaseUrl } from '@/api/request'
 import { useAuthStore } from '@/stores/auth'
 import { showActionError } from '@/utils/error'
+import { registerScadaTheme, scadaThemeName, applyScadaTheme, SCADA_LEVEL_COLORS } from '@/utils/echartsTheme'
 
 const authStore = useAuthStore()
+
+// 统一图表主题（幂等注册）
+registerScadaTheme(echarts)
+
+// ========== 展示常量 ==========
+const OEE_TARGET = 85
+const OEE_WARN = 70
+const QUALITY_TARGET = 99
+const RATE_HISTORY_MAX = 30
 
 // ========== 状态 ==========
 const allDeviceList = ref<DeviceStatus[]>([])
@@ -169,6 +251,7 @@ const userName = ref('用户')
 const trendChartRef = ref<HTMLElement>()
 let trendChart: echarts.ECharts | null = null
 let trendResizeObserver: ResizeObserver | null = null
+let themeObserver: MutationObserver | null = null
 let socket: ReturnType<typeof io> | null = null
 let loadTimer: ReturnType<typeof setInterval> | undefined
 let loadDataInProgress = false
@@ -182,6 +265,8 @@ const deviceCache: Record<string, DeviceStatus> = {}
 const dataBuffers: Record<string, Array<{ t: string; v: number }>> = {}
 const deviceValues = reactive<Record<string, number>>({})
 const deviceQuality = reactive<Record<string, number>>({})
+// 寄存器单位（来自 realtime 接口的 unit 字段），仅用于提示/图例展示
+const registerUnits = reactive<Record<string, string>>({})
 const MAX_CHART_POINTS = 200
 
 // ========== 筛选 + 分页 ==========
@@ -218,21 +303,60 @@ const kpi = reactive({
   oee: 0, online: 0, total: 0, alarmCount: 0, unacked: 0, crit: 0, high: 0, med: 0,
   rate: 0, quality: 100, uptime: '-', mode: '模拟模式', dbRecords: 0,
 })
-const statusDotClass = ref('status-dot green')
+// 采集吞吐采样点（每次轮询追加，用于迷你 sparkline）
+const rateHistory = ref<number[]>([])
+const statusDotClass = ref('status-dot--success')
 const statusText = ref('系统运行中')
 
+function clampPct(v: number): number {
+  if (!Number.isFinite(v)) return 0
+  return Math.max(0, Math.min(100, v))
+}
+
+const oeeBarClass = computed(() =>
+  kpi.oee >= OEE_TARGET ? 'kpi-bar__fill--success' : kpi.oee >= OEE_WARN ? 'kpi-bar__fill--warning' : 'kpi-bar__fill--danger'
+)
+const qualityBarClass = computed(() =>
+  kpi.quality >= QUALITY_TARGET ? 'kpi-bar__fill--success' : kpi.quality >= QUALITY_TARGET - 4 ? 'kpi-bar__fill--warning' : 'kpi-bar__fill--danger'
+)
+const onlinePct = computed(() => kpi.total > 0 ? clampPct(kpi.online / kpi.total * 100) : 0)
+const onlinePctText = computed(() => kpi.total > 0 ? Math.round(kpi.online / kpi.total * 100) : 0)
+const offlineKpi = computed(() => Math.max(0, kpi.total - kpi.online))
+
+// 活动报警等级分段条（critical / high / med 三段，宽度按占比）
+const alarmSegments = computed(() => {
+  const base = Math.max(1, kpi.crit + kpi.high + kpi.med)
+  return [
+    { key: 'critical', label: 'CRIT', count: kpi.crit, cls: 'seg--critical', pct: kpi.crit / base * 100 },
+    { key: 'warning', label: 'HIGH', count: kpi.high, cls: 'seg--warning', pct: kpi.high / base * 100 },
+    { key: 'info', label: 'MED', count: kpi.med, cls: 'seg--info', pct: kpi.med / base * 100 },
+  ]
+})
+
+// 迷你 sparkline（归一化到 0..100 x 0..28 的 viewBox）
+const sparkPoints = computed(() => {
+  const h = rateHistory.value
+  if (h.length < 2) return '0,26 100,26'
+  const min = Math.min(...h)
+  const max = Math.max(...h)
+  const span = max - min || 1
+  return h
+    .map((v, i) => `${(i / (h.length - 1) * 100).toFixed(2)},${(26 - (v - min) / span * 22).toFixed(2)}`)
+    .join(' ')
+})
+const sparkAreaPoints = computed(() => `0,28 ${sparkPoints.value} 100,28`)
+
 // ========== 报警横幅 ==========
-const bannerStyle = computed(() => {
-  if (!latestAlarm.value) return {}
-  const lvl = latestAlarm.value.alarm_level
-  const bg = lvl === 'critical' ? '#dc2626' : lvl === 'warning' ? '#ea580c' : '#ca8a04'
-  return { background: bg, color: '#fff' }
+const bannerClass = computed(() => {
+  const lvl = levelKey(latestAlarm.value?.alarm_level || 'info')
+  return `alarm-banner--${lvl}`
 })
 function dismissBanner() { latestAlarm.value = null }
 
 // ========== 生命周期 ==========
 onMounted(() => {
   initTrendChart()
+  initThemeObserver()
   connectSocket()
   loadData()
   loadOEE()
@@ -245,6 +369,8 @@ onUnmounted(() => {
   if (loadTimer) { clearInterval(loadTimer); loadTimer = undefined }
   trendResizeObserver?.disconnect()
   trendResizeObserver = null
+  themeObserver?.disconnect()
+  themeObserver = null
   trendChart?.dispose()
   trendChart = null
   socket?.disconnect()
@@ -272,6 +398,7 @@ async function loadData() {
         data.data.forEach((item: any) => {
           if (item.device_id && item.register_name && item.value != null) {
             deviceValues[`${item.device_id}:${item.register_name}`] = parseFloat(item.value)
+            if (item.unit) registerUnits[`${item.device_id}:${item.register_name}`] = item.unit
           }
         })
         updateTrendChart(data.data)
@@ -287,7 +414,7 @@ async function loadData() {
       updateStatusBar(status)
     } catch (e: any) {
       console.warn('[Dashboard] 系统状态加载失败:', e?.message || e)
-      statusDotClass.value = 'status-dot red'
+      statusDotClass.value = 'status-dot--danger'
       statusText.value = '连接异常'
     }
 
@@ -343,6 +470,9 @@ function updateKPI(stats: SystemStatus) {
     kpi.rate = Math.floor((c.total_collections || 0) / Math.max((stats.uptime_seconds || 1) / 60, 1))
     const total = (c.successful_collections || 0) + (c.failed_collections || 0)
     kpi.quality = total > 0 ? Math.round(c.successful_collections / total * 100) : 100
+    // 追加吞吐采样点（环形上限，供 sparkline 展示近期趋势）
+    rateHistory.value.push(kpi.rate)
+    if (rateHistory.value.length > RATE_HISTORY_MAX) rateHistory.value.shift()
   }
   if (stats.uptime_seconds !== undefined) {
     kpi.uptime = formatUptime(stats.uptime_seconds)
@@ -382,7 +512,7 @@ function updateDeviceGrid(stats: SystemStatus) {
 }
 
 function updateStatusBar(_stats: SystemStatus) {
-  statusDotClass.value = 'status-dot green'
+  statusDotClass.value = 'status-dot--success'
   statusText.value = '系统运行中'
 }
 
@@ -394,6 +524,13 @@ function getDeviceStatusClass(d: DeviceStatus): string {
   if (d.status === 'fault' || d.status === 'warning') return 'warning'
   return 'online'
 }
+function statusTagClass(d: DeviceStatus): string {
+  const s = getDeviceStatusClass(d)
+  if (s === 'online') return 'tag--success'
+  if (s === 'stopped') return 'tag--info'
+  if (s === 'offline') return 'tag--offline'
+  return 'tag--warning'
+}
 function getDeviceStatusText(d: DeviceStatus): string {
   if (!d.connected) return '离线'
   if (d.stopped) return '已停止'
@@ -404,10 +541,11 @@ function getDeviceValue(deviceId: string, regName: string): string {
   const v = deviceValues[`${deviceId}:${regName}`]
   return v !== undefined ? v.toFixed(1) : '--'
 }
+// 值超阈值时变色（保留原有语义，颜色改为设计令牌）
 function getDeviceValueColor(deviceId: string, regName: string): string {
   const q = deviceQuality[`${deviceId}:${regName}`]
-  if (q == null) return '#1a1a2e'
-  return q >= 192 ? '#22c55e' : q >= 64 ? '#f59e0b' : '#ef4444'
+  if (q == null) return 'var(--text-primary)'
+  return q >= 192 ? 'var(--color-success)' : q >= 64 ? 'var(--color-warning)' : 'var(--color-danger)'
 }
 function getDeviceQuality(deviceId: string, regName: string): number | null {
   const q = deviceQuality[`${deviceId}:${regName}`]
@@ -428,7 +566,16 @@ async function toggleDevice(deviceId: string, stop: boolean) {
 }
 
 // ========== 报警 ==========
-function getAlarmLevel(level: string): string { return level === 'critical' ? 'critical' : level === 'warning' ? 'warning' : 'low' }
+// 等级归一化：后端只有 critical / warning / info 三类
+function levelKey(level: string): 'critical' | 'warning' | 'info' {
+  return level === 'critical' ? 'critical' : level === 'warning' ? 'warning' : 'info'
+}
+function levelBarClass(level: string): string { return `level-bar--${levelKey(level)}` }
+// 未确认报警：只让左侧色条呼吸（不整行闪烁）
+function pulseClass(level: string): string {
+  const k = levelKey(level)
+  return k === 'critical' ? 'level-bar--pulse-critical' : k === 'warning' ? 'level-bar--pulse-warning' : ''
+}
 function getAlarmPrioText(level: string): string { return level === 'critical' ? 'CRIT' : level === 'warning' ? 'HIGH' : 'LOW' }
 function formatAlarmTime(t: string): string { return t ? new Date(t).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', second: '2-digit' }) : '-' }
 function getAlarmPV(a: any): string { const v = a.last_value != null ? a.last_value : a.actual_value; return v != null ? `PV:${parseFloat(v).toFixed(1)}` : '' }
@@ -470,9 +617,10 @@ function getShortLabel(name: string): string {
   for (const [k, v] of Object.entries(map)) { if (lower.includes(k)) return v }
   return name.length > 6 ? name.slice(0, 6) : name
 }
-function getQualityColor(q: number | null): string {
-  if (q == null) return '#999'
-  return q >= 192 ? '#52c41a' : q >= 64 ? '#faad14' : '#ff4d4f'
+// OPC 质量码 → 语义等级（颜色由 CSS 令牌决定）
+function getQualityLevel(q: number | null): string {
+  if (q == null) return 'quality-dot--unknown'
+  return q >= 192 ? 'quality-dot--good' : q >= 64 ? 'quality-dot--uncertain' : 'quality-dot--bad'
 }
 function getQualityLabel(q: number | null): string {
   if (q == null) return ''
@@ -487,6 +635,8 @@ function selectedBuffers(): Record<string, Array<{ t: string; v: number }>> {
   Object.keys(dataBuffers).forEach(k => { if (k.startsWith(prefix)) out[k] = dataBuffers[k] })
   return out
 }
+// dataBuffers 是非响应式的普通对象，系列数用 ref 在渲染时同步
+const trendSeriesCount = ref(0)
 function selectDevice(id: string) {
   selectedDeviceId.value = id
   // 只渲染当前设备自己的历史缓冲，避免显示上一台设备的数据
@@ -498,10 +648,31 @@ function onDeviceChange() {
 
 function initTrendChart() {
   if (!trendChartRef.value) return
-  trendChart = echarts.init(trendChartRef.value)
+  trendChart = echarts.init(trendChartRef.value, scadaThemeName())
   // 窗口缩放/侧边栏折叠会改变容器宽度，不 resize 图表会被裁切
   trendResizeObserver = new ResizeObserver(() => trendChart?.resize())
   trendResizeObserver.observe(trendChartRef.value)
+}
+
+// 切换深浅主题时重建图表实例（ECharts 不支持运行时换主题）
+function initThemeObserver() {
+  themeObserver = new MutationObserver(() => {
+    if (!trendChart || isUnmounted) return
+    trendChart = applyScadaTheme(trendChart, echarts)
+    renderTrend()
+  })
+  themeObserver.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] })
+}
+
+/**
+ * 报警阈值参考线：仅使用后端已下发的报警规则阈值（alarms.threshold）。
+ * 寄存器定义中没有上下限字段，故不做任何推测，拿不到就不画。
+ */
+function getRegisterThreshold(deviceId: string, regName: string): { value: number; level: string; text: string } | null {
+  const hit = alarms.value.find(a => a.device_id === deviceId && a.register_name === regName && Number.isFinite(Number(a.threshold)))
+  if (!hit) return null
+  const lvl = levelKey(hit.alarm_level)
+  return { value: Number(hit.threshold), level: lvl, text: `报警阈值(${lvl})` }
 }
 
 function updateTrendChart(data: any[] = []) {
@@ -517,6 +688,7 @@ function updateTrendChart(data: any[] = []) {
     if (!dataBuffers[key]) dataBuffers[key] = []
     dataBuffers[key].push({ t: now, v })
     if (dataBuffers[key].length > MAX_CHART_POINTS) dataBuffers[key].shift()
+    if (item.unit) registerUnits[key] = item.unit
     matched++
   })
   if (matched === 0) return
@@ -530,20 +702,63 @@ function renderTrend() {
   const timeSet = new Set<string>()
   keys.forEach(k => buffers[k].forEach(d => timeSet.add(d.t)))
   const times = Array.from(timeSet).sort().slice(-MAX_CHART_POINTS)
-  const colors = ['#6366f1', '#06b6d4', '#f59e0b', '#ef4444', '#22c55e', '#ec4899']
+  trendSeriesCount.value = keys.length
+
+  // setOption(..., true) 会重建图例，需显式带回用户已勾选的系列，否则每次刷新开关被重置
+  const prevLegend = (trendChart.getOption() as any)?.legend?.[0]?.selected
+  const legendSelected = prevLegend && Object.keys(prevLegend).length ? prevLegend : undefined
+
+  // 系列展示名 → 单位（用于 tooltip 的“时间 + 值 + 单位”）
+  const unitByName: Record<string, string> = {}
+  keys.forEach(k => { unitByName[getShortLabel(k.slice(k.indexOf(':') + 1))] = registerUnits[k] || '' })
+
   trendChart.setOption({
-    backgroundColor: 'transparent',
-    tooltip: { trigger: 'axis', backgroundColor: 'rgba(255,255,255,0.95)', borderColor: '#e2e5ea', textStyle: { color: '#1a1a2e', fontSize: 11 } },
-    legend: { top: 0, right: 0, textStyle: { color: '#666', fontSize: 11 }, itemWidth: 12, itemHeight: 2 },
-    grid: { left: 50, right: 10, top: 25, bottom: 20 },
-    xAxis: { type: 'category', data: times, boundaryGap: false, axisLine: { lineStyle: { color: '#e2e5ea' } }, axisLabel: { color: '#999', fontSize: 10 }, splitLine: { show: false } },
-    yAxis: { type: 'value', axisLine: { show: false }, axisLabel: { color: '#999', fontSize: 10 }, splitLine: { lineStyle: { color: '#f0f0f0' } } },
-    series: keys.map((key, i) => {
+    legend: { top: 0, right: 0, type: 'scroll', selectedMode: 'multiple', selected: legendSelected },
+    tooltip: {
+      trigger: 'axis',
+      axisPointer: { type: 'cross' },
+      formatter: (params: any) => {
+        const arr = Array.isArray(params) ? params : [params]
+        if (!arr.length) return ''
+        const head = `${arr[0].axisValueLabel ?? arr[0].axisValue ?? ''}`
+        const rows = arr
+          .filter((p: any) => p.value != null && Number.isFinite(Number(p.value)))
+          .map((p: any) => {
+            const unit = unitByName[p.seriesName]
+            return `${p.marker}${p.seriesName}: <b>${Number(p.value).toFixed(2)}</b>${unit ? ' ' + unit : ''}`
+          })
+        return head + rows.join('<br/>')
+      },
+    },
+    grid: { left: 12, right: 16, top: 32, bottom: 8, containLabel: true },
+    xAxis: { type: 'category', data: times, boundaryGap: false },
+    yAxis: { type: 'value', scale: true },
+    series: keys.map(key => {
       const map: Record<string, number> = {}
       buffers[key].forEach(d => { map[d.t] = d.v })
-      return { name: getShortLabel(key.slice(key.indexOf(':') + 1)), type: 'line', smooth: true, symbol: 'none', lineStyle: { width: 1.5, color: colors[i % colors.length] }, data: times.map(t => map[t] ?? null) }
+      const regName = key.slice(key.indexOf(':') + 1)
+      const unit = registerUnits[key] || ''
+      const threshold = getRegisterThreshold(selectedDeviceId.value, regName)
+      return {
+        name: getShortLabel(regName),
+        type: 'line',
+        smooth: true,
+        symbol: 'none',
+        // 颜色由统一主题的色板分配，页面不再自带颜色数组
+        data: times.map(t => map[t] ?? null),
+        markLine: threshold ? {
+          silent: true,
+          symbol: 'none',
+          data: [{
+            yAxis: threshold.value,
+            name: threshold.text,
+            lineStyle: { color: SCADA_LEVEL_COLORS[threshold.level] || SCADA_LEVEL_COLORS.info, type: 'dashed', width: 1 },
+            label: { formatter: `${threshold.text} ${threshold.value}${unit ? ' ' + unit : ''}`, position: 'insideEndTop' },
+          }],
+        } : undefined,
+      }
     }),
-  })
+  }, true)
 }
 
 // ========== CSV 导出（客户端生成） ==========
@@ -598,7 +813,7 @@ function connectSocket() {
   })
   socket.on('connect', () => {
     if (isUnmounted) return
-    statusDotClass.value = 'status-dot green'
+    statusDotClass.value = 'status-dot--success'
     statusText.value = '系统运行中'
     // 恢复 5 秒轮询（首次连接与重连都会走这里；socket.io v4 的 'reconnect' 只在 Manager 上触发）
     setPollInterval(5000)
@@ -606,14 +821,14 @@ function connectSocket() {
   })
   socket.on('disconnect', () => {
     if (isUnmounted) return
-    statusDotClass.value = 'status-dot yellow'
+    statusDotClass.value = 'status-dot--warning'
     statusText.value = '实时连接断开，降级为轮询模式（每2秒刷新）'
     // WebSocket断开时增加轮询频率（从5秒降到2秒）
     setPollInterval(2000)
   })
   socket.on('connect_error', () => {
     if (isUnmounted) return
-    statusDotClass.value = 'status-dot yellow'
+    statusDotClass.value = 'status-dot--warning'
     statusText.value = '实时连接失败，使用轮询模式'
   })
   socket.on('data_update', (data: any) => {
@@ -657,117 +872,471 @@ function connectSocket() {
 </script>
 
 <style scoped>
-.dashboard { display: flex; flex-direction: column; height: calc(100vh - 60px); gap: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; }
+.dashboard {
+  display: flex;
+  flex-direction: column;
+  height: calc(100vh - 60px);
+  overflow: auto;
+  background: var(--bg-page);
+  color: var(--text-primary);
+  font-family: var(--font-sans);
+}
 
-/* KPI */
-.kpi-row { display: grid; grid-template-columns: repeat(6, 1fr); gap: 8px; padding: 8px 12px; background: #fff; border-bottom: 1px solid #e2e5ea; }
-.kpi { padding: 8px 12px; border-left: 3px solid transparent; border-radius: 4px; }
-.kpi.warn { border-left-color: #eab308; }
-.kpi.alarm { border-left-color: #ef4444; }
-.kpi-label { font-size: 11px; color: #999; text-transform: uppercase; }
-.kpi-value { font-size: 20px; font-weight: 600; color: #1a1a2e; }
-.kpi-value small { font-size: 11px; color: #999; }
-.kpi-sub { font-size: 10px; color: #999; margin-top: 2px; }
+/* ==================== KPI 行 ==================== */
+.kpi-row {
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  gap: var(--space-2);
+  padding: var(--space-3);
+  background: var(--bg-surface);
+  border-bottom: 1px solid var(--border-base);
+}
+.kpi {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  min-width: 0;
+  padding: var(--space-3);
+  background: var(--bg-sunken);
+  border: 1px solid var(--border-base);
+  border-left: 3px solid var(--border-strong);
+  border-radius: var(--radius-md);
+}
+/* 主 KPI 视觉权重更高 */
+.kpi--primary {
+  background: var(--bg-surface);
+  border-left-color: var(--color-brand);
+  box-shadow: var(--shadow-sm);
+}
+.kpi--warn { border-left-color: var(--color-warning); }
+.kpi--bad { border-left-color: var(--color-danger); }
+.kpi--alarm { border-left-color: var(--level-critical); }
+.kpi__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  min-height: 20px;
+}
+.kpi__foot {
+  font-size: var(--font-xs);
+  color: var(--text-muted);
+}
 
-/* 报警横幅 */
-.alarm-banner { padding: 6px 16px; cursor: pointer; animation: banner-flash 2s infinite; }
-@keyframes banner-flash { 0%,100% { opacity: 1; } 50% { opacity: 0.85; } }
-.banner-content { display: flex; align-items: center; gap: 8px; font-size: 12px; }
-.banner-icon { font-size: 16px; }
-.banner-text { flex: 1; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.banner-device { font-size: 11px; opacity: 0.8; }
-.banner-close { background: none; border: none; font-size: 16px; cursor: pointer; opacity: 0.7; padding: 0 4px; }
+/* 细进度条 + 目标对标线 */
+.kpi-bar {
+  position: relative;
+  height: 6px;
+  margin: var(--space-1) 0;
+  background: var(--bg-hover);
+  border-radius: var(--radius-pill);
+}
+.kpi-bar__fill {
+  height: 100%;
+  border-radius: var(--radius-pill);
+  transition: width var(--duration-base) var(--ease-out), background-color var(--duration-fast) linear;
+}
+.kpi-bar__fill--success { background: var(--color-success); }
+.kpi-bar__fill--warning { background: var(--color-warning); }
+.kpi-bar__fill--danger { background: var(--color-danger); }
+.kpi-bar__target {
+  position: absolute;
+  top: -2px;
+  bottom: -2px;
+  width: 2px;
+  background: var(--text-secondary);
+  border-radius: var(--radius-pill);
+  transform: translateX(-1px);
+}
 
-/* 主区域 */
-.main-area { display: grid; grid-template-columns: 1fr 1fr; gap: 0; flex: 1; min-height: 0; overflow: auto; }
-.device-panel { display: flex; flex-direction: column; overflow: hidden; }
+/* 在线/离线分布条 */
+.mini-split {
+  display: flex;
+  height: 6px;
+  margin: var(--space-1) 0;
+  border-radius: var(--radius-pill);
+  overflow: hidden;
+  background: var(--bg-hover);
+}
+.mini-split__on { background: var(--color-success); transition: width var(--duration-base) var(--ease-out); }
+.mini-split__off { background: var(--color-offline); transition: width var(--duration-base) var(--ease-out); }
+
+/* 采集吞吐迷你 sparkline */
+.spark {
+  display: block;
+  width: 100%;
+  height: 28px;
+}
+.spark__line {
+  fill: none;
+  stroke: var(--chart-1);
+  stroke-width: 1.5;
+  vector-effect: non-scaling-stroke;
+}
+.spark__area {
+  fill: var(--chart-1);
+  opacity: 0.12;
+  stroke: none;
+}
+
+/* 活动报警等级分段条 */
+.alarm-seg {
+  display: flex;
+  height: 8px;
+  margin: var(--space-1) 0;
+  border-radius: var(--radius-pill);
+  overflow: hidden;
+  background: var(--bg-hover);
+}
+.alarm-seg__item { height: 100%; transition: width var(--duration-base) var(--ease-out); }
+.seg--critical { background: var(--level-critical); }
+.seg--warning { background: var(--level-warning); }
+.seg--info { background: var(--level-info); }
+.alarm-seg__legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1) var(--space-3);
+}
+.alarm-seg__lg {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  font-size: var(--font-xs);
+  color: var(--text-muted);
+}
+.alarm-seg__dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: var(--radius-pill);
+}
+
+/* ==================== 报警横幅 ==================== */
+.alarm-banner {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-4);
+  border-bottom: 1px solid var(--border-base);
+  cursor: pointer;
+}
+.alarm-banner--critical { background: var(--color-danger-soft); }
+.alarm-banner--warning { background: var(--color-warning-soft); }
+.alarm-banner--info { background: var(--color-info-soft); }
+.alarm-banner .level-bar { min-height: 20px; }
+.banner-text {
+  flex: 1;
+  min-width: 0;
+  font-size: var(--font-sm);
+  font-weight: var(--weight-semibold);
+  color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.banner-close {
+  padding: 0 var(--space-1);
+  border: none;
+  background: none;
+  color: var(--text-secondary);
+  font-size: var(--font-lg);
+  line-height: 1;
+  cursor: pointer;
+}
+.banner-close:hover { color: var(--text-primary); }
+
+/* ==================== 主区域：设备优先 ==================== */
+.main-area {
+  display: grid;
+  grid-template-columns: 2.2fr 1fr;
+  gap: var(--space-3);
+  flex: 1;
+  min-height: 320px;
+  padding: var(--space-3);
+}
+.device-panel,
+.alarm-panel {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+}
 
 /* 筛选栏 */
-.dev-filter-bar { display: flex; align-items: center; justify-content: space-between; padding: 6px 10px; background: #f8f9fa; border-bottom: 1px solid #e2e5ea; gap: 8px; flex-wrap: wrap; }
-.dev-filter-tabs { display: flex; gap: 4px; }
-.dev-tab { padding: 4px 10px; border: 1px solid #ddd; border-radius: 4px; background: #fff; cursor: pointer; font-size: 11px; color: #555; transition: all 0.15s; }
-.dev-tab:hover { border-color: #6366f1; color: #6366f1; }
-.dev-tab.active { background: #6366f1; color: #fff; border-color: #6366f1; }
-.dev-filter-right { display: flex; align-items: center; gap: 8px; }
-.dev-proto-select { padding: 3px 6px; border: 1px solid #ddd; border-radius: 4px; font-size: 11px; background: #fff; }
-.dev-count-badge { font-size: 11px; color: #666; background: #e8e8e8; padding: 2px 8px; border-radius: 10px; }
+.dev-filter-bar {
+  flex-wrap: wrap;
+  padding: var(--space-2) var(--space-3);
+}
+.dev-filter-tabs { display: flex; gap: var(--space-1); flex-wrap: wrap; }
+.dev-tab {
+  padding: var(--space-1) var(--space-3);
+  border: 1px solid var(--border-base);
+  border-radius: var(--radius-sm);
+  background: var(--bg-surface);
+  color: var(--text-secondary);
+  font-size: var(--font-xs);
+  cursor: pointer;
+  transition: all var(--duration-fast) var(--ease-out);
+}
+.dev-tab:hover { border-color: var(--color-brand); color: var(--color-brand); }
+.dev-tab.active {
+  background: var(--color-brand);
+  border-color: var(--color-brand);
+  color: var(--text-inverse);
+}
+.dev-filter-right { display: flex; align-items: center; gap: var(--space-2); }
+.dev-proto-select {
+  padding: var(--space-1) var(--space-2);
+  border: 1px solid var(--border-base);
+  border-radius: var(--radius-sm);
+  background: var(--bg-surface);
+  color: var(--text-primary);
+  font-size: var(--font-xs);
+}
+.dev-count-badge {
+  padding: 2px var(--space-2);
+  border-radius: var(--radius-pill);
+  background: var(--bg-hover);
+  color: var(--text-muted);
+  font-size: var(--font-xs);
+}
 
 /* 设备网格 */
-.device-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 6px; padding: 8px; overflow-y: auto; align-content: start; }
-.dev-card { display: flex; align-items: stretch; background: #fff; border: 1px solid #e2e5ea; border-radius: 6px; cursor: pointer; transition: border-color 0.2s; position: relative; min-height: 60px; }
-.dev-card:hover { border-color: #6366f1; }
-.dev-status { width: 6px; border-radius: 6px 0 0 6px; }
-.dev-status.online { background: #22c55e; }
-.dev-status.stopped { background: #a855f7; }
-.dev-status.warning { background: #f59e0b; }
-.dev-status.fault { background: #ef4444; }
-.dev-status.offline { background: #9ca3af; }
-.dev-info { flex: 1; padding: 6px 8px; min-width: 0; }
-.dev-name { font-size: 12px; font-weight: 600; color: #1a1a2e; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.dev-state-tag { font-size: 9px; padding: 1px 4px; border-radius: 3px; font-weight: 500; }
-.dev-state-tag.online { background: #dcfce7; color: #166534; }
-.dev-state-tag.stopped { background: #f3e8ff; color: #6b21a8; }
-.dev-state-tag.warning { background: #fef3c7; color: #92400e; }
-.dev-state-tag.fault { background: #fee2e2; color: #991b1b; }
-.dev-state-tag.offline { background: #f3f4f6; color: #6b7280; }
-.dev-zone-tag { font-size: 9px; padding: 1px 4px; border-radius: 3px; background: #e0f2fe; color: #075985; margin-left: 4px; }
-.dev-meta { font-size: 10px; color: #999; margin-top: 1px; }
-.dev-values { display: flex; gap: 10px; margin-top: 3px; }
-.dev-val .label { font-size: 10px; color: #999; }
-.dev-val .num { font-size: 13px; font-weight: 600; margin-left: 2px; }
-.quality-dot { display: inline-block; width: 6px; height: 6px; border-radius: 50%; margin-left: 2px; vertical-align: middle; }
-.dev-ctrl-btn { width: 28px; height: 28px; border-radius: 50%; border: 2px solid; font-size: 12px; cursor: pointer; align-self: center; margin-right: 8px; display: flex; align-items: center; justify-content: center; }
-.dev-ctrl-btn.start { border-color: #22c55e; color: #22c55e; background: transparent; }
-.dev-ctrl-btn.stop { border-color: #ef4444; color: #ef4444; background: transparent; }
-.dev-empty { grid-column: 1 / -1; text-align: center; color: #999; padding: 40px 0; font-size: 13px; }
+.device-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  align-content: start;
+  gap: var(--space-3);
+  padding: var(--space-3);
+  overflow-y: auto;
+}
+.dev-card {
+  position: relative;
+  display: flex;
+  align-items: stretch;
+  min-height: 84px;
+  overflow: hidden;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-base);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  transition: border-color var(--duration-fast) var(--ease-out), box-shadow var(--duration-fast) var(--ease-out);
+}
+.dev-card:hover { border-color: var(--color-brand); box-shadow: var(--shadow-sm); }
+.dev-status { width: 4px; flex: none; }
+.dev-status.online { background: var(--color-success); }
+.dev-status.stopped { background: var(--color-info); }
+.dev-status.warning { background: var(--color-warning); }
+.dev-status.fault { background: var(--color-danger); }
+.dev-status.offline { background: var(--color-offline); }
+.dev-info {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  flex: 1;
+  min-width: 0;
+  padding: var(--space-3);
+}
+.dev-name {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+  font-size: var(--font-sm);
+  font-weight: var(--weight-semibold);
+  color: var(--text-primary);
+}
+.dev-name__text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dev-meta { font-size: var(--font-xs); color: var(--text-muted); }
+.dev-values {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1) var(--space-4);
+  margin-top: var(--space-1);
+}
+.dev-val { display: inline-flex; align-items: baseline; gap: var(--space-1); min-width: 0; }
+.dev-val__label { font-size: var(--font-xs); color: var(--text-muted); }
+.dev-val__num {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: var(--font-base);
+  font-weight: var(--weight-semibold);
+}
+.quality-dot { width: 8px; height: 8px; border-radius: var(--radius-pill); align-self: center; flex: none; }
+.quality-dot--good { background: var(--color-success); }
+.quality-dot--uncertain { background: var(--color-warning); }
+.quality-dot--bad { background: var(--color-danger); }
+.quality-dot--unknown { background: var(--color-offline); }
+.dev-ctrl-btn {
+  align-self: center;
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  margin-right: var(--space-3);
+  border: 2px solid;
+  border-radius: var(--radius-pill);
+  background: transparent;
+  font-size: var(--font-xs);
+  cursor: pointer;
+}
+.dev-ctrl-btn.start { border-color: var(--color-success); color: var(--color-success); }
+.dev-ctrl-btn.stop { border-color: var(--color-danger); color: var(--color-danger); }
+.grid-empty { grid-column: 1 / -1; padding: var(--space-4) 0; }
 
 /* 分页 */
-.dev-pager { display: flex; align-items: center; justify-content: center; gap: 8px; padding: 8px 10px; border-top: 1px solid #e2e5ea; background: #f8f9fa; }
-.pager-btn { padding: 4px 10px; border: 1px solid #ddd; border-radius: 4px; background: #fff; cursor: pointer; font-size: 12px; color: #555; min-width: 28px; }
-.pager-btn:hover:not(:disabled) { border-color: #6366f1; color: #6366f1; }
+.dev-pager {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  border-top: 1px solid var(--border-base);
+  background: var(--bg-sunken);
+}
+.pager-btn {
+  min-width: 28px;
+  padding: var(--space-1) var(--space-2);
+  border: 1px solid var(--border-base);
+  border-radius: var(--radius-sm);
+  background: var(--bg-surface);
+  color: var(--text-secondary);
+  font-size: var(--font-xs);
+  cursor: pointer;
+}
+.pager-btn:hover:not(:disabled) { border-color: var(--color-brand); color: var(--color-brand); }
 .pager-btn:disabled { opacity: 0.4; cursor: not-allowed; }
-.pager-info { font-size: 12px; color: #666; }
+.pager-info { font-size: var(--font-xs); color: var(--text-muted); }
 
-/* 报警面板 */
-.alarm-panel { border-left: 1px solid #e2e5ea; display: flex; flex-direction: column; }
-.alarm-header { padding: 8px 12px; font-weight: 600; font-size: 13px; border-bottom: 1px solid #e2e5ea; display: flex; align-items: center; gap: 12px; }
-.alarm-badges { display: flex; gap: 8px; }
-.badge-crit { font-size: 10px; color: #ef4444; font-weight: 600; }
-.badge-high { font-size: 10px; color: #f59e0b; font-weight: 600; }
-.badge-med { font-size: 10px; color: #3b82f6; font-weight: 600; }
-.alarm-list { flex: 1; overflow-y: auto; padding: 4px; }
-.alarm-empty { padding: 20px; text-align: center; color: #999; font-size: 13px; }
-.alarm-row { display: flex; align-items: center; gap: 6px; padding: 5px 8px; border-bottom: 1px solid #f0f0f0; font-size: 11px; }
-.alarm-row.unacked { animation: alarm-flash 2s infinite; }
-@keyframes alarm-flash { 0%,100% { opacity: 1; } 50% { opacity: 0.7; } }
-.alarm-prio { font-size: 10px; font-weight: 700; padding: 1px 4px; border-radius: 3px; min-width: 36px; text-align: center; }
-.alarm-prio.critical { background: #fee2e2; color: #991b1b; }
-.alarm-prio.warning { background: #fef3c7; color: #92400e; }
-.alarm-prio.low { background: #e0f2fe; color: #075985; }
-.alarm-time { color: #999; min-width: 55px; }
-.alarm-device { color: #666; min-width: 80px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.alarm-msg { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #1a1a2e; }
-.alarm-pv { color: #6366f1; font-weight: 600; min-width: 55px; }
-.alarm-count { font-size: 10px; background: #f3f4f6; padding: 1px 4px; border-radius: 3px; color: #666; }
-.alarm-ack-btn { font-size: 10px; padding: 2px 6px; border: 1px solid #6366f1; color: #6366f1; background: transparent; border-radius: 3px; cursor: pointer; }
-.alarm-ack-btn:hover { background: #6366f1; color: #fff; }
+/* ==================== 报警面板 ==================== */
+.alarm-header { padding: var(--space-2) var(--space-3); font-size: var(--font-sm); }
+.alarm-badges { display: flex; gap: var(--space-1); flex-wrap: wrap; }
+.alarm-list { flex: 1; min-height: 0; overflow-y: auto; padding: var(--space-1); }
+.alarm-empty { padding: var(--space-4) var(--space-2); }
+.alarm-row {
+  display: flex;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  border-bottom: 1px solid var(--border-subtle);
+}
+.alarm-row:hover { background: var(--bg-hover); }
+.alarm-row__main {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  flex: 1;
+  min-width: 0;
+}
+.alarm-row__line1 {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+}
+.alarm-row__device {
+  min-width: 0;
+  font-size: var(--font-sm);
+  font-weight: var(--weight-semibold);
+  color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.alarm-row__prio {
+  flex: none;
+  padding: 0 var(--space-1);
+  border-radius: var(--radius-sm);
+  font-size: var(--font-xs);
+  font-weight: var(--weight-semibold);
+}
+.alarm-row__prio--critical { background: var(--color-danger-soft); color: var(--color-danger); }
+.alarm-row__prio--warning { background: var(--color-warning-soft); color: var(--color-warning); }
+.alarm-row__prio--info { background: var(--color-info-soft); color: var(--color-info); }
+.alarm-row__time {
+  flex: none;
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: var(--font-xs);
+  color: var(--text-muted);
+}
+.alarm-row__count { flex: none; font-size: var(--font-xs); color: var(--text-muted); }
+.alarm-row__ack {
+  margin-left: auto;
+  flex: none;
+  padding: 2px var(--space-2);
+  border: 1px solid var(--color-brand);
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--color-brand);
+  font-size: var(--font-xs);
+  cursor: pointer;
+}
+.alarm-row__ack:hover { background: var(--color-brand); color: var(--text-inverse); }
+.alarm-row__acked { margin-left: auto; flex: none; }
+.alarm-row__line2 {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  min-width: 0;
+}
+.alarm-row__msg {
+  flex: 1;
+  min-width: 0;
+  font-size: var(--font-sm);
+  color: var(--text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.alarm-row__pv {
+  flex: none;
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: var(--font-sm);
+  font-weight: var(--weight-semibold);
+  color: var(--color-brand);
+}
 
-/* 趋势图 */
-.trend-area { background: #fff; border-top: 1px solid #e2e5ea; padding: 4px 12px 8px; }
-.trend-header { margin-bottom: 4px; display: flex; align-items: center; justify-content: space-between; }
-.trend-title { font-size: 12px; font-weight: 600; color: #333; }
-.trend-device-select { font-size: 12px; padding: 2px 8px; border: 1px solid #d1d5db; border-radius: 4px; }
-.trend-btn { font-size: 11px; padding: 2px 8px; border: 1px solid #ddd; border-radius: 4px; background: #fff; cursor: pointer; }
-.trend-btn:hover { border-color: #6366f1; color: #6366f1; }
-.trend-chart { height: 180px; }
+/* ==================== 趋势区 ==================== */
+.trend-area { margin: 0 var(--space-3) var(--space-3); }
+.trend-header { padding: var(--space-2) var(--space-4); }
+.trend-title { font-size: var(--font-sm); }
+.trend-tools { display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; }
+.trend-select {
+  padding: var(--space-1) var(--space-2);
+  border: 1px solid var(--border-base);
+  border-radius: var(--radius-sm);
+  background: var(--bg-surface);
+  color: var(--text-primary);
+  font-size: var(--font-xs);
+}
+.trend-btn {
+  padding: var(--space-1) var(--space-3);
+  border: 1px solid var(--border-base);
+  border-radius: var(--radius-sm);
+  background: var(--bg-surface);
+  color: var(--text-secondary);
+  font-size: var(--font-xs);
+  cursor: pointer;
+}
+.trend-btn:hover { border-color: var(--color-brand); color: var(--color-brand); }
+.trend-chart { height: 280px; }
 
-/* 状态栏 */
-.status-bar { display: flex; align-items: center; gap: 8px; padding: 4px 12px; background: #f9fafb; border-top: 1px solid #e2e5ea; font-size: 11px; color: #666; }
-.status-dot { width: 8px; height: 8px; border-radius: 50%; }
-.status-dot.green { background: #22c55e; box-shadow: 0 0 6px rgba(34,197,94,0.6); }
-.status-dot.red { background: #ef4444; box-shadow: 0 0 6px rgba(239,68,68,0.6); }
-.status-dot.yellow { background: #eab308; box-shadow: 0 0 6px rgba(234,179,8,0.6); }
-.status-right { margin-left: auto; display: flex; gap: 12px; }
-.status-link { color: #6366f1; text-decoration: none; font-size: 11px; }
+/* ==================== 状态栏 ==================== */
+.status-bar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-4);
+  border-top: 1px solid var(--border-base);
+  background: var(--bg-sunken);
+  color: var(--text-muted);
+  font-size: var(--font-xs);
+}
+.status-db { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+.status-right { margin-left: auto; display: flex; gap: var(--space-3); }
+.status-link { color: var(--color-brand); font-size: var(--font-xs); text-decoration: none; }
 .status-link:hover { text-decoration: underline; }
 </style>
