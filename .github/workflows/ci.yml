@@ -47,3 +47,77 @@ jobs:
           name: dist
           path: dist/
           if-no-files-found: warn
+
+  electron-build:
+    # 证明 Electron 发布链可复现：Windows NSIS 安装包。
+    #
+    # 跨仓库产物传递方案（关键决策）：
+    #   后端 PyInstaller 产物由 industrial_scada 仓库（github.com/chenxinghang-a/scada）
+    #   的 build-backend job 产出，但 actions/download-artifact **只能下载同一仓库
+    #   同一 workflow run 的 artifact**，跨仓库拿不到。因此本 job 不自建依赖，
+    #   而是直接 checkout 后端仓库源码、在本 job 内用 scada-backend.spec 现打
+    #   后端产物 —— 单 workflow 即可复现完整安装包，不依赖任何开发机状态。
+    #
+    #   后端仓库为私有时，给下面第二个 checkout 加：
+    #     token: ${{ secrets.SCADA_BACKEND_PAT }}
+    runs-on: windows-latest
+    env:
+      # 后端 datas 目标含中文目录名（采集层/报警层/...），必须 UTF-8 模式。
+      PYTHONUTF8: '1'
+      PYTHONIOENCODING: 'utf-8'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Checkout backend source (industrial_scada)
+        uses: actions/checkout@v4
+        with:
+          repository: chenxinghang-a/scada
+          path: backend-src
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+          cache: pip
+          cache-dependency-path: backend-src/requirements.txt
+
+      - name: Build backend with PyInstaller
+        working-directory: backend-src
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt pyinstaller
+          python -m PyInstaller scada-backend.spec --noconfirm --clean
+
+      - name: Stage backend into extraResources dir
+        # package.json 的 extraResources 把 backend/ 整体打进安装包；
+        # electron/main.js 期望 <resources>/backend/scada-backend.exe。
+        # backend/ 下的 build_entry.py 等跟踪文件保留，只覆盖构建产物。
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force backend | Out-Null
+          Copy-Item -Recurse -Force backend-src/dist/scada-backend/* backend/
+          if (-not (Test-Path backend/scada-backend.exe)) { throw "backend exe missing" }
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Type check and build
+        run: npm run build
+
+      - name: Unit tests
+        run: npm test
+
+      - name: Build NSIS installer
+        # 不走 npm run electron:build（它会再跑一遍 build），直接调 electron-builder。
+        run: npx electron-builder --win
+
+      - name: Upload NSIS installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: SmartSCADA-NSIS
+          path: release/*.exe
+          if-no-files-found: error
