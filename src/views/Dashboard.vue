@@ -114,7 +114,7 @@
             <span class="alarm-msg">{{ a.alarm_message || a.id }}</span>
             <span class="alarm-pv">{{ getAlarmPV(a) }}</span>
             <span v-if="(a.trigger_count || 1) > 1" class="alarm-count">×{{ a.trigger_count }}</span>
-            <button v-if="!a.acknowledged" class="alarm-ack-btn" @click="ackAlarm(a.id || a.alarm_id || '', a.device_id, a.register_name)">确认</button>
+            <button v-if="!a.acknowledged" class="alarm-ack-btn" @click="ackAlarm(a.alarm_id || a.id || '', a.device_id, a.register_name)">确认</button>
           </div>
         </div>
       </div>
@@ -154,7 +154,7 @@ import * as echarts from 'echarts'
 import { io } from 'socket.io-client'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { systemApi, devicesApi, dataApi, alarmsApi, industry40Api, type DeviceStatus, type SystemStatus, type Alarm } from '@/api'
-import { getAuthToken } from '@/api/request'
+import { getAuthToken, getWsBaseUrl } from '@/api/request'
 import { useAuthStore } from '@/stores/auth'
 import { showActionError } from '@/utils/error'
 
@@ -168,12 +168,17 @@ const selectedDeviceId = ref('')
 const userName = ref('用户')
 const trendChartRef = ref<HTMLElement>()
 let trendChart: echarts.ECharts | null = null
+let trendResizeObserver: ResizeObserver | null = null
 let socket: ReturnType<typeof io> | null = null
-let loadTimer: ReturnType<typeof setInterval>
+let loadTimer: ReturnType<typeof setInterval> | undefined
 let loadDataInProgress = false
 let loadGeneration = 0
+let isUnmounted = false
+// 防止同一报警被重复确认（防重复提交）
+const pendingAcks = new Set<string>()
 
 const deviceCache: Record<string, DeviceStatus> = {}
+// 按 device_id + register_name 分桶，避免切换设备后同名寄存器数据串台
 const dataBuffers: Record<string, Array<{ t: string; v: number }>> = {}
 const deviceValues = reactive<Record<string, number>>({})
 const deviceQuality = reactive<Record<string, number>>({})
@@ -232,14 +237,26 @@ onMounted(() => {
   loadData()
   loadOEE()
   loadUserName()
-  loadTimer = setInterval(loadData, 5000)
+  setPollInterval(5000)
 })
 
 onUnmounted(() => {
+  isUnmounted = true
+  if (loadTimer) { clearInterval(loadTimer); loadTimer = undefined }
+  trendResizeObserver?.disconnect()
+  trendResizeObserver = null
   trendChart?.dispose()
+  trendChart = null
   socket?.disconnect()
-  clearInterval(loadTimer)
+  socket = null
 })
+
+// 轮询定时器统一入口：先清后建，避免断开/重连时叠加出多个定时器
+function setPollInterval(ms: number) {
+  if (isUnmounted) return
+  if (loadTimer) clearInterval(loadTimer)
+  loadTimer = setInterval(loadData, ms)
+}
 
 // ========== 数据加载 ==========
 async function loadData() {
@@ -292,9 +309,13 @@ async function loadData() {
 
 async function loadOEE() {
   try {
+    // 后端 /api/industry40/oee 返回 {device_id: {...}} 映射（响应拦截器已解包 success/data 信封）
     const data = await industry40Api.getOEE() as any
-    if (data?.devices?.length) {
-      kpi.oee = Math.round(data.devices.reduce((s: number, d: any) => s + d.oee_percent, 0) / data.devices.length)
+    if (data && typeof data === 'object') {
+      const list = Array.isArray(data) ? data : Object.values(data)
+      if (list.length) {
+        kpi.oee = Math.round(list.reduce((s: number, d: any) => s + (d?.oee_percent || 0), 0) / list.length)
+      }
     }
   } catch (e: any) { console.warn('[Dashboard] 加载失败:', e?.message || e) }
 }
@@ -412,8 +433,16 @@ function getAlarmPrioText(level: string): string { return level === 'critical' ?
 function formatAlarmTime(t: string): string { return t ? new Date(t).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', second: '2-digit' }) : '-' }
 function getAlarmPV(a: any): string { const v = a.last_value != null ? a.last_value : a.actual_value; return v != null ? `PV:${parseFloat(v).toFixed(1)}` : '' }
 async function ackAlarm(alarmId: string, deviceId: string, regName: string) {
-  if (!alarmId) return
-  try { await alarmsApi.acknowledge(alarmId, deviceId, regName); loadData() } catch (e: any) { showActionError('确认报警', e) }
+  // 同一 alarm_id 可能出现在多台设备上，按 设备+规则ID 作为去重键
+  const key = `${deviceId}:${alarmId}`
+  if (!alarmId || pendingAcks.has(key)) return
+  pendingAcks.add(key)
+  try {
+    // 后端确认失败时返回 HTTP 200 + success:false，必须显式判断，否则静默失败
+    const res: any = await alarmsApi.acknowledge(alarmId, deviceId, regName)
+    if (res && res.success === false) ElMessage.error(res.message || '报警确认失败')
+    loadData()
+  } catch (e: any) { showActionError('确认报警', e) } finally { pendingAcks.delete(key) }
 }
 
 // ========== 工具函数 ==========
@@ -451,38 +480,55 @@ function getQualityLabel(q: number | null): string {
 }
 
 // ========== 趋势图 ==========
+function bufferKey(deviceId: string, regName: string) { return `${deviceId}:${regName}` }
+function selectedBuffers(): Record<string, Array<{ t: string; v: number }>> {
+  const prefix = `${selectedDeviceId.value}:`
+  const out: Record<string, Array<{ t: string; v: number }>> = {}
+  Object.keys(dataBuffers).forEach(k => { if (k.startsWith(prefix)) out[k] = dataBuffers[k] })
+  return out
+}
 function selectDevice(id: string) {
   selectedDeviceId.value = id
-  // 不清空历史数据，切换设备后趋势图自动显示新设备的数据
-  updateTrendChart()
+  // 只渲染当前设备自己的历史缓冲，避免显示上一台设备的数据
+  renderTrend()
 }
 function onDeviceChange() {
-  // 不清空历史数据，保留所有设备的趋势记录
-  updateTrendChart()
+  renderTrend()
 }
 
 function initTrendChart() {
   if (!trendChartRef.value) return
   trendChart = echarts.init(trendChartRef.value)
+  // 窗口缩放/侧边栏折叠会改变容器宽度，不 resize 图表会被裁切
+  trendResizeObserver = new ResizeObserver(() => trendChart?.resize())
+  trendResizeObserver.observe(trendChartRef.value)
 }
 
 function updateTrendChart(data: any[] = []) {
-  if (!trendChart || !selectedDeviceId.value) return
+  if (!selectedDeviceId.value) return
   const now = new Date().toTimeString().slice(0, 8)
   let matched = 0
   data.forEach((item: any) => {
     if (item.device_id !== selectedDeviceId.value) return
     if (item.value === null || item.value === undefined) return
-    const key = item.register_name
+    const v = parseFloat(item.value)
+    if (!Number.isFinite(v)) return
+    const key = bufferKey(item.device_id, item.register_name)
     if (!dataBuffers[key]) dataBuffers[key] = []
-    dataBuffers[key].push({ t: now, v: parseFloat(item.value) })
+    dataBuffers[key].push({ t: now, v })
     if (dataBuffers[key].length > MAX_CHART_POINTS) dataBuffers[key].shift()
     matched++
   })
   if (matched === 0) return
-  const keys = Object.keys(dataBuffers)
+  renderTrend()
+}
+
+function renderTrend() {
+  if (!trendChart) return
+  const buffers = selectedBuffers()
+  const keys = Object.keys(buffers)
   const timeSet = new Set<string>()
-  keys.forEach(k => dataBuffers[k].forEach(d => timeSet.add(d.t)))
+  keys.forEach(k => buffers[k].forEach(d => timeSet.add(d.t)))
   const times = Array.from(timeSet).sort().slice(-MAX_CHART_POINTS)
   const colors = ['#6366f1', '#06b6d4', '#f59e0b', '#ef4444', '#22c55e', '#ec4899']
   trendChart.setOption({
@@ -494,23 +540,24 @@ function updateTrendChart(data: any[] = []) {
     yAxis: { type: 'value', axisLine: { show: false }, axisLabel: { color: '#999', fontSize: 10 }, splitLine: { lineStyle: { color: '#f0f0f0' } } },
     series: keys.map((key, i) => {
       const map: Record<string, number> = {}
-      dataBuffers[key].forEach(d => { map[d.t] = d.v })
-      return { name: getShortLabel(key), type: 'line', smooth: true, symbol: 'none', lineStyle: { width: 1.5, color: colors[i % colors.length] }, data: times.map(t => map[t] ?? null) }
+      buffers[key].forEach(d => { map[d.t] = d.v })
+      return { name: getShortLabel(key.slice(key.indexOf(':') + 1)), type: 'line', smooth: true, symbol: 'none', lineStyle: { width: 1.5, color: colors[i % colors.length] }, data: times.map(t => map[t] ?? null) }
     }),
   })
 }
 
 // ========== CSV 导出（客户端生成） ==========
 function exportChartData() {
-  if (!selectedDeviceId.value || !Object.keys(dataBuffers).length) { ElMessage.error('无数据可导出'); return }
-  const keys = Object.keys(dataBuffers)
+  const buffers = selectedBuffers()
+  const keys = Object.keys(buffers)
+  if (!selectedDeviceId.value || !keys.length) { ElMessage.error('无数据可导出'); return }
   const timeSet = new Set<string>()
-  keys.forEach(k => dataBuffers[k].forEach(d => timeSet.add(d.t)))
+  keys.forEach(k => buffers[k].forEach(d => timeSet.add(d.t)))
   const times = Array.from(timeSet).sort()
   const escCSV = (v: string) => v.includes(',') || v.includes('"') || v.includes('\n') ? `"${v.replace(/"/g, '""')}"` : v
-  let csv = '﻿时间,' + keys.map(k => escCSV(getShortLabel(k))).join(',') + '\n'
+  let csv = '﻿时间,' + keys.map(k => escCSV(getShortLabel(k.slice(k.indexOf(':') + 1)))).join(',') + '\n'
   times.forEach(t => {
-    csv += escCSV(t) + ',' + keys.map(k => { const d = dataBuffers[k].find(x => x.t === t); return d ? d.v.toFixed(2) : '' }).join(',') + '\n'
+    csv += escCSV(t) + ',' + keys.map(k => { const d = buffers[k].find(x => x.t === t); return d ? d.v.toFixed(2) : '' }).join(',') + '\n'
   })
   downloadCSV(csv, `trend_${selectedDeviceId.value}_${new Date().toISOString().slice(0,19).replace(/:/g,'-')}.csv`)
 }
@@ -539,7 +586,7 @@ function downloadCSV(csv: string, filename: string) {
 
 // ========== WebSocket ==========
 function connectSocket() {
-  const baseUrl = import.meta.env.DEV ? window.location.origin : 'http://localhost:5000'
+  const baseUrl = getWsBaseUrl()
   const token = getAuthToken()
   // token 通过 query 传递 — 后端从 request.args.get('token') 读取
   const socketUrl = token ? `${baseUrl}?token=${encodeURIComponent(token)}` : baseUrl
@@ -550,23 +597,24 @@ function connectSocket() {
     reconnectionAttempts: Infinity,
   })
   socket.on('connect', () => {
+    if (isUnmounted) return
     statusDotClass.value = 'status-dot green'
     statusText.value = '系统运行中'
+    // 恢复 5 秒轮询（首次连接与重连都会走这里；socket.io v4 的 'reconnect' 只在 Manager 上触发）
+    setPollInterval(5000)
     allDeviceList.value.forEach(d => { const id = getDeviceId(d); if (id) socket?.emit('subscribe', { device_id: id }) })
   })
   socket.on('disconnect', () => {
+    if (isUnmounted) return
     statusDotClass.value = 'status-dot yellow'
     statusText.value = '实时连接断开，降级为轮询模式（每2秒刷新）'
     // WebSocket断开时增加轮询频率（从5秒降到2秒）
-    clearInterval(loadTimer)
-    loadTimer = setInterval(loadData, 2000)
+    setPollInterval(2000)
   })
-  socket.on('reconnect', () => {
-    statusDotClass.value = 'status-dot green'
-    statusText.value = '系统运行中'
-    // 恢复正常轮询频率
-    clearInterval(loadTimer)
-    loadTimer = setInterval(loadData, 5000)
+  socket.on('connect_error', () => {
+    if (isUnmounted) return
+    statusDotClass.value = 'status-dot yellow'
+    statusText.value = '实时连接失败，使用轮询模式'
   })
   socket.on('data_update', (data: any) => {
     if (!data) return

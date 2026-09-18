@@ -63,7 +63,7 @@ import { ref, reactive, onMounted, onUnmounted } from 'vue'
 import * as echarts from 'echarts'
 import { io } from 'socket.io-client'
 import { systemApi, alarmsApi, industry40Api, dataApi } from '@/api'
-import { getAuthToken } from '@/api/request'
+import { getAuthToken, getWsBaseUrl } from '@/api/request'
 
 const clock = ref('')
 const devices = ref<any[]>([])
@@ -137,8 +137,8 @@ async function loadI40() {
       industry40Api.getEnergy().catch(() => null),
       industry40Api.getSPCViolations().catch(() => null),
     ])
-    if (oee?.devices?.length) renderOEEGauge(oee.devices)
-    if (health?.health_scores?.length) renderHealthBar(health.health_scores)
+    if (oee && typeof oee === 'object' && Object.keys(oee).length) renderOEEGauge(Object.values(oee))
+    if (health && typeof health === 'object' && Object.keys(health).length) renderHealthBar(Object.values(health))
     if (energy?.summary) renderEnergyBar(energy.summary)
     // SPC 控制图：用第一个设备的第一个寄存器数据渲染
     if (devices.value.length) {
@@ -146,8 +146,19 @@ async function loadI40() {
       const regs = firstDev.registers || []
       const firstReg = regs[0]?.name || 'temperature'
       try {
-        const spcData = await industry40Api.getSPC(firstDev.device_id, firstReg)
-        if (spcData?.chart_data) renderSPCChart(spcData.chart_data)
+        const spcData = await industry40Api.getSPC(firstDev.device_id, firstReg) as any
+        // 后端 /api/industry40/spc/<d>/<r> 返回 {control_chart, capability}，
+        // control_chart = {xbar:{points,ucl,cl,lcl}, r_chart:{...}, violations}
+        const cc = spcData?.control_chart
+        const xbar = cc?.xbar || {}
+        if (xbar.points) {
+          renderSPCChart({
+            values: xbar.points,
+            ucl: xbar.ucl,
+            cl: xbar.cl,
+            lcl: xbar.lcl,
+          })
+        }
       } catch (e: any) { console.warn('[Screen] 加载失败:', e?.message || e) }
     }
   } catch (e: any) { console.warn('[Screen] 加载失败:', e?.message || e) }
@@ -271,7 +282,7 @@ function renderTrend(data: any[]) {
 }
 
 function connectSocket() {
-  const baseUrl = import.meta.env.DEV ? window.location.origin : 'http://localhost:5000'
+  const baseUrl = getWsBaseUrl()
   const token = getAuthToken()
   const url = token ? `${baseUrl}?token=${encodeURIComponent(token)}` : baseUrl
   socket = io(url, {

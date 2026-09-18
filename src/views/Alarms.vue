@@ -83,6 +83,10 @@ const devices = ref<Device[]>([])
 const stats = ref<any>({})
 const loading = ref(false)
 const filter = reactive({ device_id: '', alarm_level: '', status: '' })
+// 防止同一报警重复提交确认
+const pendingAcks = new Set<string>()
+// 请求序号：快速切换筛选条件时丢弃过期响应
+let refreshSeq = 0
 
 onMounted(() => { refreshAlarms(); loadDevices() })
 
@@ -91,12 +95,14 @@ async function loadDevices() {
 }
 
 async function refreshAlarms() {
+  const seq = ++refreshSeq
   loading.value = true
   try {
     const params: any = { limit: 100 }
     if (filter.device_id) params.device_id = filter.device_id
     if (filter.alarm_level) params.alarm_level = filter.alarm_level
     const [alarmData, statsData] = await Promise.all([alarmsApi.getAll(params), alarmsApi.getStatistics()])
+    if (seq !== refreshSeq) return
     alarms.value = (alarmData.alarms || []).filter((a: any) => {
       if (filter.status === 'unacknowledged') return !a.acknowledged
       if (filter.status === 'acknowledged') return a.acknowledged
@@ -104,17 +110,27 @@ async function refreshAlarms() {
     })
     stats.value = statsData || {}
   } catch (e: any) { console.warn('[Alarms] 加载失败:', e?.message || e) }
-  finally { loading.value = false }
+  finally { if (seq === refreshSeq) loading.value = false }
 }
 
-async function acknowledge(id: string) {
+async function acknowledge(id: string | number) {
+  const alarmId = id == null ? '' : String(id)
+  if (!alarmId) return
+  // 后端按 alarm_id（规则ID）+ device_id + register_name 定位记录，传数据库自增 id 会确认失败
+  const alarm = alarms.value.find(a => String(a.alarm_id) === alarmId || String(a.id) === alarmId)
+  // 同一 alarm_id 可能出现在多台设备上，按 设备+规则ID 去重，避免重复提交
+  const key = `${alarm?.device_id || ''}:${alarmId}`
+  if (pendingAcks.has(key)) return
+  pendingAcks.add(key)
   try {
-    // 找到报警记录，传递 device_id 和 register_name 给后端
-    const alarm = alarms.value.find(a => a.id === id || a.alarm_id === id)
-    await alarmsApi.acknowledge(id, alarm?.device_id, alarm?.register_name)
+    const res: any = await alarmsApi.acknowledge(alarmId, alarm?.device_id, alarm?.register_name)
+    if (res && res.success === false) { ElMessage.error(res.message || '报警确认失败'); return }
     ElMessage.success('报警已确认')
     refreshAlarms()
-  } catch (e: any) { console.warn('[Alarms] 确认失败:', e?.message || e); ElMessage.error('报警确认失败: ' + (e?.message || '未知错误')) }
+  } catch (e: any) {
+    console.warn('[Alarms] 确认失败:', e?.message || e)
+    ElMessage.error('报警确认失败: ' + (e?.response?.data?.error || e?.response?.data?.message || e?.message || '未知错误'))
+  } finally { pendingAcks.delete(key) }
 }
 
 async function exportAlarms() {
@@ -127,8 +143,8 @@ async function exportAlarms() {
     a.click()
     URL.revokeObjectURL(url)
     ElMessage.success('报警数据已导出')
-  } catch {
-    // 如果后端导出失败，用前端数据生成 CSV
+  } catch (e: any) {
+    // 如果后端导出失败，用前端数据生成 CSV（同时提示用户是本地数据，避免误认为后端导出成功）
     const headers = ['时间', '设备', '参数', '等级', '报警信息', '阈值', '实际值', '状态']
     const esc = (v: any) => { const s = String(v ?? ''); return s.includes(',') || s.includes('"') || s.includes('\n') ? `"${s.replace(/"/g, '""')}"` : s }
     const rows = alarms.value.map(a => [
@@ -149,7 +165,8 @@ async function exportAlarms() {
     a.download = `alarms-${new Date().toISOString().slice(0, 10)}.csv`
     a.click()
     URL.revokeObjectURL(url)
-    ElMessage.success('报警数据已导出')
+    if (e?.response) ElMessage.warning('后端导出失败，已改为导出当前列表数据')
+    else ElMessage.success('报警数据已导出')
   }
 }
 </script>

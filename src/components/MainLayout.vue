@@ -48,6 +48,10 @@
           <el-icon><Monitor /></el-icon>
           <template #title>数据大屏</template>
         </el-menu-item>
+        <el-menu-item index="/performance" v-if="canAccess(['admin','engineer'])">
+          <el-icon><TrendCharts /></el-icon>
+          <template #title>性能监控</template>
+        </el-menu-item>
         <el-menu-item index="/config" v-if="canAccess(['admin'])">
           <el-icon><Setting /></el-icon>
           <template #title>系统配置</template>
@@ -130,7 +134,7 @@
           <div class="connecting-content">
             <div class="connecting-spinner"></div>
             <div class="connecting-text">正在连接后端服务...</div>
-            <div class="connecting-sub">端口 5000 · 请稍候</div>
+            <div class="connecting-sub">端口 {{ backendPort }} · 请稍候</div>
           </div>
         </div>
         <!-- 后端离线提示（非首次连接） -->
@@ -147,6 +151,10 @@ import { useRouter, useRoute } from 'vue-router'
 import { ElMessageBox, ElMessage } from 'element-plus'
 import { useAuthStore } from '@/stores/auth'
 import { useAppStore } from '@/stores/app'
+import { getBackendPort } from '@/api/request'
+
+// 连接中提示的后端端口（Electron 注入 window.__BACKEND_PORT__，回退 5000）
+const backendPort = ref(getBackendPort())
 
 const router = useRouter()
 const route = useRoute()
@@ -169,6 +177,7 @@ const currentTitle = computed(() => {
     '/alarms': '报警管理',
     '/alarm-output': '报警输出',
     '/industry40': '工业4.0',
+    '/performance': '性能监控',
     '/screen': '数据大屏',
     '/config': '系统配置',
     '/users': '用户管理',

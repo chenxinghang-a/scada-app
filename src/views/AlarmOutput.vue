@@ -25,8 +25,8 @@
             <div class="tower-msg">{{ towerStatus.message || '无报警' }}</div>
           </div>
           <div class="tower-actions">
-            <el-button type="warning" @click="silenceAlarm">消音</el-button>
-            <el-button type="info" @click="resetAlarm">复位</el-button>
+            <el-button type="warning" :loading="busy.silence" @click="silenceAlarm">消音</el-button>
+            <el-button type="info" :loading="busy.reset" @click="resetAlarm">复位</el-button>
           </div>
         </el-card>
       </el-col>
@@ -44,8 +44,8 @@
                 <el-form-item label="蜂鸣器"><el-switch v-model="manual.buzzer" /></el-form-item>
                 <el-form-item label="持续(秒)"><el-input-number v-model="manual.duration" :min="0" :max="300" style="width:100%" /></el-form-item>
                 <el-form-item>
-                  <el-button type="primary" @click="sendManualControl">执行</el-button>
-                  <el-button @click="allOff">全部关闭</el-button>
+                  <el-button type="primary" :loading="busy.manual" @click="sendManualControl">执行</el-button>
+                  <el-button :disabled="busy.manual" @click="allOff">全部关闭</el-button>
                 </el-form-item>
               </el-form>
             </el-col>
@@ -68,7 +68,7 @@
                   <el-input v-model="broadcast.text" type="textarea" :rows="3" />
                 </el-form-item>
                 <el-form-item>
-                  <el-button type="primary" @click="sendBroadcast">广播</el-button>
+                  <el-button type="primary" :loading="busy.broadcast" @click="sendBroadcast">广播</el-button>
                 </el-form-item>
               </el-form>
               <div class="preset-msgs">
@@ -109,13 +109,15 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { io } from 'socket.io-client'
 import { alarmsApi } from '@/api'
 import { showActionError } from '@/utils/error'
-import { getAuthToken } from '@/api/request'
+import { getAuthToken, getWsBaseUrl } from '@/api/request'
 
 const towerStatus = reactive({ red: false, yellow: false, green: false, buzzer: false, flash: false, level: '', message: '', mode: 'simulation' })
 const manual = reactive({ red: false, yellow: false, green: false, buzzer: false, duration: 10 })
 const broadcast = reactive({ area: 'all', level: 'warning', text: '' })
 const broadcastAreas = ref<string[]>([])
 const broadcastHistory = ref<any[]>([])
+// 各操作的在途标记，避免重复点击并发提交
+const busy = reactive({ silence: false, reset: false, manual: false, broadcast: false })
 let socket: ReturnType<typeof io> | null = null
 
 onMounted(async () => {
@@ -129,10 +131,23 @@ onUnmounted(() => { socket?.disconnect() })
 
 async function loadStatus() {
   try {
-    const data = await alarmsApi.getAlarmOutputStatus()
+    // 后端 /api/alarm-output/status 返回 {alarm_output, broadcast}
+    // 其中 alarm_output.get_status() = {enabled, simulation, state:{red,yellow,green,buzzer,pattern,level,message,...}, do_mapping}
+    const data = await alarmsApi.getAlarmOutputStatus() as any
     if (!data) return
-    Object.assign(towerStatus, data.tower || {})
-    towerStatus.mode = data.mode || 'simulation'
+    const ao = data.alarm_output || {}
+    const state = ao.state || {}
+    Object.assign(towerStatus, {
+      red: !!state.red,
+      yellow: !!state.yellow,
+      green: !!state.green,
+      buzzer: !!state.buzzer,
+      // pattern 为 fast/slow 时视为闪烁
+      flash: state.pattern === 'fast' || state.pattern === 'slow',
+      level: state.level || '',
+      message: state.message || '',
+      mode: ao.simulation ? 'simulation' : 'hardware',
+    })
   } catch (e: any) { console.warn('[AlarmOutput] 加载失败:', e?.message || e) }
 }
 
@@ -145,7 +160,7 @@ async function loadHistory() {
 }
 
 function connectSocket() {
-  const baseUrl = import.meta.env.DEV ? window.location.origin : 'http://localhost:5000'
+  const baseUrl = getWsBaseUrl()
   const token = getAuthToken()
   const socketUrl = token ? `${baseUrl}?token=${encodeURIComponent(token)}` : baseUrl
   socket = io(socketUrl, {
@@ -153,33 +168,49 @@ function connectSocket() {
     reconnection: true,
     reconnectionDelay: 3000,
   })
+  // 重连后主动拉一次状态，避免灯塔画面停留在断线前的旧状态
+  socket.on('connect', () => loadStatus())
   socket.on('alarm', () => loadStatus())
-  socket.on('broadcast', (data: any) => { if (data) broadcastHistory.value.unshift(data) })
+  socket.on('broadcast', (data: any) => {
+    if (!data) return
+    broadcastHistory.value.unshift(data)
+    if (broadcastHistory.value.length > 50) broadcastHistory.value.pop()
+  })
 }
 
 async function silenceAlarm() {
-  try { await alarmsApi.alarmOutputAcknowledge(); ElMessage.success('已消音'); loadStatus() } catch (e: any) { showActionError('消音', e) }
+  if (busy.silence) return
+  busy.silence = true
+  try { await alarmsApi.alarmOutputAcknowledge(); ElMessage.success('已消音'); loadStatus() } catch (e: any) { showActionError('消音', e) } finally { busy.silence = false }
 }
 
 async function resetAlarm() {
-  try { await alarmsApi.alarmOutputReset(); ElMessage.success('已复位'); loadStatus() } catch (e: any) { showActionError('复位', e) }
+  if (busy.reset) return
+  busy.reset = true
+  try { await alarmsApi.alarmOutputReset(); ElMessage.success('已复位'); loadStatus() } catch (e: any) { showActionError('复位', e) } finally { busy.reset = false }
 }
 
-async function sendManualControl() {
-  try { await alarmsApi.alarmOutputManual(manual); ElMessage.success('指令已发送') } catch (e: any) { showActionError('手动控制', e) }
+async function sendManualControl(): Promise<boolean> {
+  if (busy.manual) return false
+  busy.manual = true
+  try { await alarmsApi.alarmOutputManual(manual); ElMessage.success('指令已发送'); return true } catch (e: any) { showActionError('手动控制', e); return false } finally { busy.manual = false }
 }
 
 async function allOff() {
   try {
     await ElMessageBox.confirm('确定关闭所有报警输出？', '确认操作', { confirmButtonText: '确定', cancelButtonText: '取消', type: 'warning' })
-    manual.red = false; manual.yellow = false; manual.green = false; manual.buzzer = false
-    await sendManualControl()
-  } catch { /* cancelled */ }
+  } catch { return }
+  const prev = { red: manual.red, yellow: manual.yellow, green: manual.green, buzzer: manual.buzzer }
+  manual.red = false; manual.yellow = false; manual.green = false; manual.buzzer = false
+  // 指令失败时恢复开关，避免界面与现场输出状态不一致
+  if (!await sendManualControl()) Object.assign(manual, prev)
 }
 
 async function sendBroadcast() {
   if (!broadcast.text) { ElMessage.warning('请输入广播内容'); return }
-  try { await alarmsApi.broadcastSpeak(broadcast); ElMessage.success('广播已发送'); broadcast.text = ''; loadHistory() } catch (e: any) { showActionError('发送广播', e) }
+  if (busy.broadcast) return
+  busy.broadcast = true
+  try { await alarmsApi.broadcastSpeak(broadcast); ElMessage.success('广播已发送'); broadcast.text = ''; loadHistory() } catch (e: any) { showActionError('发送广播', e) } finally { busy.broadcast = false }
 }
 </script>
 

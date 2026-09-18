@@ -41,19 +41,21 @@
       <div ref="chartRef" class="chart-container"></div>
 
       <el-table :data="tableData" stripe class="mt-16" max-height="400" v-loading="loading">
-        <el-table-column prop="timestamp" label="时间" width="180">
-          <template #default="{ row }">{{ new Date(row.timestamp).toLocaleString() }}</template>
+        <el-table-column label="时间" width="180">
+          <template #default="{ row }">{{ formatBucketTime(row) }}</template>
         </el-table-column>
-        <el-table-column prop="value" label="平均值" width="100">
-          <template #default="{ row }">{{ row.value?.toFixed(2) }}</template>
+        <el-table-column label="平均值" width="100">
+          <template #default="{ row }">{{ fmtNum(bucketValue(row)) }}</template>
         </el-table-column>
-        <el-table-column prop="min_value" label="最小值" width="100">
-          <template #default="{ row }">{{ row.min_value?.toFixed(2) || '-' }}</template>
+        <el-table-column label="最小值" width="100">
+          <template #default="{ row }">{{ fmtNum(row.min_value) }}</template>
         </el-table-column>
-        <el-table-column prop="max_value" label="最大值" width="100">
-          <template #default="{ row }">{{ row.max_value?.toFixed(2) || '-' }}</template>
+        <el-table-column label="最大值" width="100">
+          <template #default="{ row }">{{ fmtNum(row.max_value) }}</template>
         </el-table-column>
-        <el-table-column prop="count" label="采样数" width="80" />
+        <el-table-column label="采样数" width="80">
+          <template #default="{ row }">{{ row.sample_count ?? row.count ?? '-' }}</template>
+        </el-table-column>
       </el-table>
     </el-card>
   </div>
@@ -72,10 +74,41 @@ const devices = ref<Device[]>([])
 const registers = ref<Register[]>([])
 const tableData = ref<any[]>([])
 const loading = ref(false)
+const exporting = ref(false)
 const chartRef = ref<HTMLElement>()
 let chart: echarts.ECharts | null = null
+let chartResizeObserver: ResizeObserver | null = null
+// 请求序号：设备/时间范围快速切换时丢弃过期响应，避免旧数据覆盖新数据
+let querySeq = 0
+let registerSeq = 0
 
 const filter = reactive({ device_id: '', register_name: '', timeRange: null as any, interval: '', quickRange: '1h' })
+
+// 后端 /api/data/history 返回聚合字段：time_bucket/avg_value/min_value/max_value/sample_count
+// （兼容原始明细字段 timestamp/value/count）
+function bucketTime(row: any): string { return row?.time_bucket || row?.timestamp || '' }
+function bucketValue(row: any): number | undefined { return row?.avg_value ?? row?.value }
+function fmtNum(v: any): string { return typeof v === 'number' && Number.isFinite(v) ? v.toFixed(2) : '-' }
+function toDate(t: string): Date | null {
+  if (!t) return null
+  const d = new Date(t.includes('T') ? t : t.replace(' ', 'T'))
+  return isNaN(d.getTime()) ? null : d
+}
+function formatBucketTime(row: any): string {
+  const t = bucketTime(row)
+  if (!t) return '-'
+  // 1day 聚合只返回日期（2026-09-18），按 UTC 解析会偏移时区，原样显示
+  if (/^\d{4}-\d{2}-\d{2}$/.test(t)) return t
+  const d = toDate(t)
+  return d ? d.toLocaleString() : t
+}
+function axisLabelOf(row: any): string {
+  const t = bucketTime(row)
+  if (!t) return ''
+  if (/^\d{4}-\d{2}-\d{2}$/.test(t)) return t.slice(5)
+  const d = toDate(t)
+  return d ? d.toLocaleTimeString('zh-CN', { hour12: false }) : t
+}
 
 function setQuickRange(range: string) {
   filter.quickRange = range
@@ -104,29 +137,41 @@ onMounted(async () => {
       yAxis: { type: 'value' },
       series: [{ type: 'line', smooth: true, showSymbol: false, areaStyle: { opacity: 0.15 }, data: [] }],
     })
+    // 侧边栏折叠不会触发 window resize，需要监听容器尺寸变化
+    chartResizeObserver = new ResizeObserver(() => chart?.resize())
+    chartResizeObserver.observe(chartRef.value)
   }
   window.addEventListener('resize', handleResize)
 })
 
 onUnmounted(() => {
   window.removeEventListener('resize', handleResize)
+  chartResizeObserver?.disconnect()
+  chartResizeObserver = null
   chart?.dispose()
   chart = null
 })
 
 async function loadRegisters(deviceId: string) {
-  try { const data = await devicesApi.getById(deviceId); registers.value = data.device?.registers || [] } catch (e: any) { console.warn('[History] 加载失败:', e?.message || e) }
+  const seq = ++registerSeq
+  try {
+    const data = await devicesApi.getById(deviceId)
+    if (seq !== registerSeq) return  // 已切换到其他设备，丢弃过期响应
+    registers.value = data.device?.registers || []
+  } catch (e: any) { console.warn('[History] 加载失败:', e?.message || e) }
 }
 
 const MAX_CHART_POINTS = 500  // 图表最大数据点数
 
 async function queryHistory() {
   if (!filter.device_id || !filter.register_name) { ElMessage.warning('请选择设备和参数'); return }
+  const seq = ++querySeq
   loading.value = true
   try {
     const params: any = { interval: filter.interval }
     if (filter.timeRange?.length === 2) { params.start = filter.timeRange[0].toISOString(); params.end = filter.timeRange[1].toISOString() }
     const data = await dataApi.getHistory(filter.device_id, filter.register_name, params)
+    if (seq !== querySeq) return  // 已有更新的查询，丢弃过期响应
     tableData.value = data.data || []
     if (chart && tableData.value.length > 0) {
       // 大数据量采样：超过MAX_CHART_POINTS时均匀采样
@@ -136,16 +181,33 @@ async function queryHistory() {
         displayData = displayData.filter((_, i) => i % step === 0)
       }
       chart.setOption({
-        xAxis: { data: displayData.map(d => new Date(d.timestamp).toLocaleTimeString()) },
-        series: [{ data: displayData.map(d => d.value) }],
+        xAxis: { data: displayData.map(d => axisLabelOf(d)) },
+        series: [{ data: displayData.map(d => bucketValue(d) ?? null) }],
       })
+    } else if (chart) {
+      // 结果为空时清空图表，避免残留上一次查询的曲线
+      chart.setOption({ xAxis: { data: [] }, series: [{ data: [] }] })
     }
   } catch (e: any) { console.warn('[History] 加载失败:', e?.message || e) }
-  finally { loading.value = false }
+  finally { if (seq === querySeq) loading.value = false }
+}
+
+// responseType:'blob' 会把后端 JSON 错误体包成 Blob，这里解出真实原因
+async function extractBlobError(e: any): Promise<string> {
+  const data = e?.response?.data
+  if (data instanceof Blob) {
+    try {
+      const obj = JSON.parse(await data.text())
+      return obj?.message || obj?.error || e?.message || '未知错误'
+    } catch { /* 非 JSON 错误体，回落到 axios 消息 */ }
+  }
+  return e?.response?.data?.error || e?.response?.data?.message || e?.message || '未知错误'
 }
 
 async function exportData() {
   if (!filter.device_id) { ElMessage.warning('请先选择设备'); return }
+  if (exporting.value) return
+  exporting.value = true
   try {
     const params: any = { format: 'csv' }
     if (filter.timeRange?.length === 2) {
@@ -157,16 +219,18 @@ async function exportData() {
       params.end_time = new Date().toISOString()
     }
     const blob = await dataApi.exportDevice(filter.device_id, params) as any
-    if (blob instanceof Blob) {
-      const url = URL.createObjectURL(blob)
-      const a = document.createElement('a')
-      a.href = url
-      a.download = `device_${filter.device_id}_${new Date().toISOString().slice(0, 10)}.csv`
-      a.click()
-      URL.revokeObjectURL(url)
-    }
+    if (!(blob instanceof Blob)) { ElMessage.error('导出失败: 响应格式异常'); return }
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `device_${filter.device_id}_${new Date().toISOString().slice(0, 10)}.csv`
+    a.click()
+    URL.revokeObjectURL(url)
     ElMessage.success('导出成功')
-  } catch (e: any) { console.warn('[History] 导出失败:', e?.message || e); ElMessage.error('导出失败: ' + (e?.message || '未知错误')) }
+  } catch (e: any) {
+    console.warn('[History] 导出失败:', e?.message || e)
+    ElMessage.error('导出失败: ' + await extractBlobError(e))
+  } finally { exporting.value = false }
 }
 </script>
 
