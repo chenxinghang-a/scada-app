@@ -2,21 +2,35 @@ const { BrowserWindow, dialog, app } = require('electron')
 const path = require('path')
 const fs = require('fs')
 
-// ---------------------------------------------------------------------------
-// 更新能力自检（为什么需要这个）
+// ===========================================================================
+// 自动更新：明确【关闭】
+// ===========================================================================
+// 本项目交付口径（审计 Phase 5）："一个版本源、一个 commit、一个安装包"。
+//   - 后端 VERSION 文件是唯一版本真源，前后端 lockstep；
+//   - 安装包由 electron-builder 产出（nsis），通过发布流程一次性分发；
+//   - 运行期【不启用】自动更新。
 //
-// 打包后的 Windows 应用**没有控制台**，`console.log/warn` 谁也看不见。
-// 此前 electron-updater 未安装时，这里只 `console.log('electron-updater 不可用')`
-// 然后 `return` —— 结果是「永远不更新」这件事对用户和开发者**完全不可见**：
-// 用户以为自己在用最新版，开发者以为更新链路是通的。
-// 这正是本项目（后端 round 159/160）反复在修的「静默失效」，
-// 只不过发生在 JS 侧。
+// 为什么要"显式关闭"而不是留 no-op：
+//   旧实现依赖 `require('electron-updater')` 失败来"碰巧"不更新——
+//   package.json 从未声明该依赖，catch 后只 console.log 再 return，
+//   等于一个静默失效的 no-op，用户以为在用最新版、开发者以为链路通。
+//   这正是后端反复在修的"静默失效"。审计明确要求"不得保留 no-op"，
+//   所以这里把"自动更新未启用"做成【显式、可读、可诊断】的状态。
 //
-// 所以这里把原因**落盘**到 userData/update.log，事后可诊断。
-// 本模块只做「让失败可见」，**不改变行为** —— 真正接通自动更新需要
-// `npm i electron-updater` + 配置 build.publish（+ 修 latest.yml 文件名不一致），
-// 那是单独一步，见 `SCADA-交付链缺口与修复方案.md` P3-a / P3-b。
-// ---------------------------------------------------------------------------
+// 关闭的硬约束（任一条不满足，更新都应保持关闭）：
+//   1. AUTO_UPDATE_ENABLED = false（本文件显式开关）；
+//   2. package.json build 段未配置 publish（无更新服务器）；
+//   3. package.json 未声明 electron-updater 依赖。
+//
+// 若要真正启用自动更新，必须同时完成：
+//   a) AUTO_UPDATE_ENABLED = true；
+//   b) npm i electron-updater；
+//   c) package.json 的 build 段配置 publish；
+//   d) 修复 latest.yml 文件名一致性（见交付链缺口文档 P3-b）。
+// 上面任何一步没做，这里都会以"未启用"状态明确退出，而不是假装在工作。
+// ===========================================================================
+const AUTO_UPDATE_ENABLED = false
+
 let autoUpdater = null
 let loadError = null
 try {
@@ -25,15 +39,14 @@ try {
   loadError = e
 }
 
-let unavailableReported = false
+let disabledReported = false
 
-function reportUnavailable(reason) {
-  if (unavailableReported) return
-  unavailableReported = true
-  // 原因里可能带换行（例如 Node 的 "Cannot find module ...\nRequire stack:\n- ..."），
-  // 直接落盘会把一条日志写成多行，破坏「一行一条」的日志格式。压成单行。
+// 把"自动更新未启用"这件事落盘，事后可诊断（打包后无控制台，日志是唯一线索）。
+function reportDisabled(reason) {
+  if (disabledReported) return
+  disabledReported = true
   const oneLine = String(reason).replace(/\s*\r?\n\s*/g, ' | ').trim()
-  const msg = `自动更新不可用: ${oneLine}`
+  const msg = `自动更新未启用: ${oneLine}`
   console.warn(`[updater] ${msg}`)
   try {
     const dir = app.getPath('userData')
@@ -44,8 +57,7 @@ function reportUnavailable(reason) {
       'utf8',
     )
   } catch (e) {
-    // 落盘也失败时不再向上抛：上面那条 console.warn 已是最后手段，
-    // 「更新能力探测失败」绝不能影响应用启动。
+    // 落盘也失败时不再向上抛：更新能力探测失败绝不能影响应用启动。
   }
 }
 
@@ -58,10 +70,20 @@ function sendToRenderer(getWindow, channel, data) {
 }
 
 function setupUpdater(getWindow) {
+  // —— 显式关闭：自动更新未启用，给出可读原因后退出，不做任何更新检查 ——
+  if (!AUTO_UPDATE_ENABLED) {
+    reportDisabled(
+      'AUTO_UPDATE_ENABLED=false（交付口径：一个版本源/一个安装包，运行期不自动更新）。' +
+      (loadError ? ` electron-updater 也未安装 (${loadError.message})` : ' electron-updater 依赖未声明')
+    )
+    return
+  }
+
+  // 防御：即便开关打开，但依赖缺失/未配置 publish，也应明确退出而非静默 no-op。
   if (!autoUpdater) {
-    reportUnavailable(
+    reportDisabled(
       loadError
-        ? `electron-updater 加载失败 (${loadError.message}) —— package.json 里没有该依赖`
+        ? `electron-updater 加载失败 (${loadError.message}) —— package.json 未声明该依赖`
         : 'electron-updater 不可用'
     )
     return
@@ -129,8 +151,12 @@ function setupUpdater(getWindow) {
 }
 
 function checkForUpdates() {
+  if (!AUTO_UPDATE_ENABLED) {
+    reportDisabled('AUTO_UPDATE_ENABLED=false，跳过更新检查')
+    return
+  }
   if (!autoUpdater) {
-    reportUnavailable('electron-updater 未安装，跳过更新检查')
+    reportDisabled('electron-updater 未安装，跳过更新检查')
     return
   }
   if (updateDownloaded) return
@@ -139,4 +165,4 @@ function checkForUpdates() {
   })
 }
 
-module.exports = { setupUpdater, checkForUpdates }
+module.exports = { setupUpdater, checkForUpdates, AUTO_UPDATE_ENABLED }
