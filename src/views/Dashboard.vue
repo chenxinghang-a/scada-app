@@ -1,5 +1,5 @@
 ﻿<template>
-  <div class="dashboard">
+  <div class="dashboard" :class="{ 'dashboard--trend-collapsed': trendCollapsed }">
     <!-- KPI 行：主 KPI（OEE / 活动报警）+ 次要 KPI，每个带迷你可视化 -->
     <div class="kpi-row">
       <!-- 主 KPI：OEE，细进度条 + 目标对标线 -->
@@ -116,30 +116,106 @@
           </div>
         </div>
 
-        <div class="device-grid">
-          <div v-for="d in pagedDeviceList" :key="getDeviceId(d)" class="dev-card" @click="selectDevice(getDeviceId(d))">
+        <!-- 加载失败：必须可见（原因 + 重试），不再只写 console.warn -->
+        <div
+          v-if="deviceLoadState === 'error'"
+          class="dev-state dev-state--error"
+          :class="{ 'dev-state--solo': allDeviceList.length === 0 }"
+          role="alert"
+        >
+          <span class="dev-state__title">设备列表加载失败</span>
+          <span class="dev-state__reason" :title="deviceLoadError">{{ deviceLoadError || '未知错误' }}</span>
+          <button class="dev-state__retry" @click="retryDeviceLoad">重试</button>
+          <span v-if="allDeviceList.length" class="dev-state__note">下方为上次成功获取的数据</span>
+        </div>
+
+        <!-- 首次加载：骨架屏（明确区别于"真的没有设备"） -->
+        <div
+          v-if="allDeviceList.length === 0 && deviceLoadState !== 'error'"
+          class="device-grid device-grid--skeleton"
+          aria-busy="true"
+          aria-label="设备列表加载中"
+        >
+          <div v-for="i in SKELETON_CARDS" :key="i" class="dev-card dev-card--skeleton">
+            <span class="dev-skel dev-skel--title"></span>
+            <span class="dev-skel dev-skel--meta"></span>
+            <span class="dev-skel dev-skel--value"></span>
+          </div>
+        </div>
+
+        <div v-else class="device-grid">
+          <div
+            v-for="d in pagedDeviceList"
+            :key="getDeviceId(d)"
+            class="dev-card"
+            :class="{ 'dev-card--expanded': expandedDeviceId === getDeviceId(d), 'dev-card--alarm': hasDeviceAlarm(d) }"
+            @click="onCardClick(getDeviceId(d))"
+          >
             <div class="dev-status" :class="getDeviceStatusClass(d)"></div>
             <div class="dev-info">
+              <!-- 主行：设备名 + 状态 + 告警角标 -->
               <div class="dev-name">
-                <span class="dev-name__text">{{ d.name || d.device_id }}</span>
+                <span class="dev-name__text" :title="d.name || getDeviceId(d)">{{ d.name || d.device_id }}</span>
                 <span class="tag" :class="statusTagClass(d)">{{ getDeviceStatusText(d) }}</span>
+                <span v-if="getDeviceAlarm(d)" class="tag" :class="alarmTagClass(d)" :title="alarmTagTitle(d)">告警 {{ getDeviceAlarm(d)?.total }}</span>
                 <span v-if="d.zone" class="tag tag--info">{{ d.zone }}</span>
               </div>
-              <div class="dev-meta">{{ d.protocol || 'modbus_tcp' }} · {{ d.host || '—' }}</div>
-              <div class="dev-values">
-                <span v-for="r in (d.registers || []).slice(0, 3)" :key="r.name" class="dev-val">
-                  <span class="dev-val__label">{{ getShortLabel(r.name) }}</span>
-                  <span class="dev-val__num" :style="{ color: getDeviceValueColor(getDeviceId(d), r.name) }">{{ getDeviceValue(getDeviceId(d), r.name) }}</span>
-                  <span v-if="getDeviceQuality(getDeviceId(d), r.name) != null" class="quality-dot" :class="getQualityLevel(getDeviceQuality(getDeviceId(d), r.name))" :title="getQualityLabel(getDeviceQuality(getDeviceId(d), r.name))"></span>
-                </span>
+              <!-- 次行：协议 · 地址 · 点位数 -->
+              <div class="dev-meta">
+                <span>{{ d.protocol || 'modbus_tcp' }}</span>
+                <span class="dev-meta__sep">·</span>
+                <span class="dev-meta__addr" :title="deviceAddress(d)">{{ deviceAddress(d) }}</span>
+                <span class="dev-meta__sep">·</span>
+                <span>{{ devicePoints(d).length }} 点位</span>
+              </div>
+              <!-- 第三行：关键值（大号等宽）+ 迷你趋势 + 相对量程条 -->
+              <div class="dev-kv">
+                <div v-for="(k, i) in cardKeyPoints(d)" :key="k.name" class="kv" :class="{ 'kv--primary': i === 0 }">
+                  <div class="kv__head">
+                    <span class="kv__label" :title="k.desc || k.name">{{ k.label }}<span v-if="k.unit" class="kv__unit"> · {{ k.unit }}</span></span>
+                    <svg v-if="k.spark" class="spark spark--mini" viewBox="0 0 100 24" preserveAspectRatio="none" aria-hidden="true">
+                      <polyline class="spark__line" :points="k.spark" />
+                    </svg>
+                    <span v-else class="kv__trend-none" title="历史点不足（采集满 2 个点后出现迷你趋势）">—</span>
+                  </div>
+                  <div class="kv__value">
+                    <span class="kv__num" :style="{ color: k.color }">{{ k.valueText }}</span>
+                    <span v-if="k.quality != null" class="quality-dot" :class="k.qualityLevel" :title="k.qualityLabel"></span>
+                  </div>
+                  <div v-if="k.bar" class="dev-bar" :title="k.bar.title">
+                    <span class="dev-bar__fill" :class="k.bar.cls" :style="{ width: k.bar.pct + '%' }"></span>
+                  </div>
+                  <div v-else class="dev-bar dev-bar--none" :title="`${k.label}：无可用量程/阈值，仅显示数值`"></div>
+                </div>
+              </div>
+              <!-- 就地展开：全部点位（点击卡片切换，点击展开区不收起） -->
+              <div v-if="expandedDeviceId === getDeviceId(d)" class="dev-detail" @click.stop>
+                <div class="dev-detail__head">
+                  <span class="dev-detail__title">全部 {{ devicePoints(d).length }} 个点位</span>
+                  <span v-if="deviceDescription(d)" class="dev-detail__desc" :title="deviceDescription(d)">{{ deviceDescription(d) }}</span>
+                  <span class="dev-detail__hint">再次点击卡片收起</span>
+                </div>
+                <div class="dev-detail__rows">
+                  <div v-for="r in cardAllPoints(d)" :key="r.name" class="dev-row">
+                    <span class="dev-row__label" :title="r.desc || r.name">{{ r.label }}</span>
+                    <span class="dev-row__num" :style="{ color: r.color }">{{ r.valueText }}</span>
+                    <span class="dev-row__unit">{{ r.unit }}</span>
+                    <span v-if="r.bar" class="dev-row__bar" :title="r.bar.title">
+                      <span class="dev-bar__fill" :class="r.bar.cls" :style="{ width: r.bar.pct + '%' }"></span>
+                    </span>
+                    <span v-else class="dev-row__bar dev-row__bar--none"></span>
+                  </div>
+                </div>
               </div>
             </div>
+            <span class="dev-expand" aria-hidden="true">{{ expandedDeviceId === getDeviceId(d) ? '▴' : '▾' }}</span>
             <button v-if="d.device_category === 'mechanical' && d.connected" class="dev-ctrl-btn" :class="d.stopped ? 'start' : 'stop'" @click.stop="toggleDevice(getDeviceId(d), !d.stopped)" :title="d.stopped ? '启动' : '停止'">
               {{ d.stopped ? '▶' : '■' }}
             </button>
           </div>
-          <div v-if="pagedDeviceList.length === 0" class="grid-empty">
-            <el-empty description="暂无匹配设备" :image-size="64" />
+          <div v-if="deviceLoadState === 'ok' && pagedDeviceList.length === 0" class="grid-empty">
+            <el-empty v-if="allDeviceList.length === 0" description="接口未返回任何设备（0 台）" :image-size="64" />
+            <el-empty v-else description="当前筛选条件下暂无匹配设备" :image-size="64" />
           </div>
         </div>
 
@@ -191,20 +267,25 @@
       </div>
     </div>
 
-    <!-- 趋势图 -->
-    <div class="panel trend-area">
+    <!-- 趋势图（可折叠：小屏折叠后把高度让给设备区） -->
+    <div class="panel trend-area" :class="{ 'trend-area--collapsed': trendCollapsed }">
       <div class="panel__header trend-header">
         <span class="trend-title">实时趋势</span>
         <div class="trend-tools">
-          <select v-model="selectedDeviceId" @change="onDeviceChange" class="trend-select">
+          <select v-model="selectedDeviceId" @change="onDeviceChange" class="trend-select" :disabled="trendCollapsed">
             <option v-for="d in allDeviceList" :key="getDeviceId(d)" :value="getDeviceId(d)">{{ d.name || d.device_id }}</option>
           </select>
           <span class="tag tag--info">{{ trendSeriesCount }} 个指标</span>
           <button class="trend-btn" @click="exportChartData">导出图表</button>
           <button class="trend-btn" @click="exportAllData">导出全部</button>
+          <button
+            class="trend-btn trend-btn--toggle"
+            :aria-expanded="!trendCollapsed"
+            @click="toggleTrend"
+          >{{ trendCollapsed ? '展开趋势' : '收起趋势' }}</button>
         </div>
       </div>
-      <div ref="trendChartRef" class="trend-chart"></div>
+      <div v-show="!trendCollapsed" ref="trendChartRef" class="trend-chart"></div>
     </div>
 
     <!-- 状态栏 -->
@@ -221,7 +302,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted, reactive, watch } from 'vue'
+import { ref, computed, onMounted, onUnmounted, reactive, watch, nextTick } from 'vue'
 import * as echarts from 'echarts'
 import { io } from 'socket.io-client'
 import { ElMessage, ElMessageBox } from 'element-plus'
@@ -268,6 +349,63 @@ const deviceQuality = reactive<Record<string, number>>({})
 // 寄存器单位（来自 realtime 接口的 unit 字段），仅用于提示/图例展示
 const registerUnits = reactive<Record<string, string>>({})
 const MAX_CHART_POINTS = 200
+// 卡片迷你趋势采样点数（非选中设备只保留这么多点，控制内存）
+const CARD_SPARK_POINTS = 20
+// 卡片第三行展示的关键点位数
+const CARD_KEY_POINTS = 2
+
+// ========== 设备区三态（A：加载中 / 失败 / 无设备 必须可分辨）==========
+const deviceLoadState = ref<'loading' | 'ok' | 'error'>('loading')
+const deviceLoadError = ref('')
+const SKELETON_CARDS = 6
+// 卡片就地展开的设备（B5）
+const expandedDeviceId = ref('')
+// 趋势区折叠开关（A3），折叠后设备区获得更多高度
+const trendCollapsed = ref(false)
+// dataBuffers 是普通对象（非响应式），用版本号驱动卡片 sparkline 重算
+const bufferVersion = ref(0)
+
+// ========== 报警按设备聚合（B4：告警设备置顶 + 卡片角标）==========
+// 后端 /api/system/status 的 devices[] 不含 status/zone 字段（实测），
+// 设备级的"告警"只能从 alarms 列表按 device_id 聚合，不再依赖不存在的 d.status
+type DeviceAlarmInfo = { total: number; unacked: number; worst: 'critical' | 'warning' | 'info' }
+const alarmByDevice = computed(() => {
+  const map: Record<string, DeviceAlarmInfo> = {}
+  alarms.value.forEach(a => {
+    const id = a.device_id
+    if (!id) return
+    const lvl = levelKey(a.alarm_level)
+    const info = map[id] || (map[id] = { total: 0, unacked: 0, worst: 'info' })
+    info.total++
+    if (!a.acknowledged) info.unacked++
+    if (lvl === 'critical' || (lvl === 'warning' && info.worst === 'info')) info.worst = lvl
+  })
+  return map
+})
+function getDeviceAlarm(d: DeviceStatus): DeviceAlarmInfo | null { return alarmByDevice.value[getDeviceId(d)] || null }
+function hasDeviceAlarm(d: DeviceStatus): boolean { return !!getDeviceAlarm(d) }
+function alarmTagClass(d: DeviceStatus): string {
+  const a = getDeviceAlarm(d)
+  return a && (a.worst === 'critical' || a.unacked > 0) ? 'tag--danger' : 'tag--warning'
+}
+function alarmTagTitle(d: DeviceStatus): string {
+  const a = getDeviceAlarm(d)
+  if (!a) return ''
+  return `活动报警 ${a.total} 条，未确认 ${a.unacked} 条`
+}
+// 排序优先级：未确认告警 > 已确认告警 > 离线 > 停机 > 正常（操作员先看到异常设备）
+function devicePriority(d: DeviceStatus): number {
+  const a = getDeviceAlarm(d)
+  if (a) return a.unacked > 0 ? 0 : 1
+  if (!d.connected) return 2
+  if (d.stopped) return 3
+  return 4
+}
+function compareDevice(a: DeviceStatus, b: DeviceStatus): number {
+  const pa = devicePriority(a), pb = devicePriority(b)
+  if (pa !== pb) return pa - pb
+  return getDeviceId(a).localeCompare(getDeviceId(b))
+}
 
 // ========== 筛选 + 分页 ==========
 const devFilter = ref('all')
@@ -279,17 +417,19 @@ const devPageSize = 50
 
 const onlineCount = computed(() => allDeviceList.value.filter(d => d.connected).length)
 const offlineCount = computed(() => allDeviceList.value.filter(d => !d.connected).length)
-const faultCount = computed(() => allDeviceList.value.filter(d => d.status === 'fault' || d.status === 'warning').length)
+// 告警台数改为按 alarms 聚合（原来依赖 devices[].status，实测后端不下发该字段 → 恒为 0）
+const faultCount = computed(() => allDeviceList.value.filter(hasDeviceAlarm).length)
 const mechanicalCount = computed(() => allDeviceList.value.filter(d => d.device_category === 'mechanical').length)
 const protocolList = computed(() => Array.from(new Set(allDeviceList.value.map(d => d.protocol || 'modbus_tcp'))).sort())
 const filteredDeviceList = computed(() => {
   let list = allDeviceList.value
   if (devFilter.value === 'online') list = list.filter(d => d.connected)
   else if (devFilter.value === 'offline') list = list.filter(d => !d.connected)
-  else if (devFilter.value === 'fault') list = list.filter(d => d.status === 'fault' || d.status === 'warning')
+  else if (devFilter.value === 'fault') list = list.filter(hasDeviceAlarm)
   else if (devFilter.value === 'mechanical') list = list.filter(d => d.device_category === 'mechanical')
   if (devProtocolFilter.value) list = list.filter(d => (d.protocol || 'modbus_tcp') === devProtocolFilter.value)
-  return list
+  // 告警设备置顶（复制后排序，不改动 allDeviceList 本身）
+  return list.slice().sort(compareDevice)
 })
 const devTotalPages = computed(() => Math.max(1, Math.ceil(filteredDeviceList.value.length / devPageSize)))
 const pagedDeviceList = computed(() => {
@@ -397,8 +537,15 @@ async function loadData() {
       if (data?.data) {
         data.data.forEach((item: any) => {
           if (item.device_id && item.register_name && item.value != null) {
-            deviceValues[`${item.device_id}:${item.register_name}`] = parseFloat(item.value)
-            if (item.unit) registerUnits[`${item.device_id}:${item.register_name}`] = item.unit
+            const k = `${item.device_id}:${item.register_name}`
+            deviceValues[k] = parseFloat(item.value)
+            if (item.unit) registerUnits[k] = item.unit
+            // 质量码（OPC UA 码，int）。此前只在 WS 分支填过，而 WS 载荷来自
+            // SQLite 行、当时没有 quality 列 → 轮询与 WS 两条路都拿不到，
+            // 质量圆点 UI 恒定走降级分支。现后端已把 quality 列补齐并随
+            // /api/data/realtime 返回，这里必须一并回填。
+            const q = normalizeQuality(item.quality)
+            if (q != null) deviceQuality[k] = q
           }
         })
         updateTrendChart(data.data)
@@ -409,11 +556,21 @@ async function loadData() {
     try {
       const status = await systemApi.getStatus()
       if (gen !== loadGeneration) return
+      // 接口返回缺少 devices → 视为失败并显式暴露（此前会被静默跳过，界面永远空白）
+      if (!status || typeof status !== 'object' || !status.devices) {
+        throw new Error('接口 /api/system/status 返回缺少 devices 字段')
+      }
       updateKPI(status)
       updateDeviceGrid(status)
       updateStatusBar(status)
+      deviceLoadState.value = 'ok'
+      deviceLoadError.value = ''
     } catch (e: any) {
-      console.warn('[Dashboard] 系统状态加载失败:', e?.message || e)
+      if (gen !== loadGeneration) return
+      const reason = e?.message || String(e)
+      console.warn('[Dashboard] 系统状态加载失败:', reason)
+      deviceLoadState.value = 'error'
+      deviceLoadError.value = reason
       statusDotClass.value = 'status-dot--danger'
       statusText.value = '连接异常'
     }
@@ -516,10 +673,72 @@ function updateStatusBar(_stats: SystemStatus) {
   statusText.value = '系统运行中'
 }
 
+// ========== 设备区状态与交互（A3/A4/B5）==========
+// 加载失败后手动重试（失败必须可见且可恢复）
+function retryDeviceLoad() {
+  deviceLoadError.value = ''
+  deviceLoadState.value = 'loading'
+  loadData()
+}
+// 折叠/展开趋势区；重新展开后容器从 display:none 恢复，必须重新测量尺寸
+function toggleTrend() {
+  trendCollapsed.value = !trendCollapsed.value
+  if (!trendCollapsed.value) nextTick(() => trendChart?.resize())
+}
+// 点击卡片：既切换趋势图设备（保留原行为），也就地展开全部点位
+function onCardClick(deviceId: string) {
+  if (!deviceId) return
+  selectDevice(deviceId)
+  expandedDeviceId.value = expandedDeviceId.value === deviceId ? '' : deviceId
+}
+
+// ========== 设备点位字段归一 ==========
+// 实测 /api/system/status：只有 Modbus 设备有 registers，
+// MQTT 设备点位在 topics、OPC UA 在 nodes、REST 在 endpoints（结构同为 {name, unit}）。
+// 30 台里有 8 台 registers 为空 —— 只读 registers 会让这些卡片一个数值都显示不出来。
+interface PointDef {
+  name?: string
+  unit?: string
+  description?: string
+  address?: number | string
+  min?: number
+  max?: number
+  range?: number[]
+}
+function devicePoints(d: DeviceStatus): PointDef[] {
+  const anyD = d as any
+  const out: PointDef[] = []
+  const seen = new Set<string>()
+  const lists: any[] = [anyD.registers, anyD.nodes, anyD.topics, anyD.endpoints]
+  lists.forEach(l => {
+    if (!Array.isArray(l)) return
+    l.forEach((p: any) => {
+      const name = p?.name
+      if (!name || seen.has(name)) return
+      seen.add(name)
+      out.push(p as PointDef)
+    })
+  })
+  return out
+}
+function deviceAddress(d: DeviceStatus): string {
+  const host = d.host || ''
+  const port = (d as any).port
+  if (!host) return '—'
+  return port ? `${host}:${port}` : host
+}
+function deviceDescription(d: DeviceStatus): string {
+  return (d as any).description || ''
+}
+
 // ========== 设备卡片 ==========
 function getDeviceId(d: DeviceStatus): string { return d.device_id || d.id || '' }
+// 状态色条：离线 > 活动告警（严重=红/一般=黄）> 停机 > 运行
+// 注：后端 devices[] 实测不下发 status 字段，告警态改由 alarms 聚合（见 alarmByDevice）
 function getDeviceStatusClass(d: DeviceStatus): string {
   if (!d.connected) return 'offline'
+  const a = getDeviceAlarm(d)
+  if (a) return a.worst === 'critical' ? 'fault' : 'warning'
   if (d.stopped) return 'stopped'
   if (d.status === 'fault' || d.status === 'warning') return 'warning'
   return 'online'
@@ -529,10 +748,12 @@ function statusTagClass(d: DeviceStatus): string {
   if (s === 'online') return 'tag--success'
   if (s === 'stopped') return 'tag--info'
   if (s === 'offline') return 'tag--offline'
+  if (s === 'fault') return 'tag--danger'
   return 'tag--warning'
 }
 function getDeviceStatusText(d: DeviceStatus): string {
   if (!d.connected) return '离线'
+  if (getDeviceAlarm(d)) return '告警'
   if (d.stopped) return '已停止'
   if (d.status === 'fault' || d.status === 'warning') return '告警'
   return '运行中'
@@ -550,6 +771,108 @@ function getDeviceValueColor(deviceId: string, regName: string): string {
 function getDeviceQuality(deviceId: string, regName: string): number | null {
   const q = deviceQuality[`${deviceId}:${regName}`]
   return q != null ? q : null
+}
+
+// ========== 卡片点位视图模型（B1 量程条 / B2 迷你趋势）==========
+interface PointVM {
+  name: string
+  label: string
+  desc: string
+  unit: string
+  valueText: string
+  color: string
+  quality: number | null
+  qualityLevel: string
+  qualityLabel: string
+  spark: string | null
+  bar: { pct: number; cls: string; title: string } | null
+}
+/**
+ * 相对量程可视化：
+ * 1) 点位自带 min/max（或 range:[min,max]）→ 按真实量程取位置（当前后端未下发，拿到就画）
+ * 2) 否则退化为"当前值相对报警阈值的位置"（阈值来自后端 alarms 规则，非推测）
+ * 3) 两者都拿不到 → 返回 null，卡片只显示"值与单位"
+ */
+function valueBar(deviceId: string, regName: string, v: number, p: PointDef): PointVM['bar'] {
+  const lo = Number(p.min ?? (Array.isArray(p.range) ? p.range[0] : NaN))
+  const hi = Number(p.max ?? (Array.isArray(p.range) ? p.range[1] : NaN))
+  if (Number.isFinite(lo) && Number.isFinite(hi) && hi > lo) {
+    const ratio = (v - lo) / (hi - lo)
+    return {
+      pct: clampPct(ratio * 100),
+      cls: ratio > 1 ? 'dev-bar--danger' : ratio > 0.9 ? 'dev-bar--warning' : 'dev-bar--normal',
+      title: `量程 ${lo}~${hi}，当前处于 ${Math.round(ratio * 100)}%`,
+    }
+  }
+  const th = getRegisterThreshold(deviceId, regName)
+  if (th && Number.isFinite(th.value) && th.value !== 0) {
+    const ratio = v / th.value
+    return {
+      pct: clampPct(ratio * 100),
+      cls: ratio >= 1 ? 'dev-bar--danger' : ratio >= 0.9 ? 'dev-bar--warning' : 'dev-bar--normal',
+      title: `报警阈值 ${th.value}（${th.level} 级），当前为阈值的 ${Math.round(ratio * 100)}%`,
+    }
+  }
+  return null
+}
+// 迷你趋势：复用 dataBuffers 的 device_id:register 分桶，取最近 N 点归一化到 0..100 / 0..24
+function sparkFor(deviceId: string, regName: string): string | null {
+  void bufferVersion.value // 建立响应式依赖（dataBuffers 为普通对象）
+  const buf = dataBuffers[bufferKey(deviceId, regName)]
+  if (!buf || buf.length < 2) return null
+  const pts = buf.slice(-CARD_SPARK_POINTS)
+  let min = Infinity, max = -Infinity
+  pts.forEach(p => { if (p.v < min) min = p.v; if (p.v > max) max = p.v })
+  const span = max - min || 1
+  return pts
+    .map((p, i) => `${(i / (pts.length - 1) * 100).toFixed(2)},${(22 - (p.v - min) / span * 20).toFixed(2)}`)
+    .join(' ')
+}
+function pointVM(d: DeviceStatus, p: PointDef): PointVM {
+  const id = getDeviceId(d)
+  const name = p.name || ''
+  const key = `${id}:${name}`
+  const raw = deviceValues[key]
+  const quality = getDeviceQuality(id, name)
+  const bar = raw !== undefined && Number.isFinite(raw) ? valueBar(id, name, raw, p) : null
+  // 质量码缺失时用"是否越过报警阈值"补语义色；有质量码时保留 getDeviceValueColor 原语义
+  const semantic = quality == null && bar && bar.cls !== 'dev-bar--normal'
+    ? (bar.cls === 'dev-bar--danger' ? 'var(--color-danger)' : 'var(--color-warning)')
+    : null
+  return {
+    name,
+    label: getShortLabel(name),
+    desc: p.description || '',
+    unit: registerUnits[key] || p.unit || '',
+    valueText: getDeviceValue(id, name),
+    color: raw === undefined ? 'var(--text-disabled)' : (semantic || getDeviceValueColor(id, name)),
+    quality,
+    qualityLevel: getQualityLevel(quality),
+    qualityLabel: getQualityLabel(quality),
+    spark: sparkFor(id, name),
+    bar,
+  }
+}
+/**
+ * 卡片"关键值"挑选：优先有报警阈值规则的点位（真正需要盯的点），其次有实时值的点位，
+ * 最后按设备配置顺序补齐；不再无脑取前 2 个寄存器。
+ */
+function cardKeyPoints(d: DeviceStatus): PointVM[] {
+  const id = getDeviceId(d)
+  const rank = (p: PointDef) => {
+    const name = p.name || ''
+    const noThreshold = getRegisterThreshold(id, name) ? 0 : 2
+    const noValue = deviceValues[`${id}:${name}`] === undefined ? 1 : 0
+    return noThreshold + noValue
+  }
+  // devicePoints 每次返回新数组，此处就地排序不会影响原配置
+  return devicePoints(d)
+    .sort((a, b) => rank(a) - rank(b))
+    .slice(0, CARD_KEY_POINTS)
+    .map(p => pointVM(d, p))
+}
+function cardAllPoints(d: DeviceStatus): PointVM[] {
+  return devicePoints(d).map(p => pointVM(d, p))
 }
 
 // ========== 设备控制 ==========
@@ -622,6 +945,23 @@ function getQualityLevel(q: number | null): string {
   if (q == null) return 'quality-dot--unknown'
   return q >= 192 ? 'quality-dot--good' : q >= 64 ? 'quality-dot--uncertain' : 'quality-dot--bad'
 }
+/**
+ * 把后端来的质量码收敛成 number | null。
+ *
+ * 为什么必须有这一步：后端历史上**同时存在三种 quality 语义** ——
+ *   - 采集层的 OPC UA 数值码（192/104/0/4/6/8/80/64，int）
+ *   - 模拟客户端的字符串标记（'good' / 'simulated' / 'BAD'）
+ *   - OEE 接口的 `quality` 是 0~1 的**质量率**（同名不同义）
+ * 直接写进 `deviceQuality` 会让下游的 `q >= 192` 对字符串做比较 ——
+ * JS 里 `'BAD' >= 192` 求值为 false，静默判成 Bad 而不报错，
+ * 属于最难查的一类 bug。这里显式收敛：只接受有限数值，其余一律 null
+ * （null 会走"用报警阈值补语义色"的降级分支，是安全的默认行为）。
+ */
+function normalizeQuality(raw: any): number | null {
+  if (raw == null) return null
+  const n = typeof raw === 'number' ? raw : Number(raw)
+  return Number.isFinite(n) ? n : null
+}
 function getQualityLabel(q: number | null): string {
   if (q == null) return ''
   return q >= 192 ? 'Good' : q >= 64 ? 'Uncertain' : 'Bad'
@@ -650,7 +990,13 @@ function initTrendChart() {
   if (!trendChartRef.value) return
   trendChart = echarts.init(trendChartRef.value, scadaThemeName())
   // 窗口缩放/侧边栏折叠会改变容器宽度，不 resize 图表会被裁切
-  trendResizeObserver = new ResizeObserver(() => trendChart?.resize())
+  trendResizeObserver = new ResizeObserver(() => {
+    if (isUnmounted) return
+    const el = trendChartRef.value
+    // 趋势区折叠时容器尺寸为 0，跳过（否则 ECharts 会按 0 尺寸重算）
+    if (!el || el.clientWidth === 0 || el.clientHeight === 0) return
+    trendChart?.resize()
+  })
   trendResizeObserver.observe(trendChartRef.value)
 }
 
@@ -679,18 +1025,24 @@ function updateTrendChart(data: any[] = []) {
   if (!selectedDeviceId.value) return
   const now = new Date().toTimeString().slice(0, 8)
   let matched = 0
+  let buffered = 0
   data.forEach((item: any) => {
-    if (item.device_id !== selectedDeviceId.value) return
     if (item.value === null || item.value === undefined) return
     const v = parseFloat(item.value)
     if (!Number.isFinite(v)) return
+    // 所有设备都入桶（键含 device_id，不会串台）：卡片迷你趋势需要每台设备自己的历史
+    // 仅"当前选中设备"保留完整点数供趋势图使用，其余设备只留 CARD_SPARK_POINTS 个点
     const key = bufferKey(item.device_id, item.register_name)
     if (!dataBuffers[key]) dataBuffers[key] = []
     dataBuffers[key].push({ t: now, v })
-    if (dataBuffers[key].length > MAX_CHART_POINTS) dataBuffers[key].shift()
+    const cap = item.device_id === selectedDeviceId.value ? MAX_CHART_POINTS : CARD_SPARK_POINTS
+    while (dataBuffers[key].length > cap) dataBuffers[key].shift()
     if (item.unit) registerUnits[key] = item.unit
-    matched++
+    buffered++
+    if (item.device_id === selectedDeviceId.value) matched++
   })
+  // bufferVersion 变化驱动卡片内联 sparkline 重算（dataBuffers 本身非响应式）
+  if (buffered > 0) bufferVersion.value++
   if (matched === 0) return
   renderTrend()
 }
@@ -834,10 +1186,14 @@ function connectSocket() {
   socket.on('data_update', (data: any) => {
     if (!data) return
     // 兼容两种格式：单对象 或 {register_name: {device_id, ...}} 映射
+    // 注：后端 websocket.py 的推送路径固定发**映射格式**，
+    // 单对象分支是给未来的定向推送留的兼容入口。
     if (data.device_id && data.register_name && data.value != null) {
       // 单对象格式
-      deviceValues[`${data.device_id}:${data.register_name}`] = parseFloat(data.value)
-      if (data.quality != null) deviceQuality[`${data.device_id}:${data.register_name}`] = data.quality
+      const k = `${data.device_id}:${data.register_name}`
+      deviceValues[k] = parseFloat(data.value)
+      const q = normalizeQuality(data.quality)
+      if (q != null) deviceQuality[k] = q
     } else {
       // 映射格式：{register_name: {device_id, register_name, value, quality}}
       Object.entries(data).forEach(([regName, info]: [string, any]) => {
@@ -845,8 +1201,10 @@ function connectSocket() {
         const devId = info.device_id
         const val = info.value
         if (!devId || val == null) return
-        deviceValues[`${devId}:${regName}`] = parseFloat(val)
-        if (info.quality != null) deviceQuality[`${devId}:${regName}`] = info.quality
+        const k = `${devId}:${regName}`
+        deviceValues[k] = parseFloat(val)
+        const q = normalizeQuality(info.quality)
+        if (q != null) deviceQuality[k] = q
       })
     }
   })
@@ -875,8 +1233,9 @@ function connectSocket() {
 .dashboard {
   display: flex;
   flex-direction: column;
-  height: calc(100vh - 60px);
-  overflow: auto;
+  /* 跟随 el-main 的可用高度自适应：不写死 100vh - 60px，不与外层 padding 打架，
+     自身不滚动（页面级滚动统一交给 el-main，避免双层滚动条） */
+  min-height: 100%;
   background: var(--bg-page);
   color: var(--text-primary);
   font-family: var(--font-sans);
@@ -978,6 +1337,12 @@ function connectSocket() {
   opacity: 0.12;
   stroke: none;
 }
+/* 设备卡内的迷你趋势（复用同一套 spark 样式，仅尺寸更小） */
+.spark--mini {
+  flex: none;
+  width: 36px;
+  height: 14px;
+}
 
 /* 活动报警等级分段条 */
 .alarm-seg {
@@ -1049,10 +1414,21 @@ function connectSocket() {
 .main-area {
   display: grid;
   grid-template-columns: 2.2fr 1fr;
+  /* 行高锁定为容器高度：设备网格再长也不会把整行撑高、把卡片挤出可视区 */
+  grid-template-rows: minmax(0, 1fr);
   gap: var(--space-3);
-  flex: 1;
-  min-height: 320px;
+  /* 弹性高度（相对视口的 clamp，不是"100vh 减顶栏"）：
+     给小窗口一个确定的高度基准，设备区/报警区各自内部滚动，趋势区不被推走。
+     flex 只允许向上撑满（grow）不允许被压缩（shrink 0），保证设备卡始终有可见高度 */
+  height: clamp(340px, 52vh, 620px);
+  min-height: clamp(320px, 46vh, 560px);
+  flex: 1 0 auto;
   padding: var(--space-3);
+}
+/* 折叠趋势区后把高度让给设备区（小屏看设备卡的关键路径） */
+.dashboard--trend-collapsed .main-area {
+  height: clamp(420px, 74vh, 900px);
+  min-height: clamp(400px, 68vh, 860px);
 }
 .device-panel,
 .alarm-panel {
@@ -1104,17 +1480,24 @@ function connectSocket() {
 /* 设备网格 */
 .device-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(268px, 1fr));
+  /* 行高必须显式 max-content：卡片 overflow:hidden 会把"自动最小行高"算成 0，
+     容器高度不足时行会停在卡片 min-height 上、把内容裁掉（实测被裁到 96px） */
+  grid-auto-rows: max-content;
   align-content: start;
   gap: var(--space-3);
   padding: var(--space-3);
+  /* flex 链路上的明确可见高度：占满设备区剩余空间，并允许内部滚动（min-height:0 防塌陷） */
+  flex: 1 1 auto;
+  min-height: 0;
   overflow-y: auto;
 }
+.device-grid--skeleton { pointer-events: none; }
 .dev-card {
   position: relative;
   display: flex;
   align-items: stretch;
-  min-height: 84px;
+  min-height: 96px;
   overflow: hidden;
   background: var(--bg-surface);
   border: 1px solid var(--border-base);
@@ -1122,7 +1505,10 @@ function connectSocket() {
   cursor: pointer;
   transition: border-color var(--duration-fast) var(--ease-out), box-shadow var(--duration-fast) var(--ease-out);
 }
+/* 有活动报警的卡片：整卡描边强调，配合置顶排序 */
+.dev-card--alarm { border-color: var(--color-warning); }
 .dev-card:hover { border-color: var(--color-brand); box-shadow: var(--shadow-sm); }
+.dev-card--expanded { border-color: var(--color-brand); box-shadow: var(--shadow-md); }
 .dev-status { width: 4px; flex: none; }
 .dev-status.online { background: var(--color-success); }
 .dev-status.stopped { background: var(--color-info); }
@@ -1147,21 +1533,137 @@ function connectSocket() {
   color: var(--text-primary);
 }
 .dev-name__text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.dev-meta { font-size: var(--font-xs); color: var(--text-muted); }
-.dev-values {
+/* 次行：协议 · 地址 · 点位数 */
+.dev-meta {
   display: flex;
+  align-items: center;
+  gap: var(--space-1);
   flex-wrap: wrap;
-  gap: var(--space-1) var(--space-4);
-  margin-top: var(--space-1);
+  min-width: 0;
+  font-size: var(--font-xs);
+  color: var(--text-muted);
 }
-.dev-val { display: inline-flex; align-items: baseline; gap: var(--space-1); min-width: 0; }
-.dev-val__label { font-size: var(--font-xs); color: var(--text-muted); }
-.dev-val__num {
+.dev-meta__sep { color: var(--text-disabled); }
+.dev-meta__addr {
   font-family: var(--font-mono);
   font-variant-numeric: tabular-nums;
-  font-size: var(--font-base);
-  font-weight: var(--weight-semibold);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
+/* 第三行：关键值 + 迷你趋势 + 相对量程条 */
+.dev-kv {
+  display: grid;
+  grid-template-columns: 1.3fr 1fr;
+  gap: var(--space-2);
+  margin-top: var(--space-1);
+}
+.kv { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+/* 只有一个关键点时占满整行 */
+.kv:only-child { grid-column: 1 / -1; }
+.kv__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-1);
+  min-width: 0;
+}
+.kv__label {
+  font-size: var(--font-xs);
+  color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.kv__trend-none { flex: none; font-size: var(--font-xs); color: var(--text-disabled); }
+.kv__value { display: flex; align-items: baseline; gap: var(--space-1); min-width: 0; }
+.kv__num {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: var(--font-xl);
+  font-weight: var(--weight-semibold);
+  line-height: var(--leading-tight);
+  white-space: nowrap;
+  transition: color var(--duration-fast) linear;
+}
+.kv--primary .kv__num { font-size: var(--font-2xl); }
+.kv__unit { font-size: var(--font-xs); font-weight: var(--weight-normal); color: var(--text-muted); }
+/* 相对量程/阈值位置条（4px 细条，语义色只在越限时出现） */
+.dev-bar {
+  height: 4px;
+  margin-top: 2px;
+  border-radius: var(--radius-pill);
+  background: var(--bg-hover);
+  overflow: hidden;
+}
+.dev-bar--none { background: transparent; }
+.dev-bar__fill {
+  display: block;
+  height: 100%;
+  border-radius: var(--radius-pill);
+  background: var(--color-brand);
+  transition: width var(--duration-base) var(--ease-out), background-color var(--duration-fast) linear;
+}
+.dev-bar__fill.dev-bar--warning { background: var(--color-warning); }
+.dev-bar__fill.dev-bar--danger { background: var(--color-danger); }
+.dev-expand {
+  align-self: center;
+  flex: none;
+  padding-right: var(--space-2);
+  color: var(--text-muted);
+  font-size: var(--font-xs);
+}
+/* 就地展开：全部点位 */
+.dev-detail {
+  margin-top: var(--space-2);
+  padding-top: var(--space-2);
+  border-top: 1px solid var(--border-base);
+  cursor: default;
+}
+.dev-detail__head {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  min-width: 0;
+  font-size: var(--font-xs);
+  color: var(--text-muted);
+}
+.dev-detail__title { flex: none; font-weight: var(--weight-semibold); color: var(--text-secondary); }
+.dev-detail__desc { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dev-detail__hint { flex: none; margin-left: auto; color: var(--text-disabled); }
+.dev-detail__rows {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-top: var(--space-1);
+  max-height: 176px;
+  overflow-y: auto;
+}
+.dev-row {
+  display: grid;
+  grid-template-columns: 1fr 68px 44px 56px;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 2px 0;
+  font-size: var(--font-xs);
+}
+.dev-row__label { color: var(--text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dev-row__num {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: var(--font-sm);
+  font-weight: var(--weight-semibold);
+  text-align: right;
+}
+.dev-row__unit { color: var(--text-muted); }
+.dev-row__bar {
+  display: block;
+  height: 4px;
+  border-radius: var(--radius-pill);
+  background: var(--bg-hover);
+  overflow: hidden;
+}
+.dev-row__bar--none { background: transparent; }
 .quality-dot { width: 8px; height: 8px; border-radius: var(--radius-pill); align-self: center; flex: none; }
 .quality-dot--good { background: var(--color-success); }
 .quality-dot--uncertain { background: var(--color-warning); }
@@ -1185,6 +1687,71 @@ function connectSocket() {
 .dev-ctrl-btn.start { border-color: var(--color-success); color: var(--color-success); }
 .dev-ctrl-btn.stop { border-color: var(--color-danger); color: var(--color-danger); }
 .grid-empty { grid-column: 1 / -1; padding: var(--space-4) 0; }
+
+/* 设备区加载失败（可见 + 可重试） */
+.dev-state {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+  margin: var(--space-3) var(--space-3) 0;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--color-danger);
+  border-left-width: 3px;
+  border-radius: var(--radius-sm);
+  background: var(--color-danger-soft);
+  font-size: var(--font-xs);
+}
+.dev-state--solo {
+  flex: 1;
+  margin-bottom: var(--space-3);
+  align-content: center;
+  justify-content: center;
+}
+.dev-state__title { font-weight: var(--weight-semibold); color: var(--color-danger); }
+.dev-state__reason {
+  max-width: 46ch;
+  color: var(--text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.dev-state__retry {
+  padding: var(--space-1) var(--space-3);
+  border: 1px solid var(--color-danger);
+  border-radius: var(--radius-sm);
+  background: var(--bg-surface);
+  color: var(--color-danger);
+  font-size: var(--font-xs);
+  cursor: pointer;
+}
+.dev-state__retry:hover { background: var(--color-danger); color: var(--text-inverse); }
+.dev-state__note { color: var(--text-muted); }
+
+/* 首屏骨架屏（与"真的没有设备"区分） */
+.dev-card--skeleton {
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  min-height: 96px;
+  cursor: default;
+}
+.dev-skel {
+  display: block;
+  height: 12px;
+  border-radius: var(--radius-sm);
+  background: var(--bg-hover);
+}
+.dev-skel--title { width: 62%; }
+.dev-skel--meta { width: 42%; }
+.dev-skel--value { width: 78%; height: 22px; }
+@media (prefers-reduced-motion: no-preference) {
+  .dev-card--skeleton .dev-skel { animation: skel-pulse 1.4s ease-in-out infinite; }
+}
+@keyframes skel-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.45; }
+}
 
 /* 分页 */
 .dev-pager {
@@ -1322,7 +1889,10 @@ function connectSocket() {
   cursor: pointer;
 }
 .trend-btn:hover { border-color: var(--color-brand); color: var(--color-brand); }
+.trend-btn--toggle { border-color: var(--color-brand); color: var(--color-brand); }
 .trend-chart { height: 280px; }
+/* 折叠态：隐藏图表容器（v-show），面板只保留标题行 */
+.trend-area--collapsed { margin-bottom: var(--space-3); }
 
 /* ==================== 状态栏 ==================== */
 .status-bar {

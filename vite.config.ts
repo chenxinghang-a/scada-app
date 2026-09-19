@@ -35,6 +35,10 @@ export default defineConfig({
   },
   build: {
     outDir: 'dist',
+    // 保持 Vite 默认清理行为（它只删自己 outDir 里的旧 chunk，量小、不触发
+    // 环境的批量删除保护）。**不要**把它当成"整体清空 dist" 的开关来用：
+    // electron-builder 的 files 配置依赖 `dist/` 这个固定路径，改目录会让打包找不到前端。
+    // 如需彻底隔离，用 `vite build --outDir dist-<tag>`（见 package.json 的 build:iso）。
     emptyOutDir: true,
     sourcemap: false,
     minify: 'esbuild',

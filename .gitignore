@@ -1,6 +1,10 @@
 node_modules/
 dist/
 dist-test/
+# 零删除构建产物：`npm run build:iso` 输出到 dist-iso/
+dist-iso/
+# vitest 缓存目录（固定在仓库内，见 vitest.config.ts 的 cacheDir）
+.vitest_cache/
 # 构建前的临时改名产物（用于规避环境批量删除保护，见 skill safe-delete-guard-workarounds）
 dist.prev-*/
 release/
