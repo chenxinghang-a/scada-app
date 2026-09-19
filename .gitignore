@@ -10,6 +10,7 @@ backend/_internal/
 backend/logs/
 backend/data/
 *.log
+*.pid
 .DS_Store
 Thumbs.db
 .guardvibe/

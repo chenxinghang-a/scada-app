@@ -156,10 +156,20 @@ jobs:
         # （`/actions/jobs/{id}/logs` 需要管理员权限，只读访问 403），
         # 而这是唯一公开可读的通道。本机复现不了本步骤失败
         # （本机可成功产出安装包），所以远端日志是唯一线索。
+        #
+        # --publish never 是必须的：electron-builder 检测到自己运行在
+        # GitHub Actions（GITHUB_ACTIONS=true）时会自动进入发布流程，
+        # 即使 package.json 里没有 publish 配置。缺 GH_TOKEN 时报
+        #   ⨯ GitHub Personal Access Token is not set, neither programmatically,
+        #     nor using env "GH_TOKEN"
+        # 并 exit 1 —— 注意此时 NSIS 安装包**已经构建完成**，纯粹是随后的
+        # 发布阶段把 job 拖红。本机没有 GITHUB_ACTIONS 环境变量，所以不触发
+        # 该路径，这就是"本机绿、CI 红"的全部原因。
+        # 本仓库的发布是手动 upload-artifact，不需要在此自动发 release。
         shell: bash
         run: |
           set -o pipefail
-          npx electron-builder --win 2>&1 | tee electron-build.log
+          npx electron-builder --win --publish never 2>&1 | tee electron-build.log
 
       - name: Report build failure as annotation
         # 只在失败时执行：把 electron-builder 的关键行发成 annotation，
