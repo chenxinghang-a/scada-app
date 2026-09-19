@@ -68,6 +68,7 @@
 import { ref, reactive, onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
 import { devicesApi, dataApi } from '@/api'
+import { assertBinaryDownload, downloadBlob } from '@/utils/export'
 
 const visible = ref(false)
 const generating = ref(false)
@@ -126,31 +127,12 @@ async function generateReport() {
       blob = await dataApi.exportAlarms(params) as unknown as Blob
     }
 
-    if (!(blob instanceof Blob)) {
-      throw new Error('后端返回的报表数据格式不正确')
-    }
-
     // 后端出错时可能以 200 + JSON 错误体返回（responseType: blob），
-    // 直接下载会得到一个内容为报错 JSON 的假报表文件
-    if (blob.type && blob.type.includes('json')) {
-      let msg = '报表生成失败'
-      try {
-        const parsed = JSON.parse(await blob.text())
-        msg = parsed?.error || parsed?.message || msg
-      } catch { /* 非 JSON 文本，保留默认文案 */ }
-      throw new Error(msg)
-    }
-
-    // 下载文件（先挂到 DOM 再点击，并延迟释放 URL：立即 revoke 会在下载启动前
-    // 使 blob URL 失效，导致偶发下载失败）
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = `report_${form.type}_${new Date().toISOString().slice(0, 10)}.${form.format}`
-    document.body.appendChild(a)
-    a.click()
-    a.remove()
-    setTimeout(() => URL.revokeObjectURL(url), 0)
+    // 直接下载会得到一个内容为报错 JSON 的假报表文件。
+    // 统一守卫的判据是**内容本身**，不再依赖 blob.type ——
+    // 原先靠 `blob.type.includes('json')` 判断，后端未设 Content-Type 时会漏判。
+    await assertBinaryDownload(blob)
+    downloadBlob(blob, `report_${form.type}_${new Date().toISOString().slice(0, 10)}.${form.format}`)
 
     ElMessage.success('报表生成成功')
     visible.value = false

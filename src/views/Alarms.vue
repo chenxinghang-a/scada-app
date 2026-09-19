@@ -182,6 +182,7 @@
 import { ref, onMounted, reactive, computed } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { alarmsApi, devicesApi, type Alarm, type Device } from '@/api'
+import { assertBinaryDownload, describeDownloadError, downloadBlob } from '@/utils/export'
 
 const alarms = ref<Alarm[]>([])
 const devices = ref<Device[]>([])
@@ -371,14 +372,16 @@ async function exportAlarms() {
   exporting.value = true
   try {
     const blob = await alarmsApi.exportAlarms('csv') as any
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = `alarms-${new Date().toISOString().slice(0, 10)}.csv`
-    a.click()
-    URL.revokeObjectURL(url)
+    // 守卫：非 Blob / 空文件 / 内容是 JSON 错误体都在此抛出。
+    // 原先没有这个检查 —— 后端 200 + JSON 错误体时，既不抛异常也无提示，
+    // 会下载一个内容是报错 JSON 的假 CSV，还提示"导出成功"。
+    await assertBinaryDownload(blob)
+    downloadBlob(blob, `alarms-${new Date().toISOString().slice(0, 10)}.csv`)
     ElMessage.success('报警数据已导出')
   } catch (e: any) {
+    // 后端导出不可用时，降级为导出当前列表数据（保留该产品行为）。
+    // 但必须让用户知道真实原因 —— 包括"后端返回了错误信息"这一类不抛异常的场景。
+    const reason = await describeDownloadError(e)
     // 如果后端导出失败，用前端数据生成 CSV（同时提示用户是本地数据，避免误认为后端导出成功）
     const headers = ['时间', '设备', '参数', '等级', '报警信息', '阈值', '实际值', '状态']
     const esc = (v: any) => { const s = String(v ?? ''); return s.includes(',') || s.includes('"') || s.includes('\n') ? `"${s.replace(/"/g, '""')}"` : s }
@@ -400,8 +403,7 @@ async function exportAlarms() {
     a.download = `alarms-${new Date().toISOString().slice(0, 10)}.csv`
     a.click()
     URL.revokeObjectURL(url)
-    if (e?.response) ElMessage.warning('后端导出失败，已改为导出当前列表数据')
-    else ElMessage.success('报警数据已导出')
+    ElMessage.warning(`后端导出失败（${reason}），已改为导出当前列表数据`)
   } finally { exporting.value = false }
 }
 </script>

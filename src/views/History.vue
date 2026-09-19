@@ -134,6 +134,7 @@ import * as echarts from 'echarts'
 import { ElMessage } from 'element-plus'
 import { devicesApi, dataApi, alarmsApi, type Device, type Register, type AlarmRule } from '@/api'
 import { registerScadaTheme, scadaThemeName, applyScadaTheme, SCADA_LEVEL_COLORS } from '@/utils/echartsTheme'
+import { assertBinaryDownload, describeDownloadError, downloadBlob } from '@/utils/export'
 
 const route = useRoute()
 
@@ -502,17 +503,9 @@ async function queryHistory() {
   finally { if (seq === querySeq) loading.value = false }
 }
 
-// responseType:'blob' 会把后端 JSON 错误体包成 Blob，这里解出真实原因
-async function extractBlobError(e: any): Promise<string> {
-  const data = e?.response?.data
-  if (data instanceof Blob) {
-    try {
-      const obj = JSON.parse(await data.text())
-      return obj?.message || obj?.error || e?.message || '未知错误'
-    } catch { /* 非 JSON 错误体，回落到 axios 消息 */ }
-  }
-  return e?.response?.data?.error || e?.response?.data?.message || e?.message || '未知错误'
-}
+// responseType:'blob' 会把后端 JSON 错误体包成 Blob。原先这里只在 catch 里解包，
+// 漏判"HTTP 200 + JSON 错误体"——那种情况不抛异常，会直接下载一个假 CSV。
+// 现改用 @/utils/export 的统一守卫（判据是内容本身而非 blob.type）。
 
 async function exportData() {
   if (!filter.device_id) { ElMessage.warning('请先选择设备'); return }
@@ -530,24 +523,15 @@ async function exportData() {
       params.end_time = new Date().toISOString()
     }
     const blob = await dataApi.exportDevice(filter.device_id, params) as any
-    if (!(blob instanceof Blob)) {
-      exportOk.value = false
-      exportStatus.value = '导出失败：响应格式异常'
-      ElMessage.error('导出失败: 响应格式异常')
-      return
-    }
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = `device_${filter.device_id}_${new Date().toISOString().slice(0, 10)}.csv`
-    a.click()
-    URL.revokeObjectURL(url)
+    // 统一守卫：非 Blob / 空文件 / 内容是 JSON 错误体，都在这里抛出可读错误
+    await assertBinaryDownload(blob)
+    downloadBlob(blob, `device_${filter.device_id}_${new Date().toISOString().slice(0, 10)}.csv`)
     exportOk.value = true
     exportStatus.value = `已导出 · ${new Date().toLocaleTimeString('zh-CN', { hour12: false })}`
     ElMessage.success('导出成功')
   } catch (e: any) {
     console.warn('[History] 导出失败:', e?.message || e)
-    const reason = await extractBlobError(e)
+    const reason = await describeDownloadError(e)
     exportOk.value = false
     exportStatus.value = `导出失败：${reason}`
     ElMessage.error('导出失败: ' + reason)
