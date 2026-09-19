@@ -71,6 +71,7 @@
       "signAndEditExecutable": false
     },
     "nsis": {
+      "artifactName": "${name}-Setup-${version}.${ext}",
       "oneClick": false,
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
