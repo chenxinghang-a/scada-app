@@ -90,12 +90,47 @@ jobs:
       - name: Stage backend into extraResources dir
         # package.json 的 extraResources 把 backend/ 整体打进安装包；
         # electron/main.js 期望 <resources>/backend/scada-backend.exe。
-        # backend/ 下的 build_entry.py 等跟踪文件保留，只覆盖构建产物。
+        #
+        # 必须先清空构建产物再复制，不能只 Copy-Item -Force：
+        #   -Force 只覆盖**同名**文件，上一世代的残留（旧 _internal/ 里的模块、
+        #   已删除的依赖、运行日志）会原样留着并被打进安装包 ——
+        #   表现为"新版本装完仍带着旧版本的部分文件"，极难排查。
+        #
+        # 安全性：CI 是全新 clone，backend/ 下只有受版本控制的内容
+        # （当前仅 build_entry.py）。下面的清理只针对 PyInstaller 输出
+        # 与运行期垃圾，删的是本 job 将要重建的东西，不会动到源码文件。
+        # 清理后做一次断言：若还有早于本次构建的文件，说明清得不干净。
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force backend | Out-Null
+
+          # 清理上一世代产物与运行期垃圾（均为 .gitignore 覆盖范围）
+          Get-ChildItem -Path backend -Force | Where-Object {
+            $_.Name -in @('scada-backend.exe', '_internal', 'logs', 'data', 'exports') -or
+            $_.Extension -eq '.log'
+          } | ForEach-Object {
+            Write-Host "removing stale: $($_.Name)"
+            Remove-Item -Recurse -Force $_.FullName
+          }
+
+          # 复制本 job 刚构建的产物
           Copy-Item -Recurse -Force backend-src/dist/scada-backend/* backend/
+
           if (-not (Test-Path backend/scada-backend.exe)) { throw "backend exe missing" }
+
+          # 断言：backend/ 中不应存在早于本次构建的文件。
+          # 构建刚发生，任何超过 1 小时的文件都意味着残留没清干净；
+          # build_entry.py 是 clone 下来的跟踪文件，排除在外。
+          $stale = Get-ChildItem -Path backend -Recurse -File |
+            Where-Object { $_.LastWriteTime -lt (Get-Date).AddHours(-1) -and $_.Name -ne 'build_entry.py' }
+          if ($stale) {
+            Write-Host "残留文件（前 10 个）:"
+            $stale | Select-Object -First 10 | ForEach-Object { Write-Host "  $($_.FullName)" }
+            throw "backend/ 中存在 $($stale.Count) 个上一世代残留文件，会污染安装包"
+          }
+
+          Write-Host "backend/ 暂存完成，文件数: $((Get-ChildItem -Path backend -Recurse -File).Count)"
+          Write-Host "入口: $((Get-Item backend/scada-backend.exe).Length) bytes"
 
       - uses: actions/setup-node@v4
         with:
@@ -113,7 +148,44 @@ jobs:
 
       - name: Build NSIS installer
         # 不走 npm run electron:build（它会再跑一遍 build），直接调 electron-builder。
-        run: npx electron-builder --win
+        #
+        # 输出重定向到文件而不是只打控制台：失败时用
+        # .github/scripts/emit_electron_failure.py 把关键行发成 annotation。
+        #
+        # 为什么必须走 annotation：CI 挂在远端时拿不到 job log
+        # （`/actions/jobs/{id}/logs` 需要管理员权限，只读访问 403），
+        # 而这是唯一公开可读的通道。本机复现不了本步骤失败
+        # （本机可成功产出安装包），所以远端日志是唯一线索。
+        shell: bash
+        run: |
+          set -o pipefail
+          npx electron-builder --win 2>&1 | tee electron-build.log
+
+      - name: Report build failure as annotation
+        # 只在失败时执行：把 electron-builder 的关键行发成 annotation，
+        # 让"为什么红"在远端可直接查询，而不是只有 exit code 1。
+        if: failure()
+        shell: bash
+        run: python .github/scripts/emit_electron_failure.py
+
+      - name: Show disk usage (diagnostics)
+        # Windows runner 的 C: 盘约 70 GB 可用，但本步骤要同时容纳：
+        #   backend-src/ 源码 + PyInstaller 产物（约 113 MB）
+        #   node_modules（约 400 MB）+ .vite 缓存
+        #   release/win-unpacked（约 350 MB）+ NSIS 安装包（约 150 MB）
+        # 磁盘紧张时报错信息往往很隐晦（ENOSPC / makensis 失败），
+        # 所以无论成败都把磁盘状况留在日志里备查。
+        if: always()
+        shell: pwsh
+        run: Get-PSDrive -PSProvider FileSystem | Select-Object Name, @{n='UsedGB';e={[math]::Round($_.Used/1GB,1)}}, @{n='FreeGB';e={[math]::Round($_.Free/1GB,1)}}
+
+      - name: Upload electron-builder log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: electron-build-log
+          path: electron-build.log
+          if-no-files-found: warn
 
       - name: Upload NSIS installer
         uses: actions/upload-artifact@v4
