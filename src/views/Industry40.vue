@@ -393,7 +393,7 @@
         <el-row :gutter="12" class="metric-row">
           <el-col :span="8"><div class="panel metric-box"><div class="metric-label">决策规则</div><div class="metric-value">{{ edgeStatus.rules_count }}</div></div></el-col>
           <el-col :span="8"><div class="panel metric-box"><div class="metric-label">安全联锁</div><div class="metric-value">{{ edgeStatus.interlocks_count }}</div></div></el-col>
-          <el-col :span="8"><div class="panel metric-box"><div class="metric-label">PID控制器</div><div class="metric-value">{{ edgeStatus.pid_controllers }}</div></div></el-col>
+          <el-col :span="8"><div class="panel metric-box"><div class="metric-label">PID控制器</div><div class="metric-value">{{ edgeStatus.pid_controllers_count }}</div></div></el-col>
         </el-row>
         <el-row :gutter="12">
           <el-col :span="14">
@@ -449,7 +449,7 @@
       <el-tab-pane label="数字孪生" name="twin">
         <el-row :gutter="12" class="metric-row">
           <el-col :span="6"><div class="panel metric-box"><div class="metric-label">设备总数</div><div class="metric-value">{{ twinDevices.length }}</div></div></el-col>
-          <el-col :span="6"><div class="panel metric-box"><div class="metric-label">运行中</div><div class="metric-value text-success">{{ twinDevices.filter(d=>d.connected).length }}</div></div></el-col>
+          <el-col :span="6"><div class="panel metric-box"><div class="metric-label">运行中</div><div class="metric-value text-success">{{ twinDevices.filter(d=>d.status==='running').length }}</div></div></el-col>
           <el-col :span="6"><div class="panel metric-box"><div class="metric-label">故障设备</div><div class="metric-value text-danger">{{ twinDevices.filter(d=>d.status==='fault').length }}</div></div></el-col>
           <el-col :span="6"><div class="panel metric-box"><div class="metric-label">平均健康分</div><div class="metric-value">{{ twinAvgHealth }}</div></div></el-col>
         </el-row>
@@ -584,8 +584,14 @@
 <script setup lang="ts">
 import { ref, reactive, computed, onMounted, onUnmounted, nextTick } from 'vue'
 import * as echarts from 'echarts'
-import { industry40Api, type OEERecord, type HealthScore, type EdgeStatus, type EdgeRule } from '@/api'
-import { devicesApi } from '@/api'
+import { industry40Api, devicesApi } from '@/api'
+import type {
+  Device, HealthScore, OEERecord, Industry40Overview, MaintenanceAlert, SPCCapability,
+  SPCChart, SPCViolation, EdgeStatus, EdgeRule, EdgeLogEntry, DeviceState, VibrationRecord,
+  VibrationSpectrum, BearingDiagnosis, EnergySummary, EnergyCostBreakdown, RealtimePower,
+  CarbonEmission,
+} from '@/api'
+import { errorMessage } from '@/utils/error'
 import { registerScadaTheme, scadaThemeName } from '@/utils/echartsTheme'
 
 // 统一图表主题（幂等注册），图表一律用 scadaThemeName() 初始化
@@ -595,6 +601,110 @@ registerScadaTheme(echarts)
 // OEE 档位边界取自后端 oee_calculator._oee_grade：85 世界级 / 75 优秀 / 65 良好 / 50 一般
 // 健康分 5 档与 ISO/振动分区同理，全部用设计令牌表达，不在页面内写字面量颜色
 interface Band { label: string; token: string; min: number; max: number }
+
+// ========== 页面内数据模型 ==========
+/** ECharts tooltip.formatter 回调参数：axis/item 触发时字段不同，只声明实际读取的键 */
+interface TooltipParam {
+  dataIndex?: number
+  /** 类目轴触发时由 ECharts 注入 */
+  axisValue?: string | number
+  data?: unknown
+  name?: string
+}
+
+/** ECharts markPoint / markLine 标注项（各图表字段不同，收敛到实际使用的键） */
+interface ChartMark {
+  coord?: [number | string, number | string]
+  xAxis?: number
+  yAxis?: number
+  value?: number | string
+  symbol?: string
+  symbolSize?: number
+  itemStyle?: Record<string, unknown>
+  label?: Record<string, unknown>
+  lineStyle?: Record<string, unknown>
+}
+
+/** 总览原始响应。后端只返回 predictive_maintenance/oee/energy/edge_decision，
+ *  device_statuses、devices 是旧字段名，保留为可选以维持既有回退链（实际命中 oee.devices）。 */
+type OverviewRaw = Industry40Overview & {
+  device_statuses?: unknown
+  devices?: unknown
+}
+
+/** 产线拓扑节点（renderProcessFlow 组装的 ECharts graph 数据源） */
+interface OverviewNode {
+  device_id: string
+  name?: string
+  oee_percent?: number
+  connected?: boolean
+}
+
+/** 能耗汇总的展示读取视图：主字段是后端真实名，其余是历史别名，
+ *  保留既有回退链（读不到时退化为 0）。 */
+type EnergySummaryView = Partial<EnergySummary> & {
+  total_kwh?: number
+  total_cost?: number
+  carbon_kg?: number
+}
+
+/** 数字孪生节点布局表（工艺布局是前端静态约定，非后端数据） */
+interface TwinMapEntry { x: number; y: number; icon: string; name: string; process_type: string }
+
+/** 数字孪生节点 = 后端设备状态 + TWIN_MAP 布局 + 健康分/OEE/功率 */
+interface TwinDevice extends DeviceState {
+  device_id: string
+  x: number
+  y: number
+  icon: string
+  name: string
+  process_type: string
+  health_score: number
+  oee: number
+  /** 展示用：已 toFixed(1) 的字符串 */
+  power: string
+}
+
+/** 边缘决策规则表行（get_rules 的 {rules, interlocks} 字典 + 补 rule_id/type） */
+interface EdgeRuleRow extends EdgeRule { rule_id: string; type: string }
+
+/** /industry40/devices/status 的行：后端只返回 {status, since}；
+ *  name 属兼容读取（当前恒为 undefined，会退回 device_id）。 */
+type DeviceStateRow = DeviceState & { name?: string }
+
+/** 振动表格行（/industry40/vibration 的 {rms, zone, ...} 映射为展示字段） */
+interface VibrationRow {
+  device_id: string
+  vibration_value?: number
+  iso_grade?: string
+  zone_description?: string
+  bearing_status?: string
+  updated_at?: string
+}
+
+/** /industry40/vibration 的行：后端字段为 rms/zone/zone_description/...；
+ *  vibration_value、iso_grade、bearing_status 是兼容读取（当前后端不返回，
+ *  分别退回 rms / zone / '-'）。 */
+type VibrationSourceRow = VibrationRecord & {
+  vibration_value?: number
+  iso_grade?: string
+  bearing_status?: string
+}
+
+/** 轴承特征频率（前端由 bearing_faults 整理出的标注项） */
+interface BearingCharacteristic { key: string; freq: number; fault: boolean; name: string }
+
+/** 轴承面板数据 = 后端诊断 + 补齐的展示字段 */
+interface BearingView extends BearingDiagnosis {
+  bearing_type?: string
+  status?: string
+  bpfo?: number
+  bpfi?: number
+  bsf?: number
+  ftf?: number
+  characteristic?: BearingCharacteristic[]
+}
+
 
 const HEALTH_BANDS: Band[] = [
   { label: '差', token: '--color-offline', min: -Infinity, max: 20 },
@@ -618,7 +728,8 @@ const CAP_BANDS: Band[] = [
   { label: '充足', token: '--color-success', min: 1.33, max: Infinity },
 ]
 
-const CAP_KEYS = [
+/** 过程能力四指标：key 限定为 SPCCapability 的数值字段，模板里按 key 取数才有类型 */
+const CAP_KEYS: { key: 'cp' | 'cpk' | 'pp' | 'ppk'; label: string }[] = [
   { key: 'cp', label: 'Cp' },
   { key: 'cpk', label: 'Cpk' },
   { key: 'pp', label: 'Pp' },
@@ -641,8 +752,8 @@ function isBandOn(bands: Band[], v: number, i: number): boolean { return bandInd
 function bandVarOf(bands: Band[], v: number): string { return 'var(' + bands[bandIndexOf(bands, v)].token + ')' }
 function healthVar(v: number) { return bandVarOf(HEALTH_BANDS, v) }
 function oeeVar(v: number) { return bandVarOf(OEE_BANDS, v) }
-function capVar(v: number) { return bandVarOf(CAP_BANDS, v) }
-function zoneVar(zone: string) { return 'var(' + (ZONE_TOKEN[zone] || '--color-offline') + ')' }
+function capVar(v: number | null | undefined) { return bandVarOf(CAP_BANDS, Number(v)) }
+function zoneVar(zone?: string) { return 'var(' + (ZONE_TOKEN[zone ?? ''] || '--color-offline') + ')' }
 
 function bandTagClass(bands: Band[], v: number): string {
   const t = bands[bandIndexOf(bands, v)].token
@@ -652,7 +763,7 @@ function bandTagClass(bands: Band[], v: number): string {
   return 'tag--info'
 }
 function oeeTagClass(v: number) { return bandTagClass(OEE_BANDS, v) }
-function capTagClass(v: number) { return bandTagClass(CAP_BANDS, Number(v)) }
+function capTagClass(v: number | null | undefined) { return bandTagClass(CAP_BANDS, Number(v)) }
 
 // ISO 10816 四个分区（边界取后端 VIBRATION_ZONES 的 max），用于振动值着色与分区参考线
 const ZONE_A: Band = { label: 'A 良好', token: '--color-success', min: -Infinity, max: 0.71 }
@@ -673,6 +784,16 @@ function levelBarClass(level: string): string {
   return `level-bar--${k}`
 }
 
+/** 兼容读取：把 unknown 收敛为 string（取不到时用兜底值），语义等价于旧写法 `a || b` */
+function asStr(v: unknown, fallback = ''): string {
+  return typeof v === 'string' && v ? v : fallback
+}
+/** 兼容读取：把 unknown 收敛为 number | undefined（非数值 → undefined） */
+function asNum(v: unknown): number | undefined {
+  const n = typeof v === 'string' ? Number(v) : v
+  return typeof n === 'number' && Number.isFinite(n) ? n : undefined
+}
+
 // ========== 状态 ==========
 const activeTab = ref('overview')
 let refreshTimer: ReturnType<typeof setInterval>
@@ -686,13 +807,13 @@ const loading = reactive({
 })
 
 // 总览
-const overview = reactive({ health: 0, oee: 0, power: 0, carbon: 0, alerts: [] as any[] })
-const overviewRaw = ref<any>(null)
-const overviewNodes = ref<any[]>([])
+const overview = reactive({ health: 0, oee: 0, power: 0, carbon: 0, alerts: [] as MaintenanceAlert[] })
+const overviewRaw = ref<OverviewRaw | null>(null)
+const overviewNodes = ref<OverviewNode[]>([])
 
 // 预测维护
 const healthScores = ref<HealthScore[]>([])
-const maintenanceAlerts = ref<any[]>([])
+const maintenanceAlerts = ref<MaintenanceAlert[]>([])
 const hasHealth = computed(() => healthScores.value.length > 0)
 
 // OEE
@@ -716,9 +837,13 @@ const avgFactors = computed(() => {
 })
 
 // SPC
-const spc = reactive({ deviceId: '', registerName: '', registers: [] as string[], capability: null as any, violations: [] as any[] })
-const spcXbar = ref<any>(null)
-const spcR = ref<any>(null)
+const spc = reactive({
+  deviceId: '', registerName: '', registers: [] as string[],
+  capability: null as SPCCapability | null,
+  violations: [] as SPCViolation[],
+})
+const spcXbar = ref<SPCChart | null>(null)
+const spcR = ref<SPCChart | null>(null)
 const hasSpcXbar = computed(() => Array.isArray(spcXbar.value?.points) && spcXbar.value.points.length > 0)
 const hasSpcR = computed(() => Array.isArray(spcR.value?.points) && spcR.value.points.length > 0)
 
@@ -732,20 +857,20 @@ const hasTou = computed(() => energy.peak_kwh + energy.flat_kwh + energy.valley_
 const hasCost = computed(() => energyCost.peak + energyCost.flat + energyCost.valley > 0)
 
 // 边缘决策
-const edgeStatus = reactive<EdgeStatus>({ rules_count: 0, interlocks_count: 0, pid_controllers: 0 })
-const edgeRules = ref<any[]>([])
-const edgeLog = ref<any[]>([])
+const edgeStatus = reactive<EdgeStatus>({ rules_count: 0, interlocks_count: 0, pid_controllers_count: 0 })
+const edgeRules = ref<EdgeRuleRow[]>([])
+const edgeLog = ref<EdgeLogEntry[]>([])
 
 // 数字孪生
-const twinDevices = ref<any[]>([])
-const twinSelected = ref<any>(null)
+const twinDevices = ref<TwinDevice[]>([])
+const twinSelected = ref<TwinDevice | null>(null)
 const twinAvgHealth = computed(() => {
   const scores = twinDevices.value.filter(d => d.health_score != null).map(d => d.health_score)
   return scores.length ? (scores.reduce((a, b) => a + b, 0) / scores.length).toFixed(1) : '-'
 })
 
 // 设备列表
-const deviceList = ref<any[]>([])
+const deviceList = ref<Device[]>([])
 
 // ECharts refs
 const processFlowRef = ref<HTMLElement>()
@@ -772,8 +897,8 @@ function ensureChart(name: string, el?: HTMLElement): echarts.ECharts | null {
   return charts[name]
 }
 
-// 数字孪生设备映射
-const TWIN_MAP: Record<string, any> = {
+// 数字孪生设备映射（前端静态布局约定）
+const TWIN_MAP: Record<string, TwinMapEntry> = {
   siemens_1500_01: { x: 100, y: 60, icon: '🔥', name: '锅炉产线', process_type: '热处理' },
   hollysys_lk_01: { x: 300, y: 60, icon: '⚗️', name: '化工车间', process_type: '化学反应' },
   mitsubishi_fx5u_01: { x: 500, y: 60, icon: '🏭', name: '注塑车间', process_type: '注塑成型' },
@@ -807,14 +932,16 @@ function fmtTime(t?: string) {
   return Number.isNaN(d.getTime()) ? t : d.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
 }
 // 决策日志没有 level 字段：按 rule_type 区分安全联锁（critical 色）与普通规则触发（info 色）
-function edgeLevelBarClass(ruleType: string) { return ruleType === 'interlock' ? 'level-bar--critical' : 'level-bar--info' }
-function edgeLevelTagClass(ruleType: string) { return ruleType === 'interlock' ? 'tag--danger' : 'tag--info' }
+function edgeLevelBarClass(ruleType?: string) { return ruleType === 'interlock' ? 'level-bar--critical' : 'level-bar--info' }
+function edgeLevelTagClass(ruleType?: string) { return ruleType === 'interlock' ? 'tag--danger' : 'tag--info' }
 
 // 后端多个接口返回以 device_id / "device:register" 为键的字典（axios 拦截器已解开 {success,data}），
 // 统一转成数组后再交给表格/图表，避免字段名错配导致列表恒为空
-function toList(v: any): any[] {
-  if (Array.isArray(v)) return v
-  if (v && typeof v === 'object') return Object.entries(v).map(([id, item]: any) => ({ device_id: id, ...(item || {}) }))
+function toList<T extends object>(v: unknown): Array<T & { device_id: string }> {
+  if (Array.isArray(v)) return v as Array<T & { device_id: string }>
+  if (v && typeof v === 'object') {
+    return Object.entries(v as Record<string, T>).map(([id, item]) => ({ device_id: id, ...item }))
+  }
   return []
 }
 
@@ -827,10 +954,11 @@ async function loadOverview() {
     overview.oee = Number(data?.oee?.avg_oee_percent?.toFixed(1)) || 0
     overview.power = Number(data?.energy?.total_power_kw?.toFixed(1)) || 0
     overview.carbon = Number(data?.energy?.carbon_emission_kg?.toFixed(1)) || 0
-    overview.alerts = data?.alerts || []
+    // 修复字段误用：总览响应里没有顶层 alerts，维护建议在 predictive_maintenance.recent_alerts
+    overview.alerts = data?.predictive_maintenance?.recent_alerts || []
     overviewRaw.value = data
     renderProcessFlow()
-  } catch (e: any) { console.warn('[Industry40] 加载失败:', e?.message || e) }
+  } catch (e) { console.warn('[Industry40] 加载失败:', errorMessage(e)) }
   finally { loading.overview = false }
 }
 
@@ -839,10 +967,10 @@ function renderProcessFlow() {
   if (!chart) return
   const data = overviewRaw.value
   // 总览响应中的设备来源：device_statuses / devices，若都缺则退回同一响应里的 oee.devices（不新增接口）
-  const devices = toList(data?.device_statuses || data?.devices || data?.oee?.devices)
+  const devices = toList<OverviewNode>(data?.device_statuses || data?.devices || data?.oee?.devices)
   overviewNodes.value = devices
   if (!devices.length) { chart.clear(); return }
-  const nodes = devices.map((d: any, i: number) => {
+  const nodes = devices.map((d, i) => {
     const oee = Number(d.oee_percent)
     const offline = d.connected === false
     return {
@@ -862,7 +990,7 @@ function renderProcessFlow() {
       },
     }
   })
-  const links = nodes.slice(1).map((_: any, i: number) => ({ source: nodes[i].name, target: nodes[i+1].name }))
+  const links = nodes.slice(1).map((_, i) => ({ source: nodes[i].name, target: nodes[i+1].name }))
   chart.setOption({
     tooltip: { trigger: 'item' },
     series: [{
@@ -879,10 +1007,10 @@ async function loadPredictive() {
   try {
     const [h, a] = await Promise.all([industry40Api.getHealthScores(), industry40Api.getMaintenanceAlerts()])
     // /industry40/health 返回 {device_id:register: {...}} 字典，/industry40/maintenance-alerts 返回数组
-    healthScores.value = toList(h)
-    maintenanceAlerts.value = toList(a)
+    healthScores.value = toList<HealthScore>(h)
+    maintenanceAlerts.value = toList<MaintenanceAlert>(a)
     renderHealthCharts()
-  } catch (e: any) { console.warn('[Industry40] 加载失败:', e?.message || e) }
+  } catch (e) { console.warn('[Industry40] 加载失败:', errorMessage(e)) }
   finally { loading.predictive = false }
 }
 
@@ -916,7 +1044,7 @@ function renderHealthCharts() {
     .map(([device_id, v]) => ({ device_id, score: Number((v.n ? v.sum / v.n : 0).toFixed(1)), anomalies: v.anomalies }))
     .sort((a, b) => a.score - b.score)
 
-  const marks: any[] = []
+  const marks: ChartMark[] = []
   items.forEach((it) => {
     if (it.anomalies > 0) {
       marks.push({
@@ -930,8 +1058,8 @@ function renderHealthCharts() {
   bar.setOption({
     tooltip: {
       trigger: 'axis', axisPointer: { type: 'shadow' },
-      formatter: (p: any) => {
-        const it = items[p[0]?.dataIndex]
+      formatter: (p: TooltipParam[]) => {
+        const it = items[p[0]?.dataIndex ?? -1]
         if (!it) return ''
         return `${it.device_id}<br/>健康分 ${it.score}%<br/>档位 ${bandLabelOf(HEALTH_BANDS, it.score)}<br/>异常点 ${it.anomalies}`
       },
@@ -978,9 +1106,9 @@ async function loadOEE() {
   try {
     const data = await industry40Api.getOEE()
     // /industry40/oee 返回 {device_id: {oee_percent, availability, ...}} 字典
-    oeeRecords.value = toList(data)
+    oeeRecords.value = toList<OEERecord>(data)
     renderOEECharts()
-  } catch (e: any) { console.warn('[Industry40] 加载失败:', e?.message || e) }
+  } catch (e) { console.warn('[Industry40] 加载失败:', errorMessage(e)) }
   finally { loading.oee = false }
 }
 
@@ -1006,8 +1134,8 @@ function renderOEECharts() {
       rank.setOption({
         tooltip: {
           trigger: 'axis', axisPointer: { type: 'shadow' },
-          formatter: (p: any) => {
-            const it = items[p[0]?.dataIndex]
+          formatter: (p: TooltipParam[]) => {
+            const it = items[p[0]?.dataIndex ?? -1]
             return it ? `${it.device_id}<br/>OEE ${it.value}%<br/>档位 ${bandLabelOf(OEE_BANDS, it.value)}` : ''
           },
         },
@@ -1073,28 +1201,28 @@ async function loadSPC() {
       industry40Api.getSPC(spc.deviceId, spc.registerName),
       industry40Api.getSPCViolations(spc.deviceId),
     ])
-    // 后端返回 { control_chart: { xbar_chart, r_chart, ... }, capability: {...} }
-    const controlChart = chart?.control_chart || chart?.chart_data
+    // 后端返回 { control_chart: { xbar_chart, r_chart, ... }, capability: {...} }（无 chart_data 字段）
+    const controlChart = chart?.control_chart
     spc.capability = chart?.capability || null
-    spcXbar.value = controlChart?.xbar_chart || controlChart?.xbar || null
+    spcXbar.value = controlChart?.xbar_chart || null
     spcR.value = controlChart?.r_chart || null
     // /industry40/spc/violations 返回数组，且判异记录本身不带 device_id
-    const violations = Array.isArray(v) ? v : (v?.violations || [])
-    spc.violations = violations.map((item: any) => ({ ...item, device_id: item.device_id || spc.deviceId }))
+    const violations: SPCViolation[] = Array.isArray(v) ? v : []
+    spc.violations = violations.map((item) => ({ ...item, device_id: item.device_id || spc.deviceId }))
     renderSPCCharts()
-  } catch (e: any) { console.warn('[Industry40] 加载失败:', e?.message || e) }
+  } catch (e) { console.warn('[Industry40] 加载失败:', errorMessage(e)) }
   finally { loading.spc = false }
 }
 
 /** 控制图：折线 + 真实 UCL/CL/LCL 参考线 + 越界点高亮（markPoint）；无控制限则不画 */
 function renderSPCCharts() {
-  const render = (name: string, el: HTMLElement | undefined, title: string, cc: any, unit: string) => {
+  const render = (name: string, el: HTMLElement | undefined, title: string, cc: SPCChart | null, unit: string) => {
     const chart = ensureChart(name, el)
     if (!chart) return
-    const points: number[] = Array.isArray(cc?.points) ? cc.points : []
+    const points: number[] = cc && Array.isArray(cc.points) ? cc.points : []
     if (!points.length) { chart.clear(); return }
     const ucl = Number(cc?.ucl), cl = Number(cc?.cl), lcl = Number(cc?.lcl)
-    const lines: any[] = []
+    const lines: ChartMark[] = []
     if (Number.isFinite(ucl)) {
       lines.push({ yAxis: ucl, lineStyle: { color: token('--color-danger'), type: 'dashed', width: 1 }, label: { formatter: `UCL ${ucl}`, color: token('--color-danger'), fontSize: 11 } })
     }
@@ -1110,7 +1238,7 @@ function renderSPCCharts() {
     if (Number.isFinite(lsl)) lines.push({ yAxis: lsl, lineStyle: { color: token('--chart-4'), type: 'dotted', width: 1 }, label: { formatter: `LSL ${lsl}`, color: token('--chart-4'), fontSize: 11 } })
 
     // 越界点：由真实控制限判定，未拿到控制限时不做任何标记
-    const marks: any[] = []
+    const marks: ChartMark[] = []
     if (Number.isFinite(ucl) || Number.isFinite(lcl)) {
       points.forEach((v, i) => {
         const over = (Number.isFinite(ucl) && v > ucl) || (Number.isFinite(lcl) && v < lcl)
@@ -1128,7 +1256,7 @@ function renderSPCCharts() {
       title: { text: title, left: 'center', textStyle: { fontSize: 13, fontWeight: 600, color: token('--text-primary') } },
       tooltip: {
         trigger: 'axis',
-        formatter: (p: any) => `样本 ${Number(p[0]?.axisValue) + 1}<br/>${title} ${p[0]?.data}${unit}`,
+        formatter: (p: TooltipParam[]) => `样本 ${Number(p[0]?.axisValue) + 1}<br/>${title} ${p[0]?.data}${unit}`,
       },
       grid: { left: 12, right: 32, top: 44, bottom: 8, containLabel: true },
       xAxis: { type: 'category', data: points.map((_: number, i: number) => i + 1), boundaryGap: false },
@@ -1150,32 +1278,36 @@ function renderSPCCharts() {
 async function loadEnergy() {
   loading.energy = true
   try {
-    const [e, c, p] = await Promise.all([
+    const [e, c, p, carbon] = await Promise.all([
       industry40Api.getEnergy(), industry40Api.getEnergyCost(), industry40Api.getEnergyPower(),
+      // 等效树木只在 /industry40/energy/carbon（CarbonEmission.equivalent_trees）里返回，
+      // 总览能耗响应没有该字段（此前读 s.equivalent_trees 恒为 undefined → 该指标恒显示 '-'）
+      industry40Api.getEnergyCarbon().catch(() => null),
     ])
-    // /industry40/energy 返回扁平的能耗汇总（system 无 summary 外层），字段名为
+    // /industry40/energy 返回扁平的能耗汇总（无 summary 外层），字段名为
     // total_energy_kwh / electricity_cost / carbon_emission_kg / peak_kwh / flat_kwh / valley_kwh
-    const s: any = e || {}
-    const num = (v: any) => (Number.isFinite(Number(v)) ? Number(v) : 0)
+    const s: EnergySummaryView = e || {}
+    const num = (v: unknown) => (Number.isFinite(Number(v)) ? Number(v) : 0)
     energy.total_kwh = num(s.total_energy_kwh ?? s.total_kwh).toFixed(1)
     energy.total_cost = num(s.electricity_cost ?? s.total_cost).toFixed(0)
     energy.carbon_kg = num(s.carbon_emission_kg ?? s.carbon_kg).toFixed(1)
-    energy.equivalent_trees = s.equivalent_trees != null ? num(s.equivalent_trees).toFixed(0) : '-'
+    energy.equivalent_trees =
+      carbon?.equivalent_trees != null ? num(carbon.equivalent_trees).toFixed(0) : '-'
     energy.peak_kwh = num(s.peak_kwh)
     energy.flat_kwh = num(s.flat_kwh)
     energy.valley_kwh = num(s.valley_kwh)
     // 电费分时明细（同一批响应，字段 peak/flat/valley.cost）
-    const cost: any = c || {}
+    const cost: Partial<EnergyCostBreakdown> = c || {}
     energyCost.peak = num(cost?.peak?.cost)
     energyCost.flat = num(cost?.flat?.cost)
     energyCost.valley = num(cost?.valley?.cost)
     energyCost.total = num(cost?.total_cost ?? s.electricity_cost)
     // 实时功率 devices 字典
-    energyDevices.value = toList((p as any)?.devices ?? p)
-      .map((d: any) => ({ device_id: d.device_id, power_kw: num(d.power_kw ?? d.power) }))
+    energyDevices.value = toList<RealtimePower>(p?.devices ?? p)
+      .map((d) => ({ device_id: d.device_id, power_kw: num(d.power_kw ?? d.power) }))
       .sort((a, b) => b.power_kw - a.power_kw)
     renderEnergyCharts()
-  } catch (e: any) { console.warn('[Industry40] 加载失败:', e?.message || e) }
+  } catch (e) { console.warn('[Industry40] 加载失败:', errorMessage(e)) }
   finally { loading.energy = false }
 }
 
@@ -1213,7 +1345,7 @@ function renderEnergyCharts() {
   if (stack) {
     if (!hasTou.value) stack.clear()
     else stack.setOption({
-      tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' }, valueFormatter: (v: any) => `${v} kWh` },
+      tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' }, valueFormatter: (v: number) => `${v} kWh` },
       legend: { top: 0, left: 'center' },
       grid: { left: 12, right: 16, top: 40, bottom: 8, containLabel: true },
       xAxis: { type: 'category', data: ['分时电量构成'] },
@@ -1260,7 +1392,7 @@ function renderEnergyCharts() {
     const list = [...energyDevices.value].reverse()   // 最大值显示在顶部
     if (!list.length) power.clear()
     else power.setOption({
-      tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' }, valueFormatter: (v: any) => `${v} kW` },
+      tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' }, valueFormatter: (v: number) => `${v} kW` },
       grid: { left: 12, right: 64, top: 24, bottom: 8, containLabel: true },
       xAxis: { type: 'value', name: 'kW' },
       yAxis: { type: 'category', data: list.map(d => d.device_id) },
@@ -1281,19 +1413,19 @@ async function loadEdge() {
       industry40Api.getEdgeStatus(), industry40Api.getEdgeRules(), industry40Api.getEdgeLog(),
     ])
     // /industry40/edge/status 返回 pid_controllers_count（不是 pid_controllers）
-    const st: any = s || {}
+    const st: Partial<EdgeStatus> = s || {}
     edgeStatus.rules_count = st.rules_count ?? 0
     edgeStatus.interlocks_count = st.interlocks_count ?? 0
-    edgeStatus.pid_controllers = st.pid_controllers_count ?? st.pid_controllers ?? 0
+    edgeStatus.pid_controllers_count = st.pid_controllers_count ?? 0
     const rules = r?.rules || {}
     const interlocks = r?.interlocks || {}
     edgeRules.value = [
-      ...Object.entries(rules).map(([id, v]: any) => ({ ...v, rule_id: id, type: '规则' })),
-      ...Object.entries(interlocks).map(([id, v]: any) => ({ ...v, rule_id: id, type: '联锁' })),
+      ...Object.entries(rules).map(([id, v]) => ({ ...v, rule_id: id, type: '规则' })),
+      ...Object.entries(interlocks).map(([id, v]) => ({ ...v, rule_id: id, type: '联锁' })),
     ]
     // /industry40/edge/log 直接返回数组
-    edgeLog.value = toList(l)
-  } catch (e: any) { console.warn('[Industry40] 加载失败:', e?.message || e) }
+    edgeLog.value = toList<EdgeLogEntry>(l)
+  } catch (e) { console.warn('[Industry40] 加载失败:', errorMessage(e)) }
   finally { loading.edge = false }
 }
 
@@ -1307,15 +1439,16 @@ async function loadTwin() {
     // 以上接口都返回字典（devices 为 {device_id:{status,since}}，power 为 {device_id:{power_kw}}），
     // 之前直接当数组 forEach 会抛 “forEach is not a function”，整个孪生页空白
     const healthMap = new Map<string, number>()
-    toList(health).forEach((h: any) => healthMap.set(h.device_id, h.health_score))
+    toList<HealthScore>(health).forEach((h) => healthMap.set(h.device_id, h.health_score))
     const oeeMap = new Map<string, number>()
-    toList(oee).forEach((o: any) => oeeMap.set(o.device_id, o.oee_percent))
+    toList<OEERecord>(oee).forEach((o) => oeeMap.set(o.device_id, o.oee_percent))
     const powerMap = new Map<string, number>()
-    toList((energyPower as any)?.devices ?? energyPower).forEach((p: any) => powerMap.set(p.device_id, p.power_kw || p.power || 0))
+    toList<RealtimePower>(energyPower?.devices ?? energyPower)
+      .forEach((p) => powerMap.set(p.device_id, Number(p.power_kw || p.power || 0)))
 
     // 动态生成设备布局：用 TWIN_MAP 匹配已知设备，未知设备自动排列
     let unknownIdx = 0
-    twinDevices.value = toList(devs).map((d: any) => {
+    twinDevices.value = toList<DeviceStateRow>(devs).map((d): TwinDevice => {
       const m = TWIN_MAP[d.device_id]
       if (m) {
         return {
@@ -1338,7 +1471,7 @@ async function loadTwin() {
         power: (powerMap.get(d.device_id) || 0).toFixed(1),
       }
     })
-  } catch (e: any) { console.warn('[Industry40] 加载失败:', e?.message || e) }
+  } catch (e) { console.warn('[Industry40] 加载失败:', errorMessage(e)) }
   finally { loading.twin = false }
 }
 
@@ -1356,10 +1489,10 @@ async function loadSPCTab() {
 }
 
 // ========== 振动分析 ==========
-const vibrationData = ref<any[]>([])
-const vibrationSpectrum = ref<any>(null)
+const vibrationData = ref<VibrationRow[]>([])
+const vibrationSpectrum = ref<VibrationSpectrum | null>(null)
 const vibrationSelectedDevice = ref('')
-const vibrationBearing = ref<any>(null)
+const vibrationBearing = ref<BearingView | null>(null)
 const hasVibration = computed(() => vibrationData.value.length > 0)
 const hasSpectrum = computed(() => {
   const s = vibrationSpectrum.value
@@ -1372,7 +1505,7 @@ async function loadVibration() {
   try {
     const data = await industry40Api.getVibrationAll()
     // /industry40/vibration 返回 {device_id: {rms, zone, health_score, ...}} 字典
-    vibrationData.value = toList(data).map((r: any) => ({
+    vibrationData.value = toList<VibrationSourceRow>(data).map((r) => ({
       device_id: r.device_id,
       vibration_value: r.rms ?? r.vibration_value,
       iso_grade: r.zone || r.iso_grade,
@@ -1381,7 +1514,7 @@ async function loadVibration() {
       updated_at: r.updated_at,
     }))
     renderVibrationRms()
-  } catch (e: any) { console.warn('[Industry40] 加载失败:', e?.message || e) }
+  } catch (e) { console.warn('[Industry40] 加载失败:', errorMessage(e)) }
   finally { loading.vibration = false }
 }
 
@@ -1402,8 +1535,8 @@ function renderVibrationRms() {
   chart.setOption({
     tooltip: {
       trigger: 'axis', axisPointer: { type: 'shadow' },
-      formatter: (p: any) => {
-        const it = list[p[0]?.dataIndex]
+      formatter: (p: TooltipParam[]) => {
+        const it = list[p[0]?.dataIndex ?? -1]
         if (!it) return ''
         return `${it.device_id}<br/>RMS ${it.rms.toFixed(2)} mm/s<br/>ISO 分区 ${it.zone || '-'}`
       },
@@ -1436,7 +1569,7 @@ function renderVibrationRms() {
 // 快速连点不同设备时，慢响应会覆盖新数据，用请求序号丢弃过期响应
 let vibrationReqId = 0
 
-async function onVibrationDeviceClick(row: any) {
+async function onVibrationDeviceClick(row: VibrationRow) {
   const reqId = ++vibrationReqId
   vibrationSelectedDevice.value = row.device_id
   vibrationSpectrum.value = null
@@ -1448,7 +1581,7 @@ async function onVibrationDeviceClick(row: any) {
     if (reqId !== vibrationReqId) return
     vibrationSpectrum.value = specData?.spectrum || null
     renderVibrationSpectrum()
-  } catch (e: any) { if (reqId === vibrationReqId) console.warn('[Industry40] 加载失败:', e?.message || e) }
+  } catch (e) { if (reqId === vibrationReqId) console.warn('[Industry40] 加载失败:', errorMessage(e)) }
   finally { if (reqId === vibrationReqId) loading.spectrum = false }
   // 加载轴承数据
   loading.bearing = true
@@ -1471,19 +1604,19 @@ async function onVibrationDeviceClick(row: any) {
       .filter(x => Number.isFinite(x.freq) && x.freq > 0)
     vibrationBearing.value = {
       ...b,
-      bearing_type: b.bearing_type || b.diagnosis,
-      status: b.status || (b.fault_count ? 'fault' : 'normal'),
-      bpfo: b.bpfo ?? faults.BPFO?.detected_frequency_hz,
-      bpfi: b.bpfi ?? faults.BPFI?.detected_frequency_hz,
-      bsf: b.bsf ?? faults.BSF?.detected_frequency_hz,
-      ftf: b.ftf ?? faults.FTF?.detected_frequency_hz,
+      bearing_type: asStr(b.bearing_type, b.diagnosis || ''),
+      status: asStr(b.status, b.fault_count ? 'fault' : 'normal'),
+      bpfo: asNum(b.bpfo) ?? faults.BPFO?.detected_frequency_hz,
+      bpfi: asNum(b.bpfi) ?? faults.BPFI?.detected_frequency_hz,
+      bsf: asNum(b.bsf) ?? faults.BSF?.detected_frequency_hz,
+      ftf: asNum(b.ftf) ?? faults.FTF?.detected_frequency_hz,
       characteristic,
     }
     // 轴承数据先于频谱返回时，补画一次特征频率标注
     renderVibrationSpectrum()
-  } catch (e: any) {
+  } catch (e) {
     if (reqId !== vibrationReqId) return
-    console.warn('[Industry40] 加载失败:', e?.message || e)
+    console.warn('[Industry40] 加载失败:', errorMessage(e))
     vibrationBearing.value = null
   }
   finally { if (reqId === vibrationReqId) loading.bearing = false }
@@ -1507,9 +1640,9 @@ function renderVibrationSpectrum() {
   const maxFreq = Math.max(...pairs.map(p => p.f))
 
   // 特征频率标注（仅画落在频谱范围内的线）
-  const marks: any[] = []
+  const marks: ChartMark[] = []
   const characteristic = vibrationBearing.value?.characteristic || []
-  characteristic.forEach((c: any) => {
+  characteristic.forEach((c) => {
     if (!(c.freq > 0) || c.freq > maxFreq) return
     marks.push({
       xAxis: c.freq,
@@ -1524,7 +1657,7 @@ function renderVibrationSpectrum() {
   chart.setOption({
     tooltip: {
       trigger: 'axis',
-      formatter: (p: any) => {
+      formatter: (p: TooltipParam[]) => {
         const d = p[0]?.data
         const f = Array.isArray(d) ? d[0] : p[0]?.axisValue
         const a = Array.isArray(d) ? d[1] : d
@@ -1555,24 +1688,24 @@ function isoGradeType(grade: string) {
   return map[grade] || 'info'
 }
 
-function selectTwinDevice(d: any) { twinSelected.value = d }
+function selectTwinDevice(d: TwinDevice) { twinSelected.value = d }
 
 // ========== 设备列表 ==========
 async function loadDeviceList() {
   try {
     const data = await devicesApi.getAll()
     deviceList.value = data?.devices || []
-  } catch (e: any) { console.warn('[Industry40] 加载失败:', e?.message || e) }
+  } catch (e) { console.warn('[Industry40] 加载失败:', errorMessage(e)) }
 }
 
 function onSpcDeviceChange(deviceId: string) {
-  const dev = deviceList.value.find((d: any) => d.device_id === deviceId)
-  spc.registers = (dev?.registers || []).map((r: any) => r.name)
+  const dev = deviceList.value.find((d) => d.device_id === deviceId)
+  spc.registers = (dev?.registers || []).map((r) => r.name)
   spc.registerName = ''
 }
 
 // ========== Tab 切换 ==========
-const loaders: Record<string, () => any> = {
+const loaders: Record<string, () => void | Promise<void>> = {
   overview: loadOverview,
   predictive: loadPredictive,
   oee: loadOEE,

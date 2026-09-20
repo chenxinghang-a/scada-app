@@ -55,11 +55,14 @@ export default defineConfig({
         // 精细化 chunk 分割 — 避免单个 vendor 过大
         manualChunks(id) {
           if (id.includes('node_modules')) {
+            // Element Plus 图标必须最先判断：'@element-plus/icons-vue' 的路径同时命中
+            // 下面两条更宽的规则 —— 'vue/'（"icons-vue/dist/..." 含有 "vue/"）和
+            // 'element-plus'。放后面会让 vendor-icons 分支永远不可达，图标被塞进
+            // vendor-vue，既拉大首屏关键路径，也让 vendor-vue 体积无法解释。
+            if (id.includes('@element-plus/icons-vue')) return 'vendor-icons'
             // Vue 核心
             if (id.includes('vue/') || id.includes('vue-router') || id.includes('pinia')) return 'vendor-vue'
-            // Element Plus 按需拆分
             if (id.includes('element-plus')) return 'vendor-element'
-            if (id.includes('@element-plus/icons-vue')) return 'vendor-icons'
             // ECharts 单独拆
             if (id.includes('echarts')) {
               // ECharts 核心和渲染器放一起，图表类型按需加载

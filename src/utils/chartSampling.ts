@@ -163,14 +163,18 @@ export function slidingWindowSample(
 ): [number, number][] {
   if (data.length <= maxPoints) return data
 
-  const recentCount = Math.floor(maxPoints * recentRatio)
+  // 夹紧到 [0, maxPoints]：recentRatio 为 0 或负数时不能算出非法的 recentCount
+  const recentCount = Math.min(Math.max(Math.floor(maxPoints * recentRatio), 0), maxPoints)
   const oldCount = maxPoints - recentCount
 
   // 最近的数据保留原始精度
-  const recent = data.slice(-recentCount)
+  // ⚠️ 必须用下标而不是 data.slice(-recentCount)：recentCount 为 0 时
+  // `slice(-0)` 等价于 `slice(0)`，会把**整个数组**当成"最近数据"返回，
+  // 结果长度变成 maxPoints + data.length，滑动窗口上界失效。
+  const recent = data.slice(data.length - recentCount)
 
   // 旧数据降采样
-  const oldData = data.slice(0, -recentCount)
+  const oldData = data.slice(0, data.length - recentCount)
   const oldSampled = lttbDownsample(oldData, oldCount)
 
   return [...oldSampled, ...recent]

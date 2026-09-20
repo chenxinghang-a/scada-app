@@ -210,16 +210,16 @@
               <div class="panel__body">
                 <el-descriptions :column="2" border>
                   <el-descriptions-item label="运行模式">
-                    <span class="tag" :class="systemStatus.simulation_mode ? 'tag--warning' : 'tag--success'">
-                      {{ systemStatus.simulation_mode ? '模拟模式' : '实时模式' }}
+                    <span class="tag" :class="systemStatus?.simulation_mode ? 'tag--warning' : 'tag--success'">
+                      {{ systemStatus?.simulation_mode ? '模拟模式' : '实时模式' }}
                     </span>
                   </el-descriptions-item>
-                  <el-descriptions-item label="设备总数">{{ systemStatus.devices_total || 0 }}</el-descriptions-item>
-                  <el-descriptions-item label="在线设备">{{ systemStatus.devices_connected || 0 }}</el-descriptions-item>
-                  <el-descriptions-item label="活跃报警">{{ systemStatus.alarms_active || 0 }}</el-descriptions-item>
+                  <el-descriptions-item label="设备总数">{{ devicesTotal }}</el-descriptions-item>
+                  <el-descriptions-item label="在线设备">{{ devicesConnected }}</el-descriptions-item>
+                  <el-descriptions-item label="活跃报警">{{ alarmsActive }}</el-descriptions-item>
                   <el-descriptions-item label="数据采集器">
-                    <span class="tag" :class="systemStatus.data_collector_running ? 'tag--success' : 'tag--danger'">
-                      {{ systemStatus.data_collector_running ? '运行中' : '已停止' }}
+                    <span class="tag" :class="collectorRunning ? 'tag--success' : 'tag--danger'">
+                      {{ collectorRunning ? '运行中' : '已停止' }}
                     </span>
                   </el-descriptions-item>
                 </el-descriptions>
@@ -363,7 +363,7 @@
                 </div>
                 <div class="panel__body">
                   <div v-if="healthStatus" class="health-list">
-                    <div v-for="(val, key) in healthStatus" :key="key" class="health-row">
+                    <div v-for="([key, val]) in healthCheckEntries" :key="key" class="health-row">
                       <span class="health-key mono">{{ key }}</span>
                       <span class="tag" :class="val ? 'tag--success' : 'tag--danger'">{{ val ? '正常' : '异常' }}</span>
                     </div>
@@ -450,7 +450,7 @@
                     </div>
                     <div class="archive-stat">
                       <div class="metric-label">数据库大小</div>
-                      <div class="archive-stat__value mono">{{ (dbInfo as any)?.database_size_mb?.toFixed(2) || '-' }}<span class="metric-unit">MB</span></div>
+                      <div class="archive-stat__value mono">{{ dbInfo?.database_size_mb?.toFixed(2) || '-' }}<span class="metric-unit">MB</span></div>
                     </div>
                   </div>
                 </div>
@@ -510,36 +510,55 @@
 <script setup lang="ts">
 import { ref, onMounted, reactive, computed } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { systemApi, devicesApi, alarmsApi, industry40Api, type Device } from '@/api'
-import { showActionError } from '@/utils/error'
+import {
+  systemApi,
+  devicesApi,
+  alarmsApi,
+  industry40Api,
+  type Device,
+  type AlarmRule,
+  type DatabaseInfo,
+  type SystemConfigFile,
+  type SystemStatus,
+  type AlarmEscalationConfig,
+  type BroadcastConfig,
+  type ModbusOutputDevice,
+} from '@/api'
+import { showActionError, errorMessage } from '@/utils/error'
 
 // 从 package.json 读取版本号
 const appVersion = __APP_VERSION__ || 'v1.0.0'
 
 const activeTab = ref('system')
 const devices = ref<Device[]>([])
-const alarmRules = ref<any[]>([])
-const systemStatus = ref<any>({})
-const dbInfo = ref<any>(null)
+const alarmRules = ref<AlarmRule[]>([])
+const systemStatus = ref<SystemStatus | null>(null)
+const dbInfo = ref<DatabaseInfo | null>(null)
 const ruleDialogVisible = ref(false)
 const isEditRule = ref(false)
 const simulationMode = ref(false)
-const healthStatus = ref<any>(null)
+// /health/status 的 checks 段（键=检查项名，值=是否通过）；后端无 checks 时退化为整个响应体
+const healthStatus = ref<Record<string, unknown> | null>(null)
+// 报警输出配置：界面表单模型。
+// 注意：后端 alarm_output 段并无 mode/buzzer_enabled/auto_silence_seconds 三个键
+// （真实键为 enabled / relay_output / signal_tower / station_output），
+// 这里保留既有字段名以维持界面行为不变，映射缺口见报告。
 const alarmOutputConfig = reactive({ mode: 'auto', buzzer_enabled: true, auto_silence_seconds: 60 })
-const alarmEscalation = reactive({ enabled: false, timeout_minutes: 30, escalate_to: 'critical', notify_methods: ['sound'] as string[] })
+// 报警升级配置：后端 alarms.yaml 无对应持久化段，为前端表单模型
+const alarmEscalation = reactive<AlarmEscalationConfig>({ enabled: false, timeout_minutes: 30, escalate_to: 'critical', notify_methods: ['sound'] as string[] })
 const archiveConfig = reactive({ auto_archive: true, archive_interval_days: 7, retention_days: 90, compress_archived: true })
 const archiveLoading = ref(false)
 
-// 报警输出硬件配置 (Patlite LR7 Modbus)
+// 报警输出硬件配置 (Patlite LR7 Modbus)：对应 alarm_output.signal_tower
 const signalTower = reactive({
   enabled: true,
   host: '192.168.1.70',
   port: 502,
   slave_id: 1,
-  do_mapping: { red_light: 0, yellow_light: 1, green_light: 2, buzzer: 5 },
+  do_mapping: { red_light: 0, yellow_light: 1, green_light: 2, buzzer: 5 } as Record<string, number>,
 })
 
-// 广播系统配置 (MQTT)
+// 广播系统配置 (MQTT)：对应 alarms.yaml 的 broadcast 段
 const broadcastConfig = reactive({
   enabled: true,
   mqtt: { broker: '192.168.1.200', port: 1883, topic_prefix: 'pa/', username: '', password: '' },
@@ -563,7 +582,7 @@ const config = reactive({
 const ruleForm = reactive({ id: '', name: '', device_id: '', register_name: '', condition: '>', threshold: 0, level: 'warning', enabled: true })
 
 // 最近一次 GET /config 的原始内容：保存时用于保留界面上未暴露的嵌套字段
-const rawConfig = ref<any>({})
+const rawConfig = ref<SystemConfigFile>({})
 
 // ===== 保存状态：对比"已落盘快照"与当前表单，避免改完未保存却看起来已保存 =====
 const baseline = ref<Record<string, string>>({})
@@ -588,10 +607,28 @@ function saveStateLabel(key: string, snapshot: unknown) {
 // 广播配置的待保存内容含 MQTT 子对象与区域字符串，单独组一个快照
 const broadcastSnapshot = computed(() => ({ ...broadcastConfig, areas: broadcastAreasStr.value }))
 
+// ===== 系统概览面板：从 /system/status 的真实字段派生 =====
+// 说明：界面原先直接读 systemStatus.devices_total / devices_connected /
+// alarms_active / data_collector_running，但后端 /system/status 根本不返回这四个键
+// （真实结构见 展示层/api/api_system.py:38，设备在 devices、报警在 alarms.total_active_alarms、
+//  采集器在 collector.running），导致面板恒显示 0 / "已停止"。此处改为读真实字段。
+function deviceStatusList(): Array<Partial<{ connected: boolean }>> {
+  const d = systemStatus.value?.devices
+  if (!d) return []
+  return Array.isArray(d) ? d : Object.values(d)
+}
+const devicesTotal = computed(() => deviceStatusList().length)
+const devicesConnected = computed(() => deviceStatusList().filter(x => x?.connected).length)
+const alarmsActive = computed(() => systemStatus.value?.alarms?.total_active_alarms ?? 0)
+const collectorRunning = computed(() => !!systemStatus.value?.collector?.running)
+
+// /health/status 的 checks 段：键=检查项名，值=是否通过（用 computed 保证模板拿到的是数组）
+const healthCheckEntries = computed<Array<[string, unknown]>>(() => Object.entries(healthStatus.value ?? {}))
+
 const dbTables = computed(() => {
-  if (!dbInfo.value) return []
+  const info = dbInfo.value
+  if (!info) return []
   // 后端返回扁平结构，转换为表格数据
-  const info = dbInfo.value as any
   return [
     { name: 'realtime_data', rows: info.realtime_records || 0, size: '-' },
     { name: 'history_data', rows: info.history_records || 0, size: '-' },
@@ -609,8 +646,27 @@ const LEVEL_MAP: Record<string, { label: string; tag: string }> = {
 function levelTag(level: string) { return LEVEL_MAP[level]?.tag || 'tag--offline' }
 function levelLabel(level: string) { return LEVEL_MAP[level]?.label || level }
 
+/**
+ * 只把 source 中与 target **同名**的键回填到 target。
+ * 避免两种历史问题：把响应外壳（success/config 等）写进表单模型，
+ * 以及把结构不同的后端段整体 Object.assign 后又被原样 PUT 回写。
+ */
+function assignKnownKeys(target: Record<string, unknown>, source: unknown): void {
+  if (!source || typeof source !== 'object') return
+  const src = source as Record<string, unknown>
+  for (const key of Object.keys(target)) {
+    const v = src[key]
+    if (v !== undefined) target[key] = v
+  }
+}
+
+/** 把 unknown 收敛成可遍历的对象；非对象一律返回空对象（不抛错） */
+function asRecord(v: unknown): Record<string, unknown> {
+  return v && typeof v === 'object' ? (v as Record<string, unknown>) : {}
+}
+
 onMounted(async () => {
-  try { const data = await devicesApi.getAll(); devices.value = data.devices || [] } catch (e: any) { console.warn('[Config] 加载设备列表失败:', e?.message || e) }
+  try { const data = await devicesApi.getAll(); devices.value = data.devices || [] } catch (e) { console.warn('[Config] 加载设备列表失败:', errorMessage(e)) }
   loadConfig()
   loadEnergyConfig()
   loadSystemStatus()
@@ -629,7 +685,7 @@ async function loadConfig() {
   try {
     const data = await systemApi.getConfig()
     if (data?.config) {
-      const c = data.config as any
+      const c = data.config
       rawConfig.value = c
       if (c.system?.name) config.system.name = c.system.name
       // Web 端口/地址/调试模式在 system.yaml 的 web 段，不在 system 段
@@ -656,13 +712,14 @@ async function loadConfig() {
       markBaseline('collection', config.collection)
       markBaseline('database', config.database)
     }
-  } catch (e: any) { console.warn('[Config] 加载系统配置失败:', e?.message || e) }
+  } catch (e) { console.warn('[Config] 加载系统配置失败:', errorMessage(e)) }
 }
 
 // 电价/碳排因子存在 energy.yaml，由 /industry40/energy/tariff 读写（system.yaml 无 energy 段）
 async function loadEnergyConfig() {
   try {
-    const data: any = await industry40Api.getEnergyTariff()
+    // 拦截器已解开 {success, data} 信封，此处直接拿到 {tariff, tariff_periods, carbon_factor}
+    const data = await industry40Api.getEnergyTariff()
     const t = data?.tariff
     if (t) {
       if (t.peak != null) config.energy.peak_price = t.peak
@@ -671,7 +728,7 @@ async function loadEnergyConfig() {
     }
     if (data?.carbon_factor != null) config.energy.carbon_factor = data.carbon_factor
     markBaseline('energy', config.energy)
-  } catch (e: any) { console.warn('[Config] 加载电价配置失败:', e?.message || e) }
+  } catch (e) { console.warn('[Config] 加载电价配置失败:', errorMessage(e)) }
 }
 
 async function loadSystemStatus() {
@@ -679,11 +736,27 @@ async function loadSystemStatus() {
     const [s, d] = await Promise.all([systemApi.getStatus(), systemApi.getDatabase()])
     systemStatus.value = s
     dbInfo.value = d
-  } catch (e: any) { console.warn('[Config] 加载系统状态失败:', e?.message || e) }
+  } catch (e) { console.warn('[Config] 加载系统状态失败:', errorMessage(e)) }
 }
 
 async function loadAlarmRules() {
-  try { const data = await alarmsApi.getRules(); alarmRules.value = data.rules || [] } catch (e: any) { console.warn('[Config] 加载报警规则失败:', e?.message || e) }
+  try { const data = await alarmsApi.getRules(); alarmRules.value = data.rules || [] } catch (e) { console.warn('[Config] 加载报警规则失败:', errorMessage(e)) }
+}
+
+// 界面「按段保存」用的配置段名 → 表单模型查表。
+// 显式分支而非 `(config as any)[section]`：让段名与模型字段在类型层对齐，
+// 段名写错时编译期即可发现。
+const CONFIG_SECTIONS = ['system', 'collection', 'database', 'energy'] as const
+type ConfigSectionName = typeof CONFIG_SECTIONS[number]
+
+function configSectionOf(name: string): Record<string, unknown> | undefined {
+  switch (name as ConfigSectionName) {
+    case 'system': return config.system
+    case 'collection': return config.collection
+    case 'database': return config.database
+    case 'energy': return config.energy
+    default: return undefined
+  }
 }
 
 // 按后端实际 YAML 结构组装配置段（键名对齐 system.yaml，避免写入无效键甚至把 dict 覆盖成 bool）
@@ -709,7 +782,7 @@ function buildPayload(section: string): Record<string, unknown> {
       },
     }
   }
-  return { ...(config as any)[section] }
+  return { ...(configSectionOf(section) || {}) }
 }
 
 // 只负责发请求，失败向上抛，由调用方决定提示方式
@@ -738,9 +811,9 @@ async function saveConfig(section: string) {
   savingSection.value = section
   try {
     await persistSection(section)
-    markBaseline(section, (config as any)[section])
+    markBaseline(section, configSectionOf(section))
     ElMessage.success('配置已保存')
-  } catch (e: any) { showActionError('保存配置', e) }
+  } catch (e) { showActionError('保存配置', e) }
   finally { savingSection.value = '' }
 }
 
@@ -750,7 +823,7 @@ function showRuleDialog() {
   ruleDialogVisible.value = true
 }
 
-function editRule(rule: any) {
+function editRule(rule: AlarmRule) {
   isEditRule.value = true
   Object.assign(ruleForm, rule)
   ruleDialogVisible.value = true
@@ -766,18 +839,18 @@ async function saveRule() {
     ElMessage.success('规则已保存')
     ruleDialogVisible.value = false
     loadAlarmRules()
-  } catch (e: any) { showActionError('保存规则', e) }
+  } catch (e) { showActionError('保存规则', e) }
 }
 
 async function deleteRule(id: string) {
-  try { await alarmsApi.deleteRule(id); ElMessage.success('规则已删除'); loadAlarmRules() } catch (e: any) { showActionError('删除规则', e) }
+  try { await alarmsApi.deleteRule(id); ElMessage.success('规则已删除'); loadAlarmRules() } catch (e) { showActionError('删除规则', e) }
 }
 
-async function toggleRule(rule: any) {
+async function toggleRule(rule: AlarmRule) {
   try {
     await alarmsApi.updateRule(rule.id, { enabled: rule.enabled })
     ElMessage.success(rule.enabled ? '规则已启用' : '规则已禁用')
-  } catch (e: any) {
+  } catch (e) {
     rule.enabled = !rule.enabled
     showActionError('切换规则', e)
   }
@@ -787,7 +860,7 @@ async function loadSimulationMode() {
   try {
     const data = await systemApi.getSimulationMode()
     simulationMode.value = data.simulation_mode
-  } catch (e: any) { console.warn('[Config] 加载模拟模式失败:', e?.message || e) }
+  } catch (e) { console.warn('[Config] 加载模拟模式失败:', errorMessage(e)) }
 }
 
 async function toggleSimulationMode(val: boolean) {
@@ -800,27 +873,30 @@ async function toggleSimulationMode(val: boolean) {
     )
     await systemApi.setSimulationMode(val)
     ElMessage.success(`已切换为${modeName}`)
-  } catch (e: any) {
+  } catch (e) {
+    // ElMessageBox 取消时 reject 的是字符串 'cancel'（非 Error）
     if (e === 'cancel') { simulationMode.value = !val; return }
     console.error('[Config] 切换模式失败:', e)
     simulationMode.value = !val
-    ElMessage.error('切换模式失败: ' + (e?.response?.data?.error || e?.message || '未知错误'))
+    ElMessage.error('切换模式失败: ' + errorMessage(e))
   }
 }
 
 async function loadHealthStatus() {
   try {
     const data = await systemApi.getHealth()
-    healthStatus.value = data.checks || data
-  } catch (e: any) { console.warn('[Config] 健康状态加载失败:', e?.message || e) }
+    healthStatus.value = asRecord(data.checks || data)
+  } catch (e) { console.warn('[Config] 健康状态加载失败:', errorMessage(e)) }
 }
 
 async function loadAlarmOutputConfig() {
   try {
+    // 后端返回 {success, config}（api_alarms.py:328）。原实现把**整个响应**塞进表单模型，
+    // 会让 success/config 两个键混进表单并随保存原样 PUT 回后端；这里改读 config 段并按同名键回填。
     const data = await alarmsApi.getAlarmOutputConfig()
-    if (data) Object.assign(alarmOutputConfig, data)
+    assignKnownKeys(alarmOutputConfig, data?.config)
     markBaseline('alarmOutput', alarmOutputConfig)
-  } catch (e: any) { console.warn('[Config] 报警输出配置加载失败:', e?.message || e) }
+  } catch (e) { console.warn('[Config] 报警输出配置加载失败:', errorMessage(e)) }
 }
 
 async function saveAlarmOutputConfig() {
@@ -829,16 +905,18 @@ async function saveAlarmOutputConfig() {
     await alarmsApi.setAlarmOutputConfig(alarmOutputConfig)
     markBaseline('alarmOutput', alarmOutputConfig)
     ElMessage.success('报警输出配置已保存')
-  } catch (e: any) { showActionError('保存报警输出配置', e) }
+  } catch (e) { showActionError('保存报警输出配置', e) }
   finally { savingSection.value = '' }
 }
 
 async function loadAlarmEscalation() {
   try {
+    // 原实读 data.escalation：该接口响应是 {success, config}，escalation 在 config 段内。
+    // 后端 alarm_output 段当前并不含 escalation，故实际仍为空——缺口见报告。
     const data = await alarmsApi.getAlarmOutputConfig()
-    if (data?.escalation) Object.assign(alarmEscalation, data.escalation)
+    assignKnownKeys(alarmEscalation, data?.config?.escalation)
     markBaseline('alarmEscalation', alarmEscalation)
-  } catch (e: any) { console.warn('[Config] 报警升级配置加载失败:', e?.message || e) }
+  } catch (e) { console.warn('[Config] 报警升级配置加载失败:', errorMessage(e)) }
 }
 
 async function saveAlarmEscalation() {
@@ -847,17 +925,20 @@ async function saveAlarmEscalation() {
     await systemApi.saveConfig('alarm_escalation', { ...alarmEscalation })
     markBaseline('alarmEscalation', alarmEscalation)
     ElMessage.success('报警升级配置已保存')
-  } catch (e: any) { showActionError('保存报警升级配置', e) }
+  } catch (e) { showActionError('保存报警升级配置', e) }
   finally { savingSection.value = '' }
 }
 
 function loadArchiveConfig() {
   // 归档配置在 loadConfig 中已统一拉取，此处从 config reactive 中读取
   // 如果 loadConfig 中没有 archive 段，尝试单独拉取
+  // 注意：配置/system.yaml 当前**没有 archive 段**，后端 PUT /config 也会因
+  // "配置段 archive 不存在" 返回 400（api_system.py:166），即该面板的读写均无后端支撑。
+  // 这里只修正读取层级并保持原「读不到就保持默认值」的行为，缺口见报告。
   systemApi.getConfig().then(data => {
-    if (data?.config?.archive) Object.assign(archiveConfig, data.config.archive)
+    assignKnownKeys(archiveConfig, data?.config?.archive)
     markBaseline('archive', archiveConfig)
-  }).catch((e: any) => { console.warn('[Config] 归档配置加载失败:', e?.message || e) })
+  }).catch((e) => { console.warn('[Config] 归档配置加载失败:', errorMessage(e)) })
 }
 
 async function saveArchiveConfig() {
@@ -866,7 +947,7 @@ async function saveArchiveConfig() {
     await systemApi.saveConfig('archive', archiveConfig)
     markBaseline('archive', archiveConfig)
     ElMessage.success('归档策略已保存')
-  } catch (e: any) { showActionError('保存归档策略', e) }
+  } catch (e) { showActionError('保存归档策略', e) }
   finally { savingSection.value = '' }
 }
 
@@ -875,7 +956,7 @@ async function triggerArchive() {
   try {
     await systemApi.saveConfig('archive_trigger', { action: 'archive_now' })
     ElMessage.success('归档任务已触发')
-  } catch (e: any) { showActionError('触发归档', e) }
+  } catch (e) { showActionError('触发归档', e) }
   finally { archiveLoading.value = false }
 }
 
@@ -883,8 +964,10 @@ async function triggerArchive() {
 async function loadSignalTowerConfig() {
   try {
     const data = await alarmsApi.getAlarmOutputConfig()
-    if (data?.config) {
-      const st = data.config.signal_tower || data.config
+    const cfg = data?.config
+    if (cfg) {
+      // 有 signal_tower 段就用它，否则退化为整个 alarm_output 段（保留原实现语义）
+      const st: ModbusOutputDevice & { enabled?: boolean } = cfg.signal_tower || cfg
       if (st.enabled !== undefined) signalTower.enabled = st.enabled
       if (st.host) signalTower.host = st.host
       if (st.port) signalTower.port = st.port
@@ -892,7 +975,7 @@ async function loadSignalTowerConfig() {
       if (st.do_mapping) Object.assign(signalTower.do_mapping, st.do_mapping)
     }
     markBaseline('signalTower', signalTower)
-  } catch (e: any) { console.warn('[Config] 光柱配置加载失败:', e?.message || e) }
+  } catch (e) { console.warn('[Config] 光柱配置加载失败:', errorMessage(e)) }
 }
 
 async function saveSignalTower() {
@@ -904,7 +987,7 @@ async function saveSignalTower() {
     })
     markBaseline('signalTower', signalTower)
     ElMessage.success('报警输出硬件配置已保存')
-  } catch (e: any) { showActionError('保存报警输出硬件配置', e) }
+  } catch (e) { showActionError('保存报警输出硬件配置', e) }
   finally { savingSection.value = '' }
 }
 
@@ -912,8 +995,8 @@ async function saveSignalTower() {
 async function loadBroadcastHardwareConfig() {
   try {
     const data = await alarmsApi.getBroadcastConfig()
-    if (data?.config) {
-      const bc = data.config
+    const bc: BroadcastConfig | undefined = data?.config
+    if (bc) {
       if (bc.enabled !== undefined) broadcastConfig.enabled = bc.enabled
       if (bc.mqtt) Object.assign(broadcastConfig.mqtt, bc.mqtt)
       if (bc.areas && Array.isArray(bc.areas)) {
@@ -922,7 +1005,7 @@ async function loadBroadcastHardwareConfig() {
       }
     }
     markBaseline('broadcast', broadcastSnapshot.value)
-  } catch (e: any) { console.warn('[Config] 广播配置加载失败:', e?.message || e) }
+  } catch (e) { console.warn('[Config] 广播配置加载失败:', errorMessage(e)) }
 }
 
 async function saveBroadcastHardware() {
@@ -932,7 +1015,7 @@ async function saveBroadcastHardware() {
     await alarmsApi.setBroadcastConfig({ enabled: broadcastConfig.enabled, mqtt: { ...broadcastConfig.mqtt }, areas })
     markBaseline('broadcast', broadcastSnapshot.value)
     ElMessage.success('广播系统配置已保存')
-  } catch (e: any) { showActionError('保存广播配置', e) }
+  } catch (e) { showActionError('保存广播配置', e) }
   finally { savingSection.value = '' }
 }
 
@@ -940,13 +1023,13 @@ async function saveBroadcastHardware() {
 async function loadLoggingConfig() {
   try {
     const data = await systemApi.getConfig()
-    if (data?.config?.logging) {
-      const lc = data.config.logging as any
+    const lc = data?.config?.logging
+    if (lc) {
       if (lc.level) loggingConfig.level = lc.level
       if (lc.file) Object.assign(loggingConfig.file, lc.file)
     }
     markBaseline('logging', loggingConfig)
-  } catch (e: any) { console.warn('[Config] 日志配置加载失败:', e?.message || e) }
+  } catch (e) { console.warn('[Config] 日志配置加载失败:', errorMessage(e)) }
 }
 
 async function saveLoggingConfig() {
@@ -955,7 +1038,7 @@ async function saveLoggingConfig() {
     await systemApi.saveConfig('logging', { level: loggingConfig.level, file: { ...loggingConfig.file } })
     markBaseline('logging', loggingConfig)
     ElMessage.success('日志设置已保存')
-  } catch (e: any) { showActionError('保存日志配置', e) }
+  } catch (e) { showActionError('保存日志配置', e) }
   finally { savingSection.value = '' }
 }
 
@@ -982,10 +1065,14 @@ function importConfig() {
     if (!file) return
     try {
       const text = await file.text()
-      const imported = JSON.parse(text)
+      const parsed: unknown = JSON.parse(text)
+      if (!parsed || typeof parsed !== 'object') { ElMessage.warning('配置文件格式错误'); return }
+      const imported = parsed as Record<string, unknown>
       // 安全校验：只接受已知配置段，防止原型链污染
-      const allowedSections = ['system', 'collection', 'database', 'energy']
-      const matchedSections = allowedSections.filter(s => imported[s] && typeof imported[s] === 'object' && imported[s] !== null)
+      const matchedSections = CONFIG_SECTIONS.filter(s => {
+        const v = imported[s]
+        return !!v && typeof v === 'object' && v !== null
+      })
       if (matchedSections.length === 0) { ElMessage.warning('配置文件中没有可识别的配置段'); return }
       // 确认对话框：显示将导入的配置段
       await ElMessageBox.confirm(
@@ -994,8 +1081,10 @@ function importConfig() {
         { confirmButtonText: '确定导入', cancelButtonText: '取消', type: 'warning' }
       )
       for (const section of matchedSections) {
-        const dst = (config as any)[section]
-        const src = imported[section]
+        const dst = configSectionOf(section)
+        const rawSrc = imported[section]
+        if (!dst || !rawSrc || typeof rawSrc !== 'object') continue
+        const src = rawSrc as Record<string, unknown>
         // 只覆盖界面上已知的字段，忽略 __proto__ 等危险键和未知键
         for (const key of Object.keys(dst)) {
           if (Object.prototype.hasOwnProperty.call(src, key)) dst[key] = src[key]
@@ -1004,18 +1093,18 @@ function importConfig() {
       // 逐段保存，按后端真实结构落盘；汇总失败段，避免"看起来已保存"
       const failed: string[] = []
       for (const section of matchedSections) {
-        try { await persistSection(section); markBaseline(section, (config as any)[section]) } catch (err: any) {
-          console.warn(`[Config] 导入段 ${section} 保存失败:`, err?.message || err)
+        try { await persistSection(section); markBaseline(section, configSectionOf(section)) } catch (err) {
+          console.warn(`[Config] 导入段 ${section} 保存失败:`, errorMessage(err))
           failed.push(section)
         }
       }
       await loadConfig()
       if (failed.length) ElMessage.error(`配置已导入，但以下配置段保存失败: ${failed.join(', ')}`)
       else ElMessage.success('配置已导入并保存')
-    } catch (e: any) {
+    } catch (e) {
       if (e === 'cancel' || e === 'close') return   // 用户取消导入不算错误
       console.error('[Config] 导入失败:', e)
-      ElMessage.error('配置文件格式错误: ' + (e?.message || '未知错误'))
+      ElMessage.error('配置文件格式错误: ' + errorMessage(e))
     }
   }
   input.click()

@@ -25,8 +25,73 @@ export interface AlarmRule {
   condition: string
   threshold: number
   level: string
-  message: string
+  message?: string
+  name?: string
+  description?: string
+  delay?: number
   enabled: boolean
+}
+
+/**
+ * 报警输出硬件（Modbus 继电器 / 声光灯塔 / 工位继电器）
+ * 对应 配置/alarms.yaml 的 alarm_output.<device> 段（见 展示层/api/api_alarms.py:328）。
+ */
+export interface ModbusOutputDevice {
+  device_id?: string
+  host?: string
+  port?: number
+  protocol?: string
+  slave_id?: number
+  /** 逻辑名 → DO 通道号，例如 { red_light: 0, buzzer: 5, flash_interval: 6 } */
+  do_mapping?: Record<string, number>
+}
+
+/**
+ * GET /alarm-output/config 的 config 段 = 配置/alarms.yaml 的 alarm_output 整段。
+ * 注意：该响应形态为 `{success, config}`（**没有** data 字段），
+ * 因此不会被 api/request.ts 的信封解包规则命中，调用方拿到的是含 config 的对象。
+ */
+export interface AlarmOutputConfig {
+  enabled?: boolean
+  relay_output?: ModbusOutputDevice
+  signal_tower?: ModbusOutputDevice
+  station_output?: ModbusOutputDevice
+  /**
+   * 报警升级配置。后端 alarms.yaml 的 alarm_output 段**当前并不返回该字段**，
+   * 故实际总是 undefined；保留可选以便接口补齐后前端无需再改类型。
+   */
+  escalation?: AlarmEscalationConfig
+}
+
+/** 报警升级配置（前端表单模型，后端尚无对应持久化段，见报告） */
+export interface AlarmEscalationConfig {
+  enabled: boolean
+  timeout_minutes: number
+  escalate_to: string
+  notify_methods: string[]
+}
+
+/** 广播系统 MQTT 连接参数（配置/alarms.yaml 的 broadcast.mqtt） */
+export interface BroadcastMqttConfig {
+  broker?: string
+  port?: number
+  topic_prefix?: string
+  username?: string
+  password?: string
+}
+
+/** GET /broadcast/config 的 config 段 = 配置/alarms.yaml 的 broadcast 段 */
+export interface BroadcastConfig {
+  enabled?: boolean
+  mqtt?: BroadcastMqttConfig
+  areas?: string[]
+}
+
+/** 通知渠道配置（alarms.yaml 的 notification 段，随 /alarm-rules 一并返回） */
+export interface AlarmNotificationConfig {
+  email?: { enabled?: boolean; smtp_server?: string; smtp_port?: number; username?: string; password?: string; recipients?: string[] }
+  sms?: { enabled?: boolean; provider?: string; access_key?: string; secret_key?: string; sign_name?: string; template_code?: string; phone_numbers?: string[] }
+  sound?: { enabled?: boolean; critical_sound?: string; warning_sound?: string }
 }
 
 export const alarmsApi = {
@@ -88,7 +153,8 @@ export const alarmsApi = {
   },
 
   getRules() {
-    return api.get('/alarm-rules') as Promise<{ rules: AlarmRule[] }>
+    // 展示层/api/api_alarms.py:207 直接 jsonify({rules, notification})，无 success 信封
+    return api.get('/alarm-rules') as Promise<{ rules: AlarmRule[]; notification: AlarmNotificationConfig }>
   },
 
   createRule(rule: Partial<AlarmRule>) {
@@ -142,18 +208,18 @@ export const alarmsApi = {
   },
 
   getAlarmOutputConfig() {
-    return api.get('/alarm-output/config') as Promise<any>
+    return api.get('/alarm-output/config') as Promise<{ success: boolean; config: AlarmOutputConfig }>
   },
 
-  setAlarmOutputConfig(config: any) {
-    return api.put('/alarm-output/config', config) as Promise<any>
+  setAlarmOutputConfig(config: Record<string, unknown>) {
+    return api.put('/alarm-output/config', config) as Promise<{ success: boolean; message?: string }>
   },
 
   getBroadcastConfig() {
-    return api.get('/broadcast/config') as Promise<any>
+    return api.get('/broadcast/config') as Promise<{ success: boolean; config: BroadcastConfig; runtime: Record<string, unknown> }>
   },
 
-  setBroadcastConfig(config: any) {
-    return api.put('/broadcast/config', config) as Promise<any>
+  setBroadcastConfig(config: Record<string, unknown>) {
+    return api.put('/broadcast/config', config) as Promise<{ success: boolean; message?: string }>
   },
 }
