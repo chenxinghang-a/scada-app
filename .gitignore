@@ -7,8 +7,16 @@ dist-iso/
 .vitest_cache/
 # 构建前的临时改名产物（用于规避环境批量删除保护，见 skill safe-delete-guard-workarounds）
 dist.prev-*/
+# 探针/隔离构建目录（verify-dist.js 的输入，唯一路径避免删除）
+dist-probe*/
+# 被批量删除保护删成半拉子的产物（改名留证，见 tools/verify-dist.js 的说明）
+dist.corrupt-*/
+dist.bak.*/
 release/
 release.old/
+# 隔离的打包输出目录（避免 electron-builder 清空 release/ 触发删除保护）
+release2/
+release-probe-*/
 .vite/
 backend/*.exe
 backend/_internal/
