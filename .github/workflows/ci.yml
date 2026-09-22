@@ -146,6 +146,15 @@ jobs:
       - name: Unit tests
         run: npm test
 
+      - name: Verify dist integrity (fail-closed gate)
+        # 与 npm run electron:build 保持一致：那道闸门会拒绝「index.html 引用了
+        # 不存在的产物」的 dist 打包。此前本 job 直接调 electron-builder，
+        # **绕过了这道门** —— 而正是这条路径让 2026-09-20 那版带缺陷的安装包
+        # 流了出去（Element Plus 357KB 样式被 after-pack 补丁抹掉，应用无样式）。
+        # 闸门只在本机被删除保护截断 dist 时才红，但「CI 与发布脚本用同一道门」
+        # 是原则问题：绕过闸门的构建产物不该被信任。
+        run: npm run verify:dist
+
       - name: Build NSIS installer
         # 不走 npm run electron:build（它会再跑一遍 build），直接调 electron-builder。
         #
@@ -170,6 +179,11 @@ jobs:
         run: |
           set -o pipefail
           npx electron-builder --win --publish never 2>&1 | tee electron-build.log
+
+      - name: Verify asar integrity
+        # 第二道闸门：安装包内 app.asar 的 dist/index.html 引用必须全部存在且非空。
+        # 与 npm run verify:asar 是同一支脚本，理由同上 —— CI 不得绕过发布闸门。
+        run: node tools/verify-asar.js release/win-unpacked/resources/app.asar
 
       - name: Report build failure as annotation
         # 只在失败时执行：把 electron-builder 的关键行发成 annotation，

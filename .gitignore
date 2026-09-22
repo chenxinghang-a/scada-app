@@ -17,11 +17,15 @@ release.old/
 # 隔离的打包输出目录（避免 electron-builder 清空 release/ 触发删除保护）
 release2/
 release-probe-*/
+# 版本号后缀的隔离打包输出（重出包专用，见 round 172）
+release-*/
 .vite/
 backend/*.exe
 backend/_internal/
 backend/logs/
 backend/data/
+# 暂存目录改名 aside（规避环境批量删除保护，见 skill safe-delete-guard-workarounds）
+backend.stale-*/
 *.log
 *.pid
 .DS_Store
