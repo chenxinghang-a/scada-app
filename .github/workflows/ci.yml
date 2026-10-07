@@ -132,6 +132,29 @@ jobs:
           Write-Host "backend/ 暂存完成，文件数: $((Get-ChildItem -Path backend -Recurse -File).Count)"
           Write-Host "入口: $((Get-Item backend/scada-backend.exe).Length) bytes"
 
+      - name: Smoke staged backend (start it, probe health, kill it)
+        # 第三道闸门，也是最晚补上的一道。
+        #
+        # 此前本 job 对后端产物的可用性验证只有 `Test-Path backend/scada-backend.exe`
+        # —— 那只证明**文件存在**，不证明**产物能跑**。PyInstaller 的失败模式
+        # （缺 hiddenimports / datas 漏文件 / 冻结环境路径推导错）**打包阶段一个都不报**，
+        # 只有进程启动那一刻才炸。于是「构建成功 + exe 存在 + CI 全绿」与
+        # 「产物一运行就崩」可以同时成立。
+        #
+        # 这一步真起进程、真探 /api/health/status（并读响应体里的
+        # global_status/modules/checks，不只看状态码）、真杀整棵进程树，
+        # 另外还验一条**前后端契约**：后端写出的 runtime.json 必须能在
+        # 前端自己的口径（electron/backend-paths.js）上找到。
+        # 2026-09-24 实测到的缺陷正落在这一层 —— main.js 原先拼的是
+        # <backend_dir>/data/runtime.json，而 onedir 布局的真实落点是
+        # <backend_dir>/_internal/data/runtime.json，导致端口发现从未生效过。
+        #
+        # 放在 npm ci / electron-builder 之前：早失败早报，不用等 5 分钟。
+        # 脚本自带「冒烟不改动产物」的清理+复核 —— 这一步至关重要，因为
+        # backend/ 是 extraResources 的源，留下的运行期文件（模拟库 /
+        # runtime.json / logs）会**随安装包发到用户机器上**。
+        run: node tools/verify-backend-runtime.js --exe backend/scada-backend.exe
+
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
@@ -184,6 +207,24 @@ jobs:
         # 第二道闸门：安装包内 app.asar 的 dist/index.html 引用必须全部存在且非空。
         # 与 npm run verify:asar 是同一支脚本，理由同上 —— CI 不得绕过发布闸门。
         run: node tools/verify-asar.js release/win-unpacked/resources/app.asar
+
+      - name: Smoke shipped backend (from win-unpacked resources)
+        # 第四道闸门：验**安装包内**那一份后端能不能跑。
+        #
+        # 为什么必须单独验一次（不是重复上面的 staged 冒烟）：
+        # 上面那次跑的是 `backend/`（extraResources 的**源**），
+        # 这一次跑的是 `release/win-unpacked/resources/backend/`（extraResources 的**产物**）。
+        # 两者之间隔着 electron-builder 的复制 + filter —— 若 `_internal/` 被
+        # filter 漏掉、或 `to:` 路径写错，源目录照样完好、上面的冒烟照样绿，
+        # 而**装到用户机器上的那份是坏的**。
+        #
+        # 在此之前，CI 里没有任何一步看过 `resources/backend/`：
+        # `verify:dist` 只看 dist/，`verify-asar` 只看 app.asar 内的 dist 引用。
+        # 也就是说「安装包里的后端能不能跑」**从未被自动化验证过**。
+        #
+        # 另一个隐含收益：这一跑会顺带证明**打包后的路径深度**（多一层
+        # resources/）不会破坏后端自己的路径推导（paths.py 的 frozen 分支）。
+        run: node tools/verify-backend-runtime.js --exe release/win-unpacked/resources/backend/scada-backend.exe
 
       - name: Report build failure as annotation
         # 只在失败时执行：把 electron-builder 的关键行发成 annotation，

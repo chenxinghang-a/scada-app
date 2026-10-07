@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeAll } from 'vitest'
-import { execFileSync } from 'node:child_process'
+import { spawn } from 'node:child_process'
 import fs from 'node:fs'
 import path from 'node:path'
 
@@ -13,6 +13,12 @@ import path from 'node:path'
  *
  * 夹具放在仓库内 `.vitest_cache/` 下（已 gitignore），**不做任何删除** ——
  * 环境对删除有批量保护，测试里删目录会弹出确认框。
+ *
+ * ⚠️ 2026-09-24 改造：原先用 `execFileSync` 起被测脚本，而**本机 node 里所有
+ * 同步 spawn 一律 `EBUSY`**（`spawnSync` / `execSync` / `execFileSync`，
+ * 连 `cmd.exe` 都起不来，且 `e.stdout` / `e.stderr` 为空、没有任何线索）
+ * → `run()` 永远返回 `code: -1` → 这个文件在本机 **7 条全红**。
+ * 已改成异步 `spawn`。改完本机全量才可能真绿。
  */
 
 const REPO = process.cwd()
@@ -31,14 +37,16 @@ function makeDist(name: string, files: Record<string, string | null>): string {
   return dir
 }
 
-function run(dir: string): { code: number; out: string } {
-  try {
-    const out = execFileSync(process.execPath, [TOOL, dir], { encoding: 'utf8', stdio: 'pipe' })
-    return { code: 0, out }
-  } catch (e: unknown) {
-    const err = e as { status?: number; stdout?: string; stderr?: string }
-    return { code: err.status ?? -1, out: String(err.stdout || '') + String(err.stderr || '') }
-  }
+/** 起一次被测脚本，拿到 (退出码, 合并后的输出)。异步 —— 见文件头说明。 */
+function run(dir: string): Promise<{ code: number; out: string }> {
+  return new Promise((resolve) => {
+    const child = spawn(process.execPath, [TOOL, dir])
+    let out = ''
+    child.stdout.on('data', (d) => { out += d })
+    child.stderr.on('data', (d) => { out += d })
+    child.on('error', (e) => resolve({ code: -1, out: `spawn 失败: ${e.message}` }))
+    child.on('close', (code) => resolve({ code: code ?? -1, out }))
+  })
 }
 
 const HEALTHY_HTML = [
@@ -61,51 +69,51 @@ beforeAll(() => {
 })
 
 describe('tools/verify-dist.js 构建产物闸门', () => {
-  it('引用全部存在 → 通过（exit 0）', () => {
+  it('引用全部存在 → 通过（exit 0）', async () => {
     const dir = makeDist('healthy', HEALTHY_FILES)
-    const r = run(dir)
+    const r = await run(dir)
     expect(r.code).toBe(0)
     expect(r.out).toContain('均存在且非空')
-  })
+  }, 30000)
 
-  it('被引用的 CSS 消失（批量删除保护的真实后果）→ 拒绝（exit 1）', () => {
+  it('被引用的 CSS 消失（批量删除保护的真实后果）→ 拒绝（exit 1）', async () => {
     const dir = makeDist('missing-css', {
       'index.html': HEALTHY_HTML,
       'assets/index-AAA.js': 'console.log(1)',
       // 刻意不建 assets/vendor-element-BBB.css
       'assets/index-CCC.css': '.b{color:blue}',
     })
-    const r = run(dir)
+    const r = await run(dir)
     expect(r.code).toBe(1)
     expect(r.out).toContain('vendor-element-BBB.css')
     expect(r.out).toContain('拒绝打包')
-  })
+  }, 30000)
 
-  it('被引用的文件存在但为零字节 → 同样拒绝（存在 ≠ 可用）', () => {
+  it('被引用的文件存在但为零字节 → 同样拒绝（存在 ≠ 可用）', async () => {
     const dir = makeDist('empty-file', { ...HEALTHY_FILES, 'assets/index-AAA.js': null })
-    const r = run(dir)
+    const r = await run(dir)
     expect(r.code).toBe(1)
     expect(r.out).toContain('index-AAA.js')
-  })
+  }, 30000)
 
-  it('index.html 不存在 → exit 2（区分「产物没构建」与「产物不完整」）', () => {
+  it('index.html 不存在 → exit 2（区分「产物没构建」与「产物不完整」）', async () => {
     const dir = makeDist('no-index', { 'assets/index-AAA.js': 'x' })
-    const r = run(dir)
+    const r = await run(dir)
     expect(r.code).toBe(2)
     expect(r.out).toContain('找不到构建产物')
-  })
+  }, 30000)
 
-  it('本地引用数异常偏少（产物只剩空壳）→ 拒绝', () => {
+  it('本地引用数异常偏少（产物只剩空壳）→ 拒绝', async () => {
     const dir = makeDist('too-few-refs', {
       'index.html': '<html><head><link rel="stylesheet" href="./assets/only.css"></head></html>',
       'assets/only.css': '.x{}',
     })
-    const r = run(dir)
+    const r = await run(dir)
     expect(r.code).toBe(1)
     expect(r.out).toContain('异常偏少')
-  })
+  }, 30000)
 
-  it('外链 / data: / 锚点不参与本地校验', () => {
+  it('外链 / data: / 锚点不参与本地校验', async () => {
     const html = [
       '<html><head>',
       '<link rel="stylesheet" href="https://cdn.example.com/x.css">',
@@ -119,12 +127,12 @@ describe('tools/verify-dist.js 构建产物闸门', () => {
       'assets/index-AAA.js': 'x',
       'assets/index-CCC.css': '.c{}',
     })
-    const r = run(dir)
+    const r = await run(dir)
     expect(r.code).toBe(0)
     expect(r.out).toContain('本地引用数: 2')
-  })
+  }, 30000)
 
-  it('带 query/hash 的引用按去参后比对', () => {
+  it('带 query/hash 的引用按去参后比对', async () => {
     const html = [
       '<html><head>',
       '<script type="module" src="./assets/index-AAA.js"></script>',
@@ -136,6 +144,7 @@ describe('tools/verify-dist.js 构建产物闸门', () => {
       'assets/index-AAA.js': 'x',
       'assets/index-CCC.css': '.c{}',
     })
-    expect(run(dir).code).toBe(0)
-  })
+    const r = await run(dir)
+    expect(r.code).toBe(0)
+  }, 30000)
 })

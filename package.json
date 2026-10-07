@@ -1,6 +1,6 @@
 {
   "name": "smartscada",
-  "version": "1.3.1039",
+  "version": "1.3.1040",
   "description": "SmartSCADA - 工业数据采集与监控系统",
   "author": "陈星行",
   "license": "MIT",
@@ -13,6 +13,7 @@
     "electron:dev": "concurrently \"vite\" \"wait-on http://localhost:5173 && electron .\"",
     "verify:dist": "node tools/verify-dist.js",
     "verify:asar": "node tools/verify-asar.js release/win-unpacked/resources/app.asar",
+    "verify:backend-runtime": "node tools/verify-backend-runtime.js --exe backend/scada-backend.exe",
     "electron:build": "npm run build && npm run verify:dist && electron-builder --win --publish never",
     "electron:build:dir": "npm run build && npm run verify:dist && electron-builder --win --dir --publish never",
     "test": "vitest run",

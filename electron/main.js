@@ -8,21 +8,29 @@ const fs = require('fs')
 let setupUpdater = null, checkForUpdates = null
 try { const u = require('./updater'); setupUpdater = u.setupUpdater; checkForUpdates = u.checkForUpdates } catch {}
 const { isFirstRun, markComplete } = require('./first-run')
+// 后端 exe / 运行时端口文件的定位口径（可单测，且被 CI 闸门共用）。
+const backendPaths = require('./backend-paths')
 
 // ============ 常量 ============
 // 端口默认回退到 5000（向后兼容 / 模拟模式）。真实模式下后端监听 5001，
-// 实际端口以运行时文件 runtime.json 为准（见 getRuntimePort / syncBackendPort）。
+// 实际端口以运行时文件 runtime.json 为准（见 syncBackendPort / resolveBackendPort）。
 let BACKEND_PORT = 5000
 const BACKEND_HOST = '127.0.0.1'
 const HEALTH_ENDPOINT = '/api/health/status'
 const isDev = !app.isPackaged
 const MAX_BACKEND_RESTARTS = 5
 
-// 后端运行时端口文件：后端启动后写入 {port,host,pid,mode,started_at}。
-// 路径与后端 paths.RUNTIME_JSON_PATH 对齐 —— <backend_dir>/data/runtime.json。
-// 后端冻结（PyInstaller onefile）时 backend 目录即 scada-backend.exe 所在目录，
-// 开发/打包布局下 getBackendPath() 已能稳定解析该目录，故此处直接拼接。
-const RUNTIME_JSON_PATH = path.join(path.dirname(getBackendPath()), 'data', 'runtime.json')
+// 后端运行时端口文件（后端启动后写入 {port,host,pid,mode,started_at}）的定位
+// **不在这里拼路径** —— 见 electron/backend-paths.js。
+//
+// 2026-09-24 修正：此处原先把路径写死成 <backend_dir>/data/runtime.json，注释还写着
+// 「与后端 paths.RUNTIME_JSON_PATH 对齐」。那是错的：实际发布的 onedir 布局下，
+// 后端 paths.py 的 frozen 分支取 _BASE = exe_dir/_internal，
+// 于是文件落在 <backend_dir>/_internal/data/runtime.json。
+// 结果 readRuntimePort() 恒返回 null，整个「避免 5000/5001 错配」的机制
+// **从未生效过** —— 只是回退值 5000 恰好等于模拟模式端口（run.py:446），
+// 而这里又恒 spawn(exe, []) 不传参数，才一直没暴露。
+// 现在统一走 backend-paths.js：**两个候选布局都探测**，谁先存在用谁。
 
 // ============ 状态 ============
 let mainWindow = null
@@ -42,9 +50,11 @@ if (!gotTheLock) { app.quit() }
 
 // ============ 工具 ============
 function getBackendPath() {
-  return isDev
-    ? path.join(__dirname, '..', 'backend', 'scada-backend.exe')
-    : path.join(process.resourcesPath, 'backend', 'scada-backend.exe')
+  return backendPaths.getBackendPath({
+    isPackaged: app.isPackaged,
+    resourcesPath: process.resourcesPath,
+    appDir: __dirname,
+  })
 }
 
 function getSystemInfo() {
@@ -89,16 +99,13 @@ function isPortOpen(port) {
 }
 
 // 读取后端写入的 runtime.json，拿回本次启动的真实端口。
-// 读不到（后端尚未写入/文件被删）时返回 null，调用方回退到 BACKEND_PORT 或探测。
+// 读不到（后端尚未写入 / 布局不符 / 文件被删）时返回 null，调用方回退到 BACKEND_PORT 或探测。
+//
+// 候选路径与「两种布局都探测」的口径集中在 electron/backend-paths.js，
+// 且与 CI 闸门 tools/verify-backend-runtime.js 共用同一份实现 —— 不允许各写一份。
+// 每次调用都重新解析路径：后端可能刚写完文件，且打包/开发布局不同。
 function readRuntimePort() {
-  try {
-    const txt = fs.readFileSync(RUNTIME_JSON_PATH, 'utf-8')
-    const obj = JSON.parse(txt)
-    if (obj && Number.isInteger(obj.port) && obj.port > 0) return obj.port
-  } catch (e) {
-    // 文件不存在 / 解析失败：视为暂无，不报错（后端可能正在启动）
-  }
-  return null
+  return backendPaths.readRuntimePort(getBackendPath())
 }
 
 // 把 runtime.json 中的端口同步到模块级 BACKEND_PORT（仅在确有值时更新），
