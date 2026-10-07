@@ -311,6 +311,31 @@ import { getAuthToken, getWsBaseUrl } from '@/api/request'
 import { useAuthStore } from '@/stores/auth'
 import { showActionError } from '@/utils/error'
 import { registerScadaTheme, scadaThemeName, applyScadaTheme, SCADA_LEVEL_COLORS } from '@/utils/echartsTheme'
+// 纯函数层（设备状态分类 / 实时数据与 WS 报文解析 / 质量码归一化 / 趋势缓冲裁剪）。
+// 抽出来的理由：这些逻辑原先内联在本组件里且没有导出，测试只能**手抄一份同名逻辑**
+// 再断言抄件 —— 抄件拦不住组件里的回归。现在组件与测试共用同一份实现。
+// 见 src/utils/dashboard.ts 与 tests/utils/dashboard.test.ts。
+import {
+  deviceIdOf,
+  levelKey,
+  aggregateAlarmsByDevice,
+  deviceStateOf,
+  deviceStateTagClass,
+  deviceStateText,
+  devicePriority as devicePriorityOf,
+  compareDevices,
+  countDeviceStates,
+  filterDevices,
+  protocolOptions,
+  realtimeKey,
+  normalizeQuality,
+  qualityLabel,
+  parseRealtimeItem,
+  parseRealtimePayload,
+  pushCapped,
+  type DeviceAlarmInfo,
+  type DeviceStateKey,
+} from '@/utils/dashboard'
 
 const authStore = useAuthStore()
 
@@ -368,20 +393,9 @@ const bufferVersion = ref(0)
 // ========== 报警按设备聚合（B4：告警设备置顶 + 卡片角标）==========
 // 后端 /api/system/status 的 devices[] 不含 status/zone 字段（实测），
 // 设备级的"告警"只能从 alarms 列表按 device_id 聚合，不再依赖不存在的 d.status
-type DeviceAlarmInfo = { total: number; unacked: number; worst: 'critical' | 'warning' | 'info' }
-const alarmByDevice = computed(() => {
-  const map: Record<string, DeviceAlarmInfo> = {}
-  alarms.value.forEach(a => {
-    const id = a.device_id
-    if (!id) return
-    const lvl = levelKey(a.alarm_level)
-    const info = map[id] || (map[id] = { total: 0, unacked: 0, worst: 'info' })
-    info.total++
-    if (!a.acknowledged) info.unacked++
-    if (lvl === 'critical' || (lvl === 'warning' && info.worst === 'info')) info.worst = lvl
-  })
-  return map
-})
+// 聚合逻辑已抽到纯函数层（`aggregateAlarmsByDevice`），这里只保留响应式包装。
+// `DeviceAlarmInfo` 类型也从 utils/dashboard.ts 导入 —— 不再在组件里另立一份。
+const alarmByDevice = computed(() => aggregateAlarmsByDevice(alarms.value))
 function getDeviceAlarm(d: DeviceStatus): DeviceAlarmInfo | null { return alarmByDevice.value[getDeviceId(d)] || null }
 function hasDeviceAlarm(d: DeviceStatus): boolean { return !!getDeviceAlarm(d) }
 function alarmTagClass(d: DeviceStatus): string {
@@ -394,17 +408,13 @@ function alarmTagTitle(d: DeviceStatus): string {
   return `活动报警 ${a.total} 条，未确认 ${a.unacked} 条`
 }
 // 排序优先级：未确认告警 > 已确认告警 > 离线 > 停机 > 正常（操作员先看到异常设备）
+// 排序优先级与比较规则已抽到纯函数层（`devicePriority` / `compareDevices`），
+// 这里只负责把「告警聚合表」注入进去。
 function devicePriority(d: DeviceStatus): number {
-  const a = getDeviceAlarm(d)
-  if (a) return a.unacked > 0 ? 0 : 1
-  if (!d.connected) return 2
-  if (d.stopped) return 3
-  return 4
+  return devicePriorityOf(d, getDeviceAlarm(d))
 }
 function compareDevice(a: DeviceStatus, b: DeviceStatus): number {
-  const pa = devicePriority(a), pb = devicePriority(b)
-  if (pa !== pb) return pa - pb
-  return getDeviceId(a).localeCompare(getDeviceId(b))
+  return compareDevices(a, b, alarmByDevice.value)
 }
 
 // ========== 筛选 + 分页 ==========
@@ -415,22 +425,19 @@ const devPage = ref(1)
 watch(devProtocolFilter, () => { devPage.value = 1 })
 const devPageSize = 50
 
-const onlineCount = computed(() => allDeviceList.value.filter(d => d.connected).length)
-const offlineCount = computed(() => allDeviceList.value.filter(d => !d.connected).length)
-// 告警台数改为按 alarms 聚合（原来依赖 devices[].status，实测后端不下发该字段 → 恒为 0）
-const faultCount = computed(() => allDeviceList.value.filter(hasDeviceAlarm).length)
-const mechanicalCount = computed(() => allDeviceList.value.filter(d => d.device_category === 'mechanical').length)
-const protocolList = computed(() => Array.from(new Set(allDeviceList.value.map(d => d.protocol || 'modbus_tcp'))).sort())
-const filteredDeviceList = computed(() => {
-  let list = allDeviceList.value
-  if (devFilter.value === 'online') list = list.filter(d => d.connected)
-  else if (devFilter.value === 'offline') list = list.filter(d => !d.connected)
-  else if (devFilter.value === 'fault') list = list.filter(hasDeviceAlarm)
-  else if (devFilter.value === 'mechanical') list = list.filter(d => d.device_category === 'mechanical')
-  if (devProtocolFilter.value) list = list.filter(d => (d.protocol || 'modbus_tcp') === devProtocolFilter.value)
-  // 告警设备置顶（复制后排序，不改动 allDeviceList 本身）
-  return list.slice().sort(compareDevice)
-})
+// 台数统计 / 协议选项 / 筛选排序全部走纯函数层，组件只做响应式包装。
+// 口径见 utils/dashboard.ts：fault = 「**有活动报警的设备数**」（不是 status==='fault'），
+// 因为后端 devices[] 实测不下发 status 字段 —— 早先依赖它导致告警台数恒为 0。
+const deviceCounts = computed(() => countDeviceStates(allDeviceList.value, alarmByDevice.value))
+const onlineCount = computed(() => deviceCounts.value.online)
+const offlineCount = computed(() => deviceCounts.value.offline)
+const faultCount = computed(() => deviceCounts.value.fault)
+const mechanicalCount = computed(() => deviceCounts.value.mechanical)
+const protocolList = computed(() => protocolOptions(allDeviceList.value))
+// 告警设备置顶（`filterDevices` 内部排序前先复制，不改动 allDeviceList 本身）
+const filteredDeviceList = computed(() =>
+  filterDevices(allDeviceList.value, devFilter.value, devProtocolFilter.value, alarmByDevice.value)
+)
 const devTotalPages = computed(() => Math.max(1, Math.ceil(filteredDeviceList.value.length / devPageSize)))
 const pagedDeviceList = computed(() => {
   const start = (devPage.value - 1) * devPageSize
@@ -536,17 +543,17 @@ async function loadData() {
       if (gen !== loadGeneration) return
       if (data?.data) {
         data.data.forEach((item: any) => {
-          if (item.device_id && item.register_name && item.value != null) {
-            const k = `${item.device_id}:${item.register_name}`
-            deviceValues[k] = parseFloat(item.value)
-            if (item.unit) registerUnits[k] = item.unit
-            // 质量码（OPC UA 码，int）。此前只在 WS 分支填过，而 WS 载荷来自
-            // SQLite 行、当时没有 quality 列 → 轮询与 WS 两条路都拿不到，
-            // 质量圆点 UI 恒定走降级分支。现后端已把 quality 列补齐并随
-            // /api/data/realtime 返回，这里必须一并回填。
-            const q = normalizeQuality(item.quality)
-            if (q != null) deviceQuality[k] = q
-          }
+          // 解析逻辑在纯函数层（`parseRealtimeItem`）：缺字段 / 值不可解析一律返回 null，
+          // 不再把 NaN 写进桶让卡片渲染出字面量 "NaN"。
+          const upd = parseRealtimeItem(item)
+          if (!upd) return
+          deviceValues[upd.key] = upd.value
+          if (upd.unit) registerUnits[upd.key] = upd.unit
+          // 质量码（OPC UA 码，int）。此前只在 WS 分支填过，而 WS 载荷来自
+          // SQLite 行、当时没有 quality 列 → 轮询与 WS 两条路都拿不到，
+          // 质量圆点 UI 恒定走降级分支。现后端已把 quality 列补齐并随
+          // /api/data/realtime 返回，这里必须一并回填。
+          if (upd.quality != null) deviceQuality[upd.key] = upd.quality
         })
         updateTrendChart(data.data)
       }
@@ -732,44 +739,33 @@ function deviceDescription(d: DeviceStatus): string {
 }
 
 // ========== 设备卡片 ==========
-function getDeviceId(d: DeviceStatus): string { return d.device_id || d.id || '' }
+// 状态分类 / 文案 / 标签类都已抽到纯函数层（`deviceStateOf` / `deviceStateText` /
+// `deviceStateTagClass`），这里只做「把告警聚合表注入进去」的薄包装 ——
+// 模板里的调用名保持不变，避免大面积改模板。
+function getDeviceId(d: DeviceStatus): string { return deviceIdOf(d) }
 // 状态色条：离线 > 活动告警（严重=红/一般=黄）> 停机 > 运行
 // 注：后端 devices[] 实测不下发 status 字段，告警态改由 alarms 聚合（见 alarmByDevice）
-function getDeviceStatusClass(d: DeviceStatus): string {
-  if (!d.connected) return 'offline'
-  const a = getDeviceAlarm(d)
-  if (a) return a.worst === 'critical' ? 'fault' : 'warning'
-  if (d.stopped) return 'stopped'
-  if (d.status === 'fault' || d.status === 'warning') return 'warning'
-  return 'online'
+function getDeviceStatusClass(d: DeviceStatus): DeviceStateKey {
+  return deviceStateOf(d, getDeviceAlarm(d))
 }
 function statusTagClass(d: DeviceStatus): string {
-  const s = getDeviceStatusClass(d)
-  if (s === 'online') return 'tag--success'
-  if (s === 'stopped') return 'tag--info'
-  if (s === 'offline') return 'tag--offline'
-  if (s === 'fault') return 'tag--danger'
-  return 'tag--warning'
+  return deviceStateTagClass(getDeviceStatusClass(d))
 }
 function getDeviceStatusText(d: DeviceStatus): string {
-  if (!d.connected) return '离线'
-  if (getDeviceAlarm(d)) return '告警'
-  if (d.stopped) return '已停止'
-  if (d.status === 'fault' || d.status === 'warning') return '告警'
-  return '运行中'
+  return deviceStateText(d, getDeviceAlarm(d))
 }
 function getDeviceValue(deviceId: string, regName: string): string {
-  const v = deviceValues[`${deviceId}:${regName}`]
+  const v = deviceValues[realtimeKey(deviceId, regName)]
   return v !== undefined ? v.toFixed(1) : '--'
 }
 // 值超阈值时变色（保留原有语义，颜色改为设计令牌）
 function getDeviceValueColor(deviceId: string, regName: string): string {
-  const q = deviceQuality[`${deviceId}:${regName}`]
+  const q = deviceQuality[realtimeKey(deviceId, regName)]
   if (q == null) return 'var(--text-primary)'
   return q >= 192 ? 'var(--color-success)' : q >= 64 ? 'var(--color-warning)' : 'var(--color-danger)'
 }
 function getDeviceQuality(deviceId: string, regName: string): number | null {
-  const q = deviceQuality[`${deviceId}:${regName}`]
+  const q = deviceQuality[realtimeKey(deviceId, regName)]
   return q != null ? q : null
 }
 
@@ -889,10 +885,10 @@ async function toggleDevice(deviceId: string, stop: boolean) {
 }
 
 // ========== 报警 ==========
-// 等级归一化：后端只有 critical / warning / info 三类
-function levelKey(level: string): 'critical' | 'warning' | 'info' {
-  return level === 'critical' ? 'critical' : level === 'warning' ? 'warning' : 'info'
-}
+// 等级归一化 `levelKey` 已抽到纯函数层（utils/dashboard.ts）并在此导入。
+// ⚠️ 注意：`AlarmOutput.vue` / `Alarms.vue` / `Screen.vue` 各有一份**同名不同义**的
+// levelKey（兜底值分别是 'normal' / 另一套 / 'info'）。本轮**只搬运、不统一** ——
+// 统一它们会静默改掉 UI 行为，要先定口径（已记入队列）。
 function levelBarClass(level: string): string { return `level-bar--${levelKey(level)}` }
 // 未确认报警：只让左侧色条呼吸（不整行闪烁）
 function pulseClass(level: string): string {
@@ -945,30 +941,17 @@ function getQualityLevel(q: number | null): string {
   if (q == null) return 'quality-dot--unknown'
   return q >= 192 ? 'quality-dot--good' : q >= 64 ? 'quality-dot--uncertain' : 'quality-dot--bad'
 }
-/**
- * 把后端来的质量码收敛成 number | null。
- *
- * 为什么必须有这一步：后端历史上**同时存在三种 quality 语义** ——
- *   - 采集层的 OPC UA 数值码（192/104/0/4/6/8/80/64，int）
- *   - 模拟客户端的字符串标记（'good' / 'simulated' / 'BAD'）
- *   - OEE 接口的 `quality` 是 0~1 的**质量率**（同名不同义）
- * 直接写进 `deviceQuality` 会让下游的 `q >= 192` 对字符串做比较 ——
- * JS 里 `'BAD' >= 192` 求值为 false，静默判成 Bad 而不报错，
- * 属于最难查的一类 bug。这里显式收敛：只接受有限数值，其余一律 null
- * （null 会走"用报警阈值补语义色"的降级分支，是安全的默认行为）。
- */
-function normalizeQuality(raw: any): number | null {
-  if (raw == null) return null
-  const n = typeof raw === 'number' ? raw : Number(raw)
-  return Number.isFinite(n) ? n : null
-}
+// `normalizeQuality` 已抽到纯函数层并在此导入（原实现与那段说明一起搬过去了，
+// 说明文字见 utils/dashboard.ts 的 normalizeQuality 注释 —— 三种同名不同义的质量码
+// 必须收敛，否则 `'BAD' >= 192` 会静默判假）。
 function getQualityLabel(q: number | null): string {
-  if (q == null) return ''
-  return q >= 192 ? 'Good' : q >= 64 ? 'Uncertain' : 'Bad'
+  return qualityLabel(q)
 }
 
 // ========== 趋势图 ==========
-function bufferKey(deviceId: string, regName: string) { return `${deviceId}:${regName}` }
+// 桶键构造已抽到纯函数层（`realtimeKey`）；保留本地名以免动到既有调用点。
+// 键里含 device_id，所以不同设备的同名寄存器不会串台。
+function bufferKey(deviceId: string, regName: string): string { return realtimeKey(deviceId, regName) }
 function selectedBuffers(): Record<string, Array<{ t: string; v: number }>> {
   const prefix = `${selectedDeviceId.value}:`
   const out: Record<string, Array<{ t: string; v: number }>> = {}
@@ -1034,9 +1017,9 @@ function updateTrendChart(data: any[] = []) {
     // 仅"当前选中设备"保留完整点数供趋势图使用，其余设备只留 CARD_SPARK_POINTS 个点
     const key = bufferKey(item.device_id, item.register_name)
     if (!dataBuffers[key]) dataBuffers[key] = []
-    dataBuffers[key].push({ t: now, v })
+    // 裁剪逻辑在纯函数层（`pushCapped`）：超上限丢最旧的
     const cap = item.device_id === selectedDeviceId.value ? MAX_CHART_POINTS : CARD_SPARK_POINTS
-    while (dataBuffers[key].length > cap) dataBuffers[key].shift()
+    pushCapped(dataBuffers[key], { t: now, v }, cap)
     if (item.unit) registerUnits[key] = item.unit
     buffered++
     if (item.device_id === selectedDeviceId.value) matched++
@@ -1184,29 +1167,14 @@ function connectSocket() {
     statusText.value = '实时连接失败，使用轮询模式'
   })
   socket.on('data_update', (data: any) => {
-    if (!data) return
-    // 兼容两种格式：单对象 或 {register_name: {device_id, ...}} 映射
+    // 兼容两种格式：单对象 或 {register_name: {device_id, ...}} 映射。
     // 注：后端 websocket.py 的推送路径固定发**映射格式**，
-    // 单对象分支是给未来的定向推送留的兼容入口。
-    if (data.device_id && data.register_name && data.value != null) {
-      // 单对象格式
-      const k = `${data.device_id}:${data.register_name}`
-      deviceValues[k] = parseFloat(data.value)
-      const q = normalizeQuality(data.quality)
-      if (q != null) deviceQuality[k] = q
-    } else {
-      // 映射格式：{register_name: {device_id, register_name, value, quality}}
-      Object.entries(data).forEach(([regName, info]: [string, any]) => {
-        if (!info || typeof info !== 'object') return
-        const devId = info.device_id
-        const val = info.value
-        if (!devId || val == null) return
-        const k = `${devId}:${regName}`
-        deviceValues[k] = parseFloat(val)
-        const q = normalizeQuality(info.quality)
-        if (q != null) deviceQuality[k] = q
-      })
-    }
+    // 单对象分支是给未来的定向推送留的兼容入口 —— 解析逻辑在纯函数层，
+    // **两种格式都有单测覆盖**（tests/utils/dashboard.test.ts）。
+    parseRealtimePayload(data).forEach(upd => {
+      deviceValues[upd.key] = upd.value
+      if (upd.quality != null) deviceQuality[upd.key] = upd.quality
+    })
   })
   socket.on('device_status', (data: any) => {
     if (!data?.device_id) return
