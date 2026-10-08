@@ -59,8 +59,15 @@ export interface OEERecord {
   quality: number
   oee_percent: number
   grade: string
-  total_production?: number
-  good_production?: number
+  /**
+   * ⚠️ 这三个字段名必须与 `智能层/oee_calculator.py::calculate_oee` 的返回一致。
+   *    原先这里写的是 `total_production` / `good_production` —— **后端从不产生
+   *    这两个名字**，于是 Industry40.vue 的 OEE 表那两列**一直是空白的**
+   *    （round 195 修复）。后端还返回 `defect_count`（不良品），当前界面未展示。
+   */
+  total_count?: number
+  good_count?: number
+  defect_count?: number
 }
 
 /** SPC 能力指数（spc_analyzer.calculate_capability） */

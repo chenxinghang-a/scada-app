@@ -240,8 +240,13 @@
                     <template #="{row}"><span :style="{ color: oeeVar(row.oee_percent), fontWeight: 600 }">{{ row.oee_percent }}%</span></template>
                   </el-table-column>
                   <el-table-column prop="grade" label="等级" width="90" />
-                  <el-table-column prop="total_production" label="总产量" width="90" />
-                  <el-table-column prop="good_production" label="合格品" width="90" />
+                  <!-- ⚠️ 字段名必须与后端一致：`智能层/oee_calculator.py::calculate_oee`
+                       返回的是 total_count / good_count / defect_count。
+                       原先这里写的是 total_production / good_production —— **后端从不产生
+                       这两个名字**，于是这两列**一直是空白的**（数据其实在后端，只是名字不同）。
+                       round 195 修复；守卫见 tests/test_api_field_names_exist_in_backend.py。 -->
+                  <el-table-column prop="total_count" label="总产量" width="90" />
+                  <el-table-column prop="good_count" label="合格品" width="90" />
                 </el-table>
                 <el-empty v-if="!hasOEE" description="暂无数据" :image-size="60" />
               </div>
