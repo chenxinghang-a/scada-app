@@ -29,30 +29,94 @@ const HEALTH_ENDPOINT = '/api/health/status'
 const isDev = !app.isPackaged
 const MAX_BACKEND_RESTARTS = 5
 
-// ============ GPU 兜底开关（round 197c） ============
+// ============ GPU / 沙箱兜底（round 197c） ============
 // 症状：GPU 进程起不来时 Electron 会**直接 FATAL 退出** ——
 //     FATAL:gpu_data_manager_impl_private.cc(423)] GPU process isn't usable. Goodbye.
 // 表现：双击图标**完全没反应**（进程秒退、无窗口、无提示、无日志）。
 //
-// 实测（2026-10-09）：受限会话 / 驱动异常时会连续崩 9 次 GPU 进程后放弃，
-// 而且**命令行 `--disable-gpu` 也压不住**（仍崩）。
+// 实测（2026-10-09）：
+//   * 连崩 9 次 GPU 进程后放弃；
+//   * 命令行 `--disable-gpu` **压不住**；
+//   * `app.disableHardwareAcceleration()` **也不够**（仍崩）；
+//   * ✅ 有效的是 **`--disable-gpu-sandbox`** —— 只关 **GPU 进程的沙箱**
+//     （`--no-sandbox` / `--in-process-gpu` 同样有效，但前者把整个 Chromium 沙箱
+//      都关了，范围过大，所以选最窄的这个）。
+//   根因是 **GPU 进程的沙箱在该环境里起不来**（受限会话 / 安全策略拦子进程）。
 //
-// → 给一个**软渲染兜底开关**：环境变量 `SCADA_DISABLE_GPU=1`，
-//   或在 userData 目录下放一个 `disable-gpu.flag` 文件。
-//   `启动桌面版-诊断.bat` 会在第一次启动失败后**自动用这个开关重试**。
+// 策略：**自愈式降级**
+//   1. 每次启动在 userData 写一个 `launch-attempt.json` 标记；
+//   2. 启动**成功**（窗口建好）后把它删掉；
+//   3. 下次启动若发现标记**还在**（且是 60 秒内的）→ 说明上一次**崩在启动阶段**
+//      → 自动启用兜底开关。
+//   → 用户**不需要知道任何开关**：第一次崩、第二次自己就好了。
+//
+// 手动覆盖：环境变量 `SCADA_DISABLE_GPU=1` 或 userData 下的 `disable-gpu.flag`。
 //
 // ⚠️ 必须在 `app.whenReady()` **之前**调用才生效，所以放在模块顶层。
-// 默认不改变行为：开关不存在时硬件加速照常启用。
+// 默认（无标记、无开关）行为**完全不变**。
+const LAUNCH_MARKER = (() => {
+  try { return path.join(app.getPath('userData'), 'launch-attempt.json') }
+  catch (e) { return null }
+})()
+
+let prevLaunchCrashed = false
 try {
-  const gpuFlagFile = path.join(app.getPath('userData'), 'disable-gpu.flag')
-  if (process.env.SCADA_DISABLE_GPU === '1' || fs.existsSync(gpuFlagFile)) {
+  if (LAUNCH_MARKER && fs.existsSync(LAUNCH_MARKER)) {
+    const prev = JSON.parse(fs.readFileSync(LAUNCH_MARKER, 'utf-8'))
+    // 只认「刚刚崩过」：60 秒内。更早的说明是别的原因（如用户强杀），不据此降级。
+    if (prev && typeof prev.at === 'number' && Date.now() - prev.at < 60000) {
+      prevLaunchCrashed = true
+    }
+  }
+} catch (e) {
+  console.error('[gpu] 读取上次启动标记失败（忽略）：', e && e.message)
+}
+
+const forcedFallback = (() => {
+  try {
+    if (process.env.SCADA_DISABLE_GPU === '1') return 'env'
+    if (LAUNCH_MARKER) {
+      const flag = path.join(path.dirname(LAUNCH_MARKER), 'disable-gpu.flag')
+      if (fs.existsSync(flag)) return 'flag'
+    }
+  } catch (e) { /* 拿不到就当作没有开关 */ }
+  return null
+})()
+
+const gpuFallbackReason = forcedFallback || (prevLaunchCrashed ? 'auto-retry' : null)
+
+try {
+  if (gpuFallbackReason) {
+    // 只关 GPU 进程的沙箱 —— 范围最小、实测有效
+    app.commandLine.appendSwitch('disable-gpu-sandbox')
     app.disableHardwareAcceleration()
-    console.log('[gpu] 已按开关禁用硬件加速（软渲染兜底）')
+    console.log(`[gpu] 已启用兜底（原因=${gpuFallbackReason}）：disable-gpu-sandbox + 软渲染`)
+  }
+  // 写本次尝试标记（启动成功后会被删掉）
+  if (LAUNCH_MARKER) {
+    fs.writeFileSync(LAUNCH_MARKER, JSON.stringify({
+      at: Date.now(), pid: process.pid, fallback: gpuFallbackReason || null,
+    }))
   }
 } catch (e) {
   // 拿不到 userData 就跳过 —— 不能因为这个兜底本身把启动搞挂
-  console.error('[gpu] 兜底开关判定失败（忽略，按默认启用硬件加速）：', e && e.message)
+  console.error('[gpu] 兜底判定失败（忽略，按默认启用硬件加速）：', e && e.message)
 }
+
+/** 启动成功 → 清掉尝试标记，下次按正常模式启动。 */
+function markLaunchSucceeded() {
+  try {
+    if (LAUNCH_MARKER && fs.existsSync(LAUNCH_MARKER)) fs.unlinkSync(LAUNCH_MARKER)
+  } catch (e) {
+    console.error('[gpu] 清理启动标记失败（忽略）：', e && e.message)
+  }
+}
+
+//: 判定「这次启动算成功」所需的**稳定运行时长**。
+//: 为什么不立刻清标记：**GPU 进程可能在窗口建好之后才崩**。
+//: 实测（dev 模式）：窗口都出来了、后端都 spawn 了，1 秒后 GPU 连崩 9 次 FATAL ——
+//: 若一建好窗口就清标记，这次崩溃就**不会被记为失败**，自愈永远不触发。
+const LAUNCH_STABLE_MS = 15000
 
 // 后端运行时端口文件（后端启动后写入 {port,host,pid,mode,started_at}）的定位
 // **不在这里拼路径** —— 见 electron/backend-paths.js。
@@ -539,6 +603,13 @@ app.whenReady().then(async () => {
 
   // 启动前先确定后端真实端口（读 runtime.json，否则探测 5000/5001，回退 5000）
   await resolveBackendPort()
+
+  // 窗口已经建起来了 → 起一个**延时**清标记：只有在稳定运行
+  // `LAUNCH_STABLE_MS` 之后才算「这次启动真的成功了」。
+  // 见 LAUNCH_STABLE_MS 的说明 —— GPU 可能在窗口建好之后才崩。
+  if (mainWindow) {
+    setTimeout(markLaunchSucceeded, LAUNCH_STABLE_MS)
+  }
 
   startBackend().then(started => {
     if (started) waitForBackendNonBlocking()
