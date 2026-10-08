@@ -525,6 +525,24 @@ import {
   type ModbusOutputDevice,
 } from '@/api'
 import { showActionError, errorMessage } from '@/utils/error'
+import {
+  CONFIG_SECTIONS,
+  configSectionOf as configSectionOfIn,
+  buildPayload as buildPayloadIn,
+  withBaselineEntry,
+  saveStateOf as saveStateOfPure,
+  saveStateLabel as saveStateLabelPure,
+  levelTag,
+  levelLabel,
+  assignKnownKeys,
+  pickOwnKnownKeys,
+  asRecord,
+  matchedSections as matchedConfigSections,
+  toDeviceList,
+  buildDbTables,
+  parseAreas,
+  exportFileName,
+} from '@/utils/config'
 
 // 从 package.json 读取版本号
 const appVersion = __APP_VERSION__ || 'v1.0.0'
@@ -588,20 +606,17 @@ const rawConfig = ref<SystemConfigFile>({})
 const baseline = ref<Record<string, string>>({})
 const savingSection = ref('')
 
+// 以下三个是**接线 wrapper**（一行转发；算法在 @/utils/config 纯函数层，守卫测试盯防回流）：
 function markBaseline(key: string, snapshot: unknown) {
-  baseline.value = { ...baseline.value, [key]: JSON.stringify(snapshot) }
+  baseline.value = withBaselineEntry(baseline.value, key, snapshot)
 }
 
 function saveStateOf(key: string, snapshot: unknown): 'saved' | 'dirty' | 'unknown' {
-  const base = baseline.value[key]
-  if (base === undefined) return 'unknown'
-  return base === JSON.stringify(snapshot) ? 'saved' : 'dirty'
+  return saveStateOfPure(baseline.value, key, snapshot)
 }
 
 function saveStateLabel(key: string, snapshot: unknown) {
-  const state = saveStateOf(key, snapshot)
-  if (state === 'unknown') return '未加载'
-  return state === 'dirty' ? '有未保存修改' : '已保存'
+  return saveStateLabelPure(baseline.value, key, snapshot)
 }
 
 // 广播配置的待保存内容含 MQTT 子对象与区域字符串，单独组一个快照
@@ -613,9 +628,7 @@ const broadcastSnapshot = computed(() => ({ ...broadcastConfig, areas: broadcast
 // （真实结构见 展示层/api/api_system.py:38，设备在 devices、报警在 alarms.total_active_alarms、
 //  采集器在 collector.running），导致面板恒显示 0 / "已停止"。此处改为读真实字段。
 function deviceStatusList(): Array<Partial<{ connected: boolean }>> {
-  const d = systemStatus.value?.devices
-  if (!d) return []
-  return Array.isArray(d) ? d : Object.values(d)
+  return toDeviceList(systemStatus.value?.devices)
 }
 const devicesTotal = computed(() => deviceStatusList().length)
 const devicesConnected = computed(() => deviceStatusList().filter(x => x?.connected).length)
@@ -625,45 +638,13 @@ const collectorRunning = computed(() => !!systemStatus.value?.collector?.running
 // /health/status 的 checks 段：键=检查项名，值=是否通过（用 computed 保证模板拿到的是数组）
 const healthCheckEntries = computed<Array<[string, unknown]>>(() => Object.entries(healthStatus.value ?? {}))
 
-const dbTables = computed(() => {
-  const info = dbInfo.value
-  if (!info) return []
-  // 后端返回扁平结构，转换为表格数据
-  return [
-    { name: 'realtime_data', rows: info.realtime_records || 0, size: '-' },
-    { name: 'history_data', rows: info.history_records || 0, size: '-' },
-    { name: 'alarm_records', rows: info.alarm_records || 0, size: '-' },
-    { name: 'history_archive', rows: info.archive_records || 0, size: '-' },
-  ]
-})
+// 后端返回扁平结构 → 表格数据（构造逻辑在 @/utils/config.buildDbTables）
+const dbTables = computed(() => buildDbTables(dbInfo.value))
 
-// 等级 → 标签样式/显示名（不改变后端 alarm_level 取值）
-const LEVEL_MAP: Record<string, { label: string; tag: string }> = {
-  critical: { label: '严重', tag: 'tag--danger' },
-  warning: { label: '警告', tag: 'tag--warning' },
-  info: { label: '信息', tag: 'tag--info' },
-}
-function levelTag(level: string) { return LEVEL_MAP[level]?.tag || 'tag--offline' }
-function levelLabel(level: string) { return LEVEL_MAP[level]?.label || level }
+// 等级 → 标签样式/显示名：已移至 @/utils/config（LEVEL_MAP / levelTag / levelLabel，Config 口径）
+// ⚠️ 本页兜底是 tag--offline / 原样返回，与 AlarmOutput 的 normal / 正常 是不同口径 —— 别合并
 
-/**
- * 只把 source 中与 target **同名**的键回填到 target。
- * 避免两种历史问题：把响应外壳（success/config 等）写进表单模型，
- * 以及把结构不同的后端段整体 Object.assign 后又被原样 PUT 回写。
- */
-function assignKnownKeys(target: Record<string, unknown>, source: unknown): void {
-  if (!source || typeof source !== 'object') return
-  const src = source as Record<string, unknown>
-  for (const key of Object.keys(target)) {
-    const v = src[key]
-    if (v !== undefined) target[key] = v
-  }
-}
-
-/** 把 unknown 收敛成可遍历的对象；非对象一律返回空对象（不抛错） */
-function asRecord(v: unknown): Record<string, unknown> {
-  return v && typeof v === 'object' ? (v as Record<string, unknown>) : {}
-}
+// assignKnownKeys / asRecord：已移至 @/utils/config（键回填与 unknown 收敛；导入口径差异见该模块注释）
 
 onMounted(async () => {
   try { const data = await devicesApi.getAll(); devices.value = data.devices || [] } catch (e) { console.warn('[Config] 加载设备列表失败:', errorMessage(e)) }
@@ -743,46 +724,15 @@ async function loadAlarmRules() {
   try { const data = await alarmsApi.getRules(); alarmRules.value = data.rules || [] } catch (e) { console.warn('[Config] 加载报警规则失败:', errorMessage(e)) }
 }
 
-// 界面「按段保存」用的配置段名 → 表单模型查表。
-// 显式分支而非 `(config as any)[section]`：让段名与模型字段在类型层对齐，
-// 段名写错时编译期即可发现。
-const CONFIG_SECTIONS = ['system', 'collection', 'database', 'energy'] as const
-type ConfigSectionName = typeof CONFIG_SECTIONS[number]
-
+// 界面「按段保存」的段名表（CONFIG_SECTIONS）与查表实现已移至 @/utils/config；
+// 这里保留同名 wrapper 供模板与脚本调用（显式分支在纯函数层保留：段名写错编译期可发现）
 function configSectionOf(name: string): Record<string, unknown> | undefined {
-  switch (name as ConfigSectionName) {
-    case 'system': return config.system
-    case 'collection': return config.collection
-    case 'database': return config.database
-    case 'energy': return config.energy
-    default: return undefined
-  }
+  return configSectionOfIn(config, name)
 }
 
-// 按后端实际 YAML 结构组装配置段（键名对齐 system.yaml，避免写入无效键甚至把 dict 覆盖成 bool）
+// 按后端实际 YAML 结构组装配置段：实现已移至 @/utils/config.buildPayload（纯函数，可测）
 function buildPayload(section: string): Record<string, unknown> {
-  if (section === 'collection') {
-    return {
-      default_interval: config.collection.interval,
-      timeout: config.collection.timeout,
-      retry: {
-        ...(rawConfig.value?.collection?.retry || {}),
-        max_attempts: config.collection.retries,
-        interval_seconds: config.collection.retry_interval,
-      },
-    }
-  }
-  if (section === 'database') {
-    return {
-      retention: { ...(rawConfig.value?.database?.retention || {}), raw_data_days: config.database.retention_days },
-      compression: {
-        ...(rawConfig.value?.database?.compression || {}),
-        enabled: config.database.compression,
-        interval_hours: config.database.compression_interval,
-      },
-    }
-  }
-  return { ...(configSectionOf(section) || {}) }
+  return buildPayloadIn(section, config, rawConfig.value)
 }
 
 // 只负责发请求，失败向上抛，由调用方决定提示方式
@@ -1011,7 +961,7 @@ async function loadBroadcastHardwareConfig() {
 async function saveBroadcastHardware() {
   savingSection.value = 'broadcast'
   try {
-    const areas = broadcastAreasStr.value.split(',').map(s => s.trim()).filter(Boolean)
+    const areas = parseAreas(broadcastAreasStr.value)
     await alarmsApi.setBroadcastConfig({ enabled: broadcastConfig.enabled, mqtt: { ...broadcastConfig.mqtt }, areas })
     markBaseline('broadcast', broadcastSnapshot.value)
     ElMessage.success('广播系统配置已保存')
@@ -1047,7 +997,7 @@ function exportConfig() {
   const url = URL.createObjectURL(blob)
   const a = document.createElement('a')
   a.href = url
-  a.download = `smartscada-config-${new Date().toISOString().slice(0, 10)}.json`
+  a.download = exportFileName(new Date())
   document.body.appendChild(a)
   a.click()
   a.remove()
@@ -1068,11 +1018,8 @@ function importConfig() {
       const parsed: unknown = JSON.parse(text)
       if (!parsed || typeof parsed !== 'object') { ElMessage.warning('配置文件格式错误'); return }
       const imported = parsed as Record<string, unknown>
-      // 安全校验：只接受已知配置段，防止原型链污染
-      const matchedSections = CONFIG_SECTIONS.filter(s => {
-        const v = imported[s]
-        return !!v && typeof v === 'object' && v !== null
-      })
+      // 安全校验：只接受已知配置段，防止原型链污染（匹配逻辑在 @/utils/config.matchedSections）
+      const matchedSections = matchedConfigSections(imported, CONFIG_SECTIONS)
       if (matchedSections.length === 0) { ElMessage.warning('配置文件中没有可识别的配置段'); return }
       // 确认对话框：显示将导入的配置段
       await ElMessageBox.confirm(
@@ -1085,10 +1032,8 @@ function importConfig() {
         const rawSrc = imported[section]
         if (!dst || !rawSrc || typeof rawSrc !== 'object') continue
         const src = rawSrc as Record<string, unknown>
-        // 只覆盖界面上已知的字段，忽略 __proto__ 等危险键和未知键
-        for (const key of Object.keys(dst)) {
-          if (Object.prototype.hasOwnProperty.call(src, key)) dst[key] = src[key]
-        }
+        // 只覆盖界面上已知的字段，忽略 __proto__ 等危险键和未知键（口径：自有键存在即复制，见 @/utils/config.pickOwnKnownKeys）
+        pickOwnKnownKeys(dst, src)
       }
       // 逐段保存，按后端真实结构落盘；汇总失败段，避免"看起来已保存"
       const failed: string[] = []
