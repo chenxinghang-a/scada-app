@@ -59,12 +59,21 @@ const LAUNCH_MARKER = (() => {
   catch (e) { return null }
 })()
 
+//: 判定「上次没干净退出」的**最长回溯窗口**。
+//: 取 24 小时而不是几十秒 —— 用户两次双击之间可能隔很久，
+//: 窗口太窄会让自愈**在最需要它的时候失效**（实测过 60 秒版本的这个缺口）。
+//: 正常退出会清掉标记（见 markLaunchSucceeded 与 before-quit），
+//: 所以「标记还在」确实意味着上次没走完正常流程。
+//
+// ⚠️ 必须声明在**使用它之前** —— 第一版把它放在下面，`const` 的暂时性死区
+// 会让启动直接抛 ReferenceError（比 GPU 崩溃还早，整个应用起不来）。
+const LAUNCH_MARKER_STALE_MS = 24 * 60 * 60 * 1000
+
 let prevLaunchCrashed = false
 try {
   if (LAUNCH_MARKER && fs.existsSync(LAUNCH_MARKER)) {
     const prev = JSON.parse(fs.readFileSync(LAUNCH_MARKER, 'utf-8'))
-    // 只认「刚刚崩过」：60 秒内。更早的说明是别的原因（如用户强杀），不据此降级。
-    if (prev && typeof prev.at === 'number' && Date.now() - prev.at < 60000) {
+    if (prev && typeof prev.at === 'number' && Date.now() - prev.at < LAUNCH_MARKER_STALE_MS) {
       prevLaunchCrashed = true
     }
   }
@@ -625,6 +634,10 @@ app.on('activate', () => { if (!mainWindow) createWindow(); else mainWindow.show
 
 // before-quit：确保后端被杀
 app.on('before-quit', (e) => {
+  // 正常退出 → 清掉启动尝试标记。
+  // 这样「标记还在」才真正等于「上次没走完正常流程」（崩溃 / 被强杀），
+  // 自愈降级据此触发 —— 见文件顶部的 GPU/沙箱兜底说明。
+  markLaunchSucceeded()
   if (!isQuitting) {
     e.preventDefault()
     quitApp() // 返回 promise，app.exit(0) 会在清理完成后调用

@@ -121,10 +121,44 @@ describe('GPU / 沙箱兜底（GPU 进程崩溃时仍能启动）', () => {
     ).toBe(true)
   })
 
-  it('自愈只在「刚刚崩过」时降级（60 秒窗口），不会永久降级', () => {
-    expect(/60000|60_000/.test(src), '没有 60 秒时间窗 —— 会永久降级').toBe(true)
-    // 判定必须读 prev.at 与 Date.now() 比较
-    expect(/Date\s*\.\s*now\s*\(\s*\)\s*-\s*prev\s*\.\s*at/.test(src)).toBe(true)
+  it('自愈的回溯窗口足够宽（不会因用户隔久了再点就失效）', () => {
+    // ⚠️ 第一版用的是 **60 秒**窗口 —— 实测发现这有个可靠性缺口：
+    // 用户两次双击之间完全可能隔几分钟，那样第二次就不会降级，**自愈等于白做**。
+    // 现在改成 24 小时，并且靠「正常退出时清标记」来区分「没走完流程」。
+    expect(/LAUNCH_MARKER_STALE_MS/.test(src), '没有回溯窗口常量').toBe(true)
+    expect(
+      /LAUNCH_MARKER_STALE_MS\s*=\s*24\s*\*\s*60\s*\*\s*60\s*\*\s*1000/.test(src),
+      '回溯窗口不是 24 小时 —— 太窄会让自愈在用户隔久了再点时失效',
+    ).toBe(true)
+    // 比较方式必须用这个常量，不能写死一个数字
+    expect(/Date\s*\.\s*now\s*\(\s*\)\s*-\s*prev\s*\.\s*at\s*<\s*LAUNCH_MARKER_STALE_MS/.test(src)).toBe(true)
+  })
+
+  it('⚠️ TDZ：窗口常量必须**声明在使用之前**', () => {
+    // 踩过（2026-10-09）：第一版把 `const LAUNCH_MARKER_STALE_MS` 放在使用它的
+    // 那段代码**下面** —— `const` 的暂时性死区会让启动直接抛 ReferenceError，
+    // **比 GPU 崩溃还早**，整个应用根本起不来。
+    // 判据：该标识符的**第一次出现**必须紧跟在 `const ` 之后。
+    // （⚠️ 别拿 `indexOf('const LAUNCH_MARKER_STALE_MS')` 的位置去比 ——
+    //   `const ` 本身有 6 个字符，位置会差 6，写成相等会假红。）
+    const firstIdx = src.indexOf('LAUNCH_MARKER_STALE_MS')
+    expect(firstIdx).toBeGreaterThan(-1)
+    expect(
+      src.slice(firstIdx - 6, firstIdx),
+      'LAUNCH_MARKER_STALE_MS 在声明之前就被引用了 —— const 的暂时性死区会抛 ' +
+        'ReferenceError，应用直接起不来（比 GPU 崩溃更早）',
+    ).toBe('const ')
+  })
+
+  it('正常退出会清掉标记（否则「标记还在」不能代表「没走完流程」）', () => {
+    const quitIdx = src.indexOf("app.on('before-quit'")
+    expect(quitIdx).toBeGreaterThan(-1)
+    const quitBlock = src.slice(quitIdx, quitIdx + 400)
+    expect(
+      /markLaunchSucceeded\s*\(/.test(quitBlock),
+      'before-quit 里没有清标记 —— 「标记还在」就可能是用户正常关窗留下的，' +
+        '自愈会误判成崩溃',
+    ).toBe(true)
   })
 
   it('默认行为不变：没有标记/开关时**不**降级', () => {
