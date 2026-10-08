@@ -271,7 +271,6 @@ import { ElMessage } from 'element-plus'
 import { Delete } from '@element-plus/icons-vue'
 import { useRouter } from 'vue-router'
 import { devicesApi, type Device } from '@/api'
-import api from '@/api/request'
 import { showActionError } from '@/utils/error'
 
 const router = useRouter()
@@ -427,7 +426,11 @@ async function addPreset(preset: any) {
   presetBusy.value = true
   try {
     // 后端失败时返回 200 + {success:false,message}，必须显式判断，否则会假成功
-    const res: any = await api.post('/devices/presets/add', { preset_id: preset.id })
+    // ⚠️ 走包装层 `devicesApi.addPreset`，**不要**在这里直接 `api.post(...)`。
+    //    原先这里是绕过包装层的重复实现，导致 `devicesApi.addPreset` /
+    //    `addAllPresets` 两个包装方法**从来没人调用**（round 196 的接线状态扫描抓到）。
+    //    注意本文件有同名本地函数 `addPreset`，所以必须带 `devicesApi.` 前缀。
+    const res: any = await devicesApi.addPreset(preset.id)
     if (res?.success === false) { ElMessage.error(res?.message || `添加预设「${preset.name}」失败`); return }
     ElMessage.success(`已添加: ${preset.name}`)
     refreshDevices()
@@ -441,7 +444,7 @@ async function addAllPresets() {
   if (presetBusy.value) return
   presetBusy.value = true
   try {
-    const res: any = await api.post('/devices/presets/add-all')
+    const res: any = await devicesApi.addAllPresets()
     if (res?.success === false) { ElMessage.error(res?.message || '添加全部预设失败'); return }
     ElMessage.success('全部预设设备已添加')
     refreshDevices()
