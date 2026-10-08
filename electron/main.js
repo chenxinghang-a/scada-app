@@ -29,6 +29,31 @@ const HEALTH_ENDPOINT = '/api/health/status'
 const isDev = !app.isPackaged
 const MAX_BACKEND_RESTARTS = 5
 
+// ============ GPU 兜底开关（round 197c） ============
+// 症状：GPU 进程起不来时 Electron 会**直接 FATAL 退出** ——
+//     FATAL:gpu_data_manager_impl_private.cc(423)] GPU process isn't usable. Goodbye.
+// 表现：双击图标**完全没反应**（进程秒退、无窗口、无提示、无日志）。
+//
+// 实测（2026-10-09）：受限会话 / 驱动异常时会连续崩 9 次 GPU 进程后放弃，
+// 而且**命令行 `--disable-gpu` 也压不住**（仍崩）。
+//
+// → 给一个**软渲染兜底开关**：环境变量 `SCADA_DISABLE_GPU=1`，
+//   或在 userData 目录下放一个 `disable-gpu.flag` 文件。
+//   `启动桌面版-诊断.bat` 会在第一次启动失败后**自动用这个开关重试**。
+//
+// ⚠️ 必须在 `app.whenReady()` **之前**调用才生效，所以放在模块顶层。
+// 默认不改变行为：开关不存在时硬件加速照常启用。
+try {
+  const gpuFlagFile = path.join(app.getPath('userData'), 'disable-gpu.flag')
+  if (process.env.SCADA_DISABLE_GPU === '1' || fs.existsSync(gpuFlagFile)) {
+    app.disableHardwareAcceleration()
+    console.log('[gpu] 已按开关禁用硬件加速（软渲染兜底）')
+  }
+} catch (e) {
+  // 拿不到 userData 就跳过 —— 不能因为这个兜底本身把启动搞挂
+  console.error('[gpu] 兜底开关判定失败（忽略，按默认启用硬件加速）：', e && e.message)
+}
+
 // 后端运行时端口文件（后端启动后写入 {port,host,pid,mode,started_at}）的定位
 // **不在这里拼路径** —— 见 electron/backend-paths.js。
 //
