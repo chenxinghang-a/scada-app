@@ -7,8 +7,11 @@
  * - 但**没有任何一处界面真正用它**：
  *   1) 全部视图（含 Login.vue、ForceChangePassword.vue 两个门面页）都是硬编码中文，
  *      没有 `t()` 调用；el-message / ECharts formatter / 表格列名同样是中文常量；
- *   2) 唯一的 `useI18n()` 消费方是 ErrorBoundary.vue、useErrorHandler.ts、
- *      useRealTimeValidation.ts，而这三个文件从 main.ts 出发都不可达（死代码）；
+ *   2) 唯一的 `useI18n()` 消费方是 ErrorBoundary.vue —— 而它从 main.ts 出发不可达（死代码）。
+ *      （此处原先还写着 `useErrorHandler.ts` / `useRealTimeValidation.ts`：
+ *        这两个 composable 已于 2026-10-08 按 D5 决策删除 —— 它们同样从 main.ts 出发不可达，
+ *        且 `useI18n()` 的唯一消费点也随它们一起消失。备份见
+ *        `C:\Users\cxx\scada-app-dead-composables-backup-20261008\`。）
  *   3) `setLocale()` / `getLocale()` 全仓库无调用点 —— 界面上没有任何语言切换入口，
  *      因此 en-US 即使被选中也无处生效（切换只影响内存里的 locale 值）。
  *
