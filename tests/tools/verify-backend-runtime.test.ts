@@ -27,6 +27,7 @@ const require_ = createRequire(import.meta.url)
 const gate: any = require_(path.join(process.cwd(), 'tools', 'verify-backend-runtime.js'))
 
 const REPO = process.cwd()
+// 按 PID 分目录：并发/重复跑互不干扰。**但必须自己收尾** —— 见 afterAll。
 const FIXTURE_ROOT = path.join(REPO, '.vitest_cache', 'verify-backend-runtime', String(process.pid))
 const FAKE_DIR = path.join(FIXTURE_ROOT, 'fake-backend')
 const FAKE_EXE = path.join(FAKE_DIR, 'scada-backend.exe')
@@ -174,12 +175,16 @@ async function runSmoke(
 
 beforeAll(() => {
   fs.mkdirSync(FAKE_DIR, { recursive: true })
-  // 假 exe = node.exe 的副本（优先硬链接，省 87MB 磁盘）
-  try {
-    fs.linkSync(process.execPath, FAKE_EXE)
-  } catch {
-    fs.copyFileSync(process.execPath, FAKE_EXE)
-  }
+  // 假 exe = node.exe 的**副本**。
+  //
+  // ⚠️ 这里**故意不用硬链接**（早先版本用 `linkSync` 想省 87MB，已撤）：
+  // 本机环境的删除守卫会把 `rmSync` / `unlinkSync` 转成"移到回收站"，
+  // 而**回收站操作处理不了指向 node.exe 的硬链接** —— 实测报
+  // `[safe-delete] 操作失败: Error during a \`trash\` operation`。
+  // 结果：目录删不掉，每次 `npm test` 留一个 87MB 的目录，实测累积到 48 个 / 250MB。
+  // 真副本可以正常删除（已实测），所以用副本换「可收尾」。
+  // 代价是每次运行多写 ~87MB（跑完即删，不累积），换一个不会无声泄漏的测试。
+  fs.copyFileSync(process.execPath, FAKE_EXE)
   fs.writeFileSync(PRELOAD, PRELOAD_SRC, 'utf8')
   savedNodeOptions = process.env.NODE_OPTIONS
   const flag = `--require ${PRELOAD}`
@@ -189,6 +194,26 @@ beforeAll(() => {
 afterAll(() => {
   if (savedNodeOptions === undefined) delete process.env.NODE_OPTIONS
   else process.env.NODE_OPTIONS = savedNodeOptions
+
+  // 收掉本次运行自己的 fixture 目录。
+  //
+  // 为什么必须显式删：目录名带 PID（为了并发安全），而 `fake-backend/scada-backend.exe`
+  // 是 node.exe 的硬链接（失败时退化成副本，**单份 87MB**）。
+  // 不删的话每次 `npm test` 都留下一个永不复用的目录 —— 实测累积到 10 个 / 250MB
+  // 才发现（C 盘紧张时很要命）。
+  //
+  // 这条同样是本文件所测闸门的原则：「跑完不留运行期垃圾」——
+  // **测试自己的 fixture 也适用**，不能只在被测代码上要求。
+  try {
+    fs.rmSync(FIXTURE_ROOT, { recursive: true, force: true })
+  } catch (e) {
+    // 不能静默吞 —— 收尾失败必须可见，否则这个目录会无声地越积越多
+    // （这正是本文件所测闸门在防的「静默失效」，测试自己也得守）。
+    console.error(`[fixture-cleanup] 未能删除 ${FIXTURE_ROOT}: ${(e as Error).message}`)
+  }
+  if (fs.existsSync(FIXTURE_ROOT)) {
+    console.error(`[fixture-cleanup] 收尾后目录仍存在: ${FIXTURE_ROOT}`)
+  }
 })
 
 // ---------------------------------------------------------------------------
@@ -527,5 +552,16 @@ describe('CI 接线与常量耦合（防止闸门被摘掉 / 常量被改散）'
     expect(m, '后端 run.py 里应能找到 start_periodic_checks(interval=...)').not.toBeNull()
     const interval = Number((m as RegExpMatchArray)[1])
     expect(gate.DEFAULT_CHECKS_TIMEOUT).toBeGreaterThanOrEqual(2 * interval)
+  })
+
+  it('本套件必须自己收掉 fixture 目录（「跑完不留垃圾」对测试自己也成立）', () => {
+    // 为什么要有这条：FIXTURE_ROOT 按 PID 命名，里面的 fake-backend 是 node.exe 的
+    // 硬链接（退化时是 87MB 的副本）。少了 afterAll 里的 rmSync，每次 `npm test`
+    // 都留下一个永不复用的目录 —— 实测累积到 10 个 / 250MB 才被发现。
+    // 静态断言防的是「有人顺手把收尾删掉」：删掉它不会有任何用例变红，
+    // 只会在几周后变成一块没人说得清的磁盘占用。
+    const self = path.join(REPO, 'tests', 'tools', 'verify-backend-runtime.test.ts')
+    const src = fs.readFileSync(self, 'utf8')
+    expect(src).toMatch(/afterAll\([\s\S]*?fs\.rmSync\(FIXTURE_ROOT/)
   })
 })
