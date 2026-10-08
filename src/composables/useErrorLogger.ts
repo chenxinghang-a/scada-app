@@ -69,7 +69,14 @@ export function installErrorLogger() {
   if (installed) return
   installed = true
 
-  // Vue 错误由 App.vue 的 onErrorCaptured 处理，这里处理全局 JS 错误
+  // Vue 错误由 App.vue 的 onErrorCaptured 处理，这里处理全局 JS 错误。
+  //
+  // ⚠️ 上面这句**曾经是假的**（round 197 发现）：App.vue 里当时根本没有
+  //    onErrorCaptured，`ErrorBoundary.vue`（唯一实现该钩子的组件）也从未被挂载
+  //    → **Vue 组件异常整类不被上报**：不进 ErrorBoundary，也不会冒泡到
+  //    window.onerror（Vue 3 默认只 console.error）。
+  //    现已补上，并由 tests/components/component-wiring.test.ts 钉住 ——
+  //    **注释里声称的接线必须有代码兜着**，否则它只是句好听话。
   window.addEventListener('error', (event) => {
     // 排除资源加载错误（由 resource handler 处理）
     if (event.target && (event.target as HTMLElement).tagName) return
