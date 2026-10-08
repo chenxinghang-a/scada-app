@@ -65,9 +65,11 @@ const UNWIRED: Record<string, { reason: string; symbols: string[] }> = {
   'src/utils/format.ts': {
     reason:
       '⚠️ 这几个函数**带边界处理**（`Number.isFinite` 守卫 → 返回 "-"；负数 uptime → "0分"），' +
-      '而视图里散着 **56 处内联 `.toFixed()`**（Industry40 一个视图就 37 处）**没有这层守卫** ——' +
-      '属「口径分裂」：同一件事两套实现，且被弃用的这套反而是更稳的那套。见 D19。',
-    symbols: ['formatUptime', 'formatNumber', 'formatPercent', 'getDeviceDisplayName'],
+      '而视图里散着 **56 处内联 `.toFixed()`**（Industry40 一个视图就 36 处）**没有这层守卫** ——' +
+      '属「口径分裂」：同一件事两套实现，且被弃用的这套反而是更稳的那套。见 D19。' +
+      '（注：`formatPercent` 已于 round 201 在 Industry40 的 OEE 表三列接上线，' +
+      '故已从本表移除 —— 这就是本守卫「表会腐烂」那条断言按设计触发的样子。）',
+    symbols: ['formatUptime', 'formatNumber', 'getDeviceDisplayName'],
   },
   'src/utils/export.ts': {
     reason:

@@ -228,13 +228,13 @@
                 <el-table :data="oeeRecords" stripe size="small" max-height="320">
                   <el-table-column prop="device_id" label="设备" width="160" show-overflow-tooltip />
                   <el-table-column label="可用率A" width="100">
-                    <template #="{row}"><span :style="{ color: oeeVar(row.availability*100) }">{{ (row.availability*100).toFixed(1) }}%</span></template>
+                    <template #="{row}"><span :style="{ color: oeeVar(row.availability*100) }">{{ formatPercent(row.availability * 100) }}</span></template>
                   </el-table-column>
                   <el-table-column label="性能率P" width="100">
-                    <template #="{row}"><span :style="{ color: oeeVar(row.performance*100) }">{{ (row.performance*100).toFixed(1) }}%</span></template>
+                    <template #="{row}"><span :style="{ color: oeeVar(row.performance*100) }">{{ formatPercent(row.performance * 100) }}</span></template>
                   </el-table-column>
                   <el-table-column label="质量率Q" width="100">
-                    <template #="{row}"><span :style="{ color: oeeVar(row.quality*100) }">{{ (row.quality*100).toFixed(1) }}%</span></template>
+                    <template #="{row}"><span :style="{ color: oeeVar(row.quality*100) }">{{ formatPercent(row.quality * 100) }}</span></template>
                   </el-table-column>
                   <el-table-column label="OEE" width="90">
                     <template #="{row}"><span :style="{ color: oeeVar(row.oee_percent), fontWeight: 600 }">{{ row.oee_percent }}%</span></template>
@@ -597,6 +597,15 @@ import type {
   CarbonEmission,
 } from '@/api'
 import { errorMessage } from '@/utils/error'
+// ⚠️ 统一格式化口径（round 201 的样板）：本文件原先有 37 处内联 `.toFixed()`，
+//    而 `utils/format.ts` 里那套**带 `Number.isFinite` 守卫**（非有限值 → "-"）
+//    的 `formatPercent` / `formatNumber` 一直没人用。
+//    两者对**有限值输出完全一致**，差别只在缺值/NaN 时：
+//      `(undefined*100).toFixed(1) + '%'` → "NaN%"
+//      `formatPercent(undefined*100)`      → "-"
+//    所以这是一次**输出等价 + 补守卫**的替换，不会改变正常数据的显示。
+//    见决策简报 D19（其余视图的同类替换属独立一轮）。
+import { formatPercent } from '@/utils/format'
 import { registerScadaTheme, scadaThemeName } from '@/utils/echartsTheme'
 import {
   HEALTH_BANDS,
