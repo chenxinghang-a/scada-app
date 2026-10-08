@@ -249,12 +249,15 @@ onMounted(async () => {
   resetIdleTimer()
   activityEvents.forEach(event => document.addEventListener(event, handleActivity))
   // 监听 Electron 后端状态变更（实时推送）
-  const win = window as any
-  if (win.electronAPI?.onBackendStatusChanged) {
-    cleanupBackendListener = win.electronAPI.onBackendStatusChanged((data: { healthy: boolean; port?: number }) => {
+  // 类型来自 `src/env.d.ts` 的全局 `Window.electronAPI` 声明 —— 原先这里写
+  // `window as any` + 就地手写载荷类型，等于**绕过类型检查**：声明写错了也没人发现
+  // （实测 `onBackendStatusChanged` 的声明只写了 `{healthy}`，实际载荷还有
+  //  `port` / `timeout` / `portConflict` / `missing`）。round 192 已把声明补全。
+  if (window.electronAPI?.onBackendStatusChanged) {
+    cleanupBackendListener = window.electronAPI.onBackendStatusChanged((data) => {
       appStore.backendOnline = data.healthy
       // 端口可能在后端就绪后才被 Electron 注入，这里同步刷新展示值（否则遮罩上一直是回退端口）
-      if (typeof data?.port === 'number' && String(data.port) !== backendPort.value) {
+      if (typeof data.port === 'number' && String(data.port) !== backendPort.value) {
         backendPort.value = String(data.port)
       }
     })

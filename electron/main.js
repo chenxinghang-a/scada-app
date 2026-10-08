@@ -544,7 +544,14 @@ ipcMain.handle('get-backend-status', async () => ({
 ipcMain.handle('get-system-info', () => getSystemInfo())
 ipcMain.handle('run-diagnostics', async () => ({
   backendExists: fs.existsSync(getBackendPath()),
-  portAvailable: !(await isPortOpen(BACKEND_PORT)),
+  // ⚠️ 字段名必须叫 portFree，**不能**叫 portAvailable。
+  //    isPortOpen() 的语义是「**能连上**（有进程在监听）」，所以
+  //    `!isPortOpen(...)` 表达的是「端口**空闲**」—— 叫 portAvailable 时，
+  //    与 get-backend-status 的 `portOpen` 恰好**语义相反**，
+  //    读的人会得出与事实相反的结论。
+  //    本通道当前无人调用（见 tests/electron/ipc-wiring.test.ts），
+  //    所以改的是「将来接线时会不会被坑」，不是当下的用户可见行为。
+  portFree: !(await isPortOpen(BACKEND_PORT)),
   systemInfo: getSystemInfo(), errors: [], warnings: [],
 }))
 ipcMain.handle('get-auto-launch', () => getAutoLaunchEnabled())
