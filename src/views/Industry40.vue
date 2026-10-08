@@ -593,6 +593,40 @@ import type {
 } from '@/api'
 import { errorMessage } from '@/utils/error'
 import { registerScadaTheme, scadaThemeName } from '@/utils/echartsTheme'
+import {
+  HEALTH_BANDS,
+  OEE_BANDS,
+  CAP_BANDS,
+  CAP_KEYS,
+  OEE_TARGET,
+  ZONE_A,
+  ZONE_B,
+  ZONE_C,
+  ZONE_D,
+  ZONE_TOKEN,
+  bandIndexOf,
+  bandLabelOf,
+  isBandOn,
+  bandTokenOf,
+  bandVarOf,
+  healthVar,
+  oeeVar,
+  capVar,
+  zoneVar,
+  bandTagClass,
+  oeeTagClass,
+  capTagClass,
+  levelBarClass,
+  edgeLevelBarClass,
+  edgeLevelTagClass,
+  isoGradeType,
+  asStr,
+  asNum,
+  trendArrow,
+  fmtTime,
+  toList,
+} from '@/utils/industry40'
+import type { Band } from '@/utils/industry40'
 
 // 统一图表主题（幂等注册），图表一律用 scadaThemeName() 初始化
 registerScadaTheme(echarts)
@@ -600,7 +634,7 @@ registerScadaTheme(echarts)
 // ========== 档位带（0–100 分段色标） ==========
 // OEE 档位边界取自后端 oee_calculator._oee_grade：85 世界级 / 75 优秀 / 65 良好 / 50 一般
 // 健康分 5 档与 ISO/振动分区同理，全部用设计令牌表达，不在页面内写字面量颜色
-interface Band { label: string; token: string; min: number; max: number }
+// —— 判定逻辑与常量已抽到 @/utils/industry40（纯函数层），本组件只做视图接线
 
 // ========== 页面内数据模型 ==========
 /** ECharts tooltip.formatter 回调参数：axis/item 触发时字段不同，只声明实际读取的键 */
@@ -706,71 +740,9 @@ interface BearingView extends BearingDiagnosis {
 }
 
 
-const HEALTH_BANDS: Band[] = [
-  { label: '差', token: '--color-offline', min: -Infinity, max: 20 },
-  { label: '较差', token: '--color-danger', min: 20, max: 40 },
-  { label: '一般', token: '--color-warning', min: 40, max: 60 },
-  { label: '良好', token: '--chart-7', min: 60, max: 80 },
-  { label: '优秀', token: '--color-success', min: 80, max: Infinity },
-]
+// （Band 常量与判定函数已移至 @/utils/industry40 纯函数层）
 
-const OEE_BANDS: Band[] = [
-  { label: '需改进', token: '--color-danger', min: -Infinity, max: 50 },
-  { label: '一般', token: '--color-warning', min: 50, max: 65 },
-  { label: '良好', token: '--color-info', min: 65, max: 75 },
-  { label: '优秀', token: '--chart-7', min: 75, max: 85 },
-  { label: '世界级', token: '--color-success', min: 85, max: Infinity },
-]
-
-const CAP_BANDS: Band[] = [
-  { label: '不足', token: '--color-danger', min: -Infinity, max: 1.0 },
-  { label: '勉强', token: '--color-warning', min: 1.0, max: 1.33 },
-  { label: '充足', token: '--color-success', min: 1.33, max: Infinity },
-]
-
-/** 过程能力四指标：key 限定为 SPCCapability 的数值字段，模板里按 key 取数才有类型 */
-const CAP_KEYS: { key: 'cp' | 'cpk' | 'pp' | 'ppk'; label: string }[] = [
-  { key: 'cp', label: 'Cp' },
-  { key: 'cpk', label: 'Cpk' },
-  { key: 'pp', label: 'Pp' },
-  { key: 'ppk', label: 'Ppk' },
-]
-
-/** OEE 世界级标准（后端 oee_calculator 定义为 ≥85%），用于排序图目标线 */
-const OEE_TARGET = 85
-
-function bandIndexOf(bands: Band[], v: number): number {
-  const n = Number(v)
-  if (!Number.isFinite(n)) return 0
-  const i = bands.findIndex(b => n >= b.min && n < b.max)
-  return i === -1 ? bands.length - 1 : i
-}
-function bandLabelOf(bands: Band[], v: number): string { return bands[bandIndexOf(bands, v)].label }
-function isBandOn(bands: Band[], v: number, i: number): boolean { return bandIndexOf(bands, v) >= i }
-
-/** 模板用：返回 CSS 变量引用（自动跟随深浅主题） */
-function bandVarOf(bands: Band[], v: number): string { return 'var(' + bands[bandIndexOf(bands, v)].token + ')' }
-function healthVar(v: number) { return bandVarOf(HEALTH_BANDS, v) }
-function oeeVar(v: number) { return bandVarOf(OEE_BANDS, v) }
-function capVar(v: number | null | undefined) { return bandVarOf(CAP_BANDS, Number(v)) }
-function zoneVar(zone?: string) { return 'var(' + (ZONE_TOKEN[zone ?? ''] || '--color-offline') + ')' }
-
-function bandTagClass(bands: Band[], v: number): string {
-  const t = bands[bandIndexOf(bands, v)].token
-  if (t === '--color-success' || t === '--chart-7') return 'tag--success'
-  if (t === '--color-danger') return 'tag--danger'
-  if (t === '--color-warning') return 'tag--warning'
-  return 'tag--info'
-}
-function oeeTagClass(v: number) { return bandTagClass(OEE_BANDS, v) }
-function capTagClass(v: number | null | undefined) { return bandTagClass(CAP_BANDS, Number(v)) }
-
-// ISO 10816 四个分区（边界取后端 VIBRATION_ZONES 的 max），用于振动值着色与分区参考线
-const ZONE_A: Band = { label: 'A 良好', token: '--color-success', min: -Infinity, max: 0.71 }
-const ZONE_B: Band = { label: 'B 可接受', token: '--chart-7', min: 0.71, max: 1.8 }
-const ZONE_C: Band = { label: 'C 报警', token: '--color-warning', min: 1.8, max: 4.5 }
-const ZONE_D: Band = { label: 'D 危险', token: '--color-danger', min: 4.5, max: Infinity }
-const ZONE_TOKEN: Record<string, string> = { A: '--color-success', B: '--chart-7', C: '--color-warning', D: '--color-danger' }
+// ISO 10816 四分区常量（ZONE_A..D / ZONE_TOKEN）已移至 @/utils/industry40
 
 /** 读取设计令牌（canvas 内无法使用 CSS 变量，取页面作用域下的实际值） */
 function token(name: string): string {
@@ -778,21 +750,8 @@ function token(name: string): string {
   const el = document.querySelector('.industry40') || document.documentElement
   return getComputedStyle(el).getPropertyValue(name).trim()
 }
-/** 模板用：状态等级 → 设计基线里的色条 / 标签类 */
-function levelBarClass(level: string): string {
-  const k = level === 'critical' ? 'critical' : level === 'warning' ? 'warning' : 'info'
-  return `level-bar--${k}`
-}
 
-/** 兼容读取：把 unknown 收敛为 string（取不到时用兜底值），语义等价于旧写法 `a || b` */
-function asStr(v: unknown, fallback = ''): string {
-  return typeof v === 'string' && v ? v : fallback
-}
-/** 兼容读取：把 unknown 收敛为 number | undefined（非数值 → undefined） */
-function asNum(v: unknown): number | undefined {
-  const n = typeof v === 'string' ? Number(v) : v
-  return typeof n === 'number' && Number.isFinite(n) ? n : undefined
-}
+// （asStr / asNum 已移至 @/utils/industry40）
 
 // ========== 状态 ==========
 const activeTab = ref('overview')
@@ -925,25 +884,7 @@ const twinConnections = computed(() => {
 })
 
 // ========== 工具函数 ==========
-function trendArrow(t: string) { return t === 'rising' ? '↑' : t === 'falling' ? '↓' : '→' }
-function fmtTime(t?: string) {
-  if (!t) return '-'
-  const d = new Date(t)
-  return Number.isNaN(d.getTime()) ? t : d.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
-}
-// 决策日志没有 level 字段：按 rule_type 区分安全联锁（critical 色）与普通规则触发（info 色）
-function edgeLevelBarClass(ruleType?: string) { return ruleType === 'interlock' ? 'level-bar--critical' : 'level-bar--info' }
-function edgeLevelTagClass(ruleType?: string) { return ruleType === 'interlock' ? 'tag--danger' : 'tag--info' }
-
-// 后端多个接口返回以 device_id / "device:register" 为键的字典（axios 拦截器已解开 {success,data}），
-// 统一转成数组后再交给表格/图表，避免字段名错配导致列表恒为空
-function toList<T extends object>(v: unknown): Array<T & { device_id: string }> {
-  if (Array.isArray(v)) return v as Array<T & { device_id: string }>
-  if (v && typeof v === 'object') {
-    return Object.entries(v as Record<string, T>).map(([id, item]) => ({ device_id: id, ...item }))
-  }
-  return []
-}
+// （trendArrow / fmtTime / edgeLevelBarClass / edgeLevelTagClass / toList 已移至 @/utils/industry40）
 
 // ========== 数据加载 ==========
 async function loadOverview() {
@@ -1099,7 +1040,7 @@ function ringGaugeOption(value: number, color: string, name: string, unit: strin
   }
 }
 
-function bandColorOf(bands: Band[], v: number): string { return token(bands[bandIndexOf(bands, v)].token) }
+function bandColorOf(bands: Band[], v: number): string { return token(bandTokenOf(bands, v)) }
 
 async function loadOEE() {
   loading.oee = true
@@ -1682,11 +1623,7 @@ function renderVibrationSpectrum() {
   }, true)
 }
 
-function isoGradeType(grade: string) {
-  if (!grade) return 'info'
-  const map: Record<string, string> = { A: 'success', B: 'success', C: 'warning', D: 'danger' }
-  return map[grade] || 'info'
-}
+// （isoGradeType 已移至 @/utils/industry40）
 
 function selectTwinDevice(d: TwinDevice) { twinSelected.value = d }
 
