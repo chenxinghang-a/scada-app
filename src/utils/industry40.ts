@@ -26,15 +26,21 @@
  * 上的延续；两个 utils 文件之间**没有重名**，各管各的页面。
  *
  * ⚠️ 跨文件同名（2026-10-07 实测全 src/，含本模块 33 个导出名）——**本模块只承载 Industry40 的原口径**：
- *   - `fmtTime`：Alarms.vue:237 / Screen.vue:173 / AlarmOutput.vue:211 各有一份，
+ *   - `fmtTime`：Alarms.vue / Screen.vue / AlarmOutput.vue 各有一份，
  *     **三份语义互不相同**（非法时间戳兜底：本模块「原样返回输入」/ Alarms 与 AlarmOutput「'-'」/
  *     Screen「不判」；输出格式：本模块与 Screen 是 HH:MM:SS，Alarms / AlarmOutput 是 toLocaleString 全格式）。
  *     谁想统一口径先定标准，**别直接合并**。
- *   - `levelBarClass`：Alarms.vue:245 / Screen.vue:137 各有一份，实现是转 `levelKey()`
- *     （而 `levelKey` 自身在 4 个 view 有 3 套兜底值，见 utils/dashboard.ts 头注释）；
- *     本模块是 Industry40 的内联三分支口径。**不要与那两处合并。**
- *   - `OEE_TARGET`：Dashboard.vue:346 有同名本地常量（同为 85）。值一致属巧合；
+ *   - `levelBarClass`：Alarms.vue / Screen.vue / **Dashboard.vue** 各有一份，实现是转 `levelKey()`
+ *     （而 `levelKey` 自身在 3 个 view + utils/dashboard.ts 各有一份、兜底值有 3 套，
+ *     见 utils/dashboard.ts 头注释）；本模块是 Industry40 的内联三分支口径。**不要与那三处合并。**
+ *   - `OEE_TARGET`：Dashboard.vue 有同名本地常量（同为 85）。值一致属巧合；
  *     将来改 OEE 标准要两处一起改（统一归并属独立决策，不在本轮范围）。
+ *
+ * 📌 上面这张地图**有守卫盯着**：`tests/utils/cross-file-duplicates.test.ts`。
+ *    它按「文件 + 名称」双向核对（新增副本 → 红；地图列了但已不存在 → 红）。
+ *    ⚠️ 本注释**不再写行号** —— 行号必漂：2026-10-09 实测，原先写的
+ *    `Dashboard.vue:346` 已在 349，且 `levelBarClass` 还**漏记了 Dashboard.vue 那份**。
+ *    改这些名字时请同步改守卫里的表，别只改这里。
  */
 
 // ==========================================================================
