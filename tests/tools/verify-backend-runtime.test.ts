@@ -197,7 +197,14 @@ beforeAll(() => {
   // 万一 linkSync 不可用（跨卷等），退回副本 —— 只在那种环境下才吃 87MB。
   try {
     fs.linkSync(process.execPath, FAKE_EXE)
-  } catch {
+  } catch (e) {
+    // 回退必须**出声**。早先这里是静默的，于是「某台机器上 linkSync 不可用（跨卷 → EXDEV）」
+    // 会表现为「每个 run 目录都是 87MB」而没人知道为什么 ——
+    // 协作 AI 在 `.vitest_cache` 里抓到过一个 84M 的 `run-*` 目录，就是这条静默回退的产物。
+    // 与本文件所测闸门同一条原则：**拒绝静默失效。**
+    console.warn(
+      `[fixture] linkSync 不可用（跨卷？），本轮回退 87MB 副本: ${(e as Error).message}`,
+    )
     if (!fs.existsSync(FAKE_EXE)) fs.copyFileSync(process.execPath, FAKE_EXE)
   }
 
@@ -583,10 +590,14 @@ describe('CI 接线与常量耦合（防止闸门被摘掉 / 常量被改散）'
     expect(src, 'RUN_DIR 必须带 process.pid（每轮唯一，否则跨轮污染）').toMatch(
       /const RUN_DIR = [^\n]*process\.pid/,
     )
-    expect(src, 'beforeAll 里不应有 rmSync（复位会自己撞上删除配额）').not.toMatch(
-      /beforeAll\(\(\) => \{[\s\S]*?\n\}\)[\s\S]{0,50}?rmSync/,
-    )
+    // 两个钩子体都取「从 `beforeAll(() => {` 到行首 `})`」的整段，再断言里面没有 rmSync。
+    // 不用「窗口 N 字符内出现 rmSync」那种写法 —— beforeAll 里一旦有嵌套结构，
+    // 首个 `\n})` 会提前截断，窗口正则就漏了（协作 AI 审查时指出的）。
+    const beforeAllBody = src.match(/beforeAll\(\(\) => \{[\s\S]*?\n\}\)/)?.[0] ?? ''
     const afterAllBody = src.match(/afterAll\(\(\) => \{[\s\S]*?\n\}\)/)?.[0] ?? ''
+    expect(beforeAllBody, 'beforeAll 体没取到，守卫失效').toContain('linkSync')
+    expect(afterAllBody, 'afterAll 体没取到，守卫失效').toContain('NODE_OPTIONS')
+    expect(beforeAllBody, 'beforeAll 里不应有 rmSync（复位会自己撞上删除配额）').not.toContain('rmSync')
     expect(afterAllBody, 'afterAll 里不应有 rmSync（会消耗删除配额）').not.toContain('rmSync')
   })
 })
