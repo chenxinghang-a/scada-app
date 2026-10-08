@@ -90,10 +90,26 @@ describe('Dashboard', () => {
       ['设备状态分类分支', /if\s*\(\s*!d\.connected\s*\)\s*return\s*'offline'/],
       ['告警聚合循环', /alarms\.value\.forEach/],
       ['设备台数统计', /allDeviceList\.value\.filter\(/],
+      // round 187：图表 option 与 CSV 构造也抽到了纯函数层
+      ['echarts option 内联', /trendChart\.setOption\(\s*\{/],
+      ['CSV 字段转义', /function\s+escCSV\s*\(|const\s+escCSV\s*=/],
+      ['CSV 行拼接', /csv\s*\+=\s*esc/],
     ])('不得把「%s」重新内联进组件', (_label, pattern) => {
       // 这些逻辑一旦被抄回组件，tests/utils/dashboard.test.ts 就变成
       // 「测一个组件已经不用的函数」—— 测试还在、还在绿，但毫无意义。
       expect(CODE).not.toMatch(pattern)
+    })
+
+    it.each([
+      ['buildTrendOption', /buildTrendOption\s*\(/],
+      ['buildTrendCsv', /buildTrendCsv\s*\(/],
+      ['buildRealtimeCsv', /buildRealtimeCsv\s*\(/],
+    ])('组件必须真的**调用**纯函数层导出的 %s', (_label, pattern) => {
+      // ⚠️ 必须断言「被调用」（带括号），不能只断言名字出现过 ——
+      // import 行里本来就有这个名字。第一版就是只匹配名字，
+      // 变异验证当场打脸：把调用换成自拼实现、只留 import，守卫照样全绿。
+      // （与「只断言 exit code 不断言原因」是同一类：**只断言存在 = 守不住**。）
+      expect(CODE).toMatch(pattern)
     })
 
     it('守卫本身有效：把旧实现塞回去必须被抓住（防假绿）', () => {

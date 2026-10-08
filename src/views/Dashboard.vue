@@ -310,7 +310,7 @@ import { systemApi, devicesApi, dataApi, alarmsApi, industry40Api, type DeviceSt
 import { getAuthToken, getWsBaseUrl } from '@/api/request'
 import { useAuthStore } from '@/stores/auth'
 import { showActionError } from '@/utils/error'
-import { registerScadaTheme, scadaThemeName, applyScadaTheme, SCADA_LEVEL_COLORS } from '@/utils/echartsTheme'
+import { registerScadaTheme, scadaThemeName, applyScadaTheme } from '@/utils/echartsTheme'
 // 纯函数层（设备状态分类 / 实时数据与 WS 报文解析 / 质量码归一化 / 趋势缓冲裁剪）。
 // 抽出来的理由：这些逻辑原先内联在本组件里且没有导出，测试只能**手抄一份同名逻辑**
 // 再断言抄件 —— 抄件拦不住组件里的回归。现在组件与测试共用同一份实现。
@@ -333,6 +333,9 @@ import {
   parseRealtimeItem,
   parseRealtimePayload,
   pushCapped,
+  buildTrendOption,
+  buildTrendCsv,
+  buildRealtimeCsv,
   type DeviceAlarmInfo,
   type DeviceStateKey,
 } from '@/utils/dashboard'
@@ -1043,57 +1046,21 @@ function renderTrend() {
   const prevLegend = (trendChart.getOption() as any)?.legend?.[0]?.selected
   const legendSelected = prevLegend && Object.keys(prevLegend).length ? prevLegend : undefined
 
-  // 系列展示名 → 单位（用于 tooltip 的“时间 + 值 + 单位”）
-  const unitByName: Record<string, string> = {}
-  keys.forEach(k => { unitByName[getShortLabel(k.slice(k.indexOf(':') + 1))] = registerUnits[k] || '' })
+  // 每个系列：把缓冲区（时间→值）对齐到统一的 times 轴，缺测点补 null。
+  // option 的形状由纯函数层负责（含 tooltip 格式化与阈值标线），组件只做装配。
+  const series = keys.map(key => {
+    const map: Record<string, number> = {}
+    buffers[key].forEach(d => { map[d.t] = d.v })
+    const regName = key.slice(key.indexOf(':') + 1)
+    return {
+      name: getShortLabel(regName),
+      data: times.map(t => map[t] ?? null),
+      unit: registerUnits[key] || '',
+      threshold: getRegisterThreshold(selectedDeviceId.value, regName),
+    }
+  })
 
-  trendChart.setOption({
-    legend: { top: 0, right: 0, type: 'scroll', selectedMode: 'multiple', selected: legendSelected },
-    tooltip: {
-      trigger: 'axis',
-      axisPointer: { type: 'cross' },
-      formatter: (params: any) => {
-        const arr = Array.isArray(params) ? params : [params]
-        if (!arr.length) return ''
-        const head = `${arr[0].axisValueLabel ?? arr[0].axisValue ?? ''}`
-        const rows = arr
-          .filter((p: any) => p.value != null && Number.isFinite(Number(p.value)))
-          .map((p: any) => {
-            const unit = unitByName[p.seriesName]
-            return `${p.marker}${p.seriesName}: <b>${Number(p.value).toFixed(2)}</b>${unit ? ' ' + unit : ''}`
-          })
-        return head + rows.join('<br/>')
-      },
-    },
-    grid: { left: 12, right: 16, top: 32, bottom: 8, containLabel: true },
-    xAxis: { type: 'category', data: times, boundaryGap: false },
-    yAxis: { type: 'value', scale: true },
-    series: keys.map(key => {
-      const map: Record<string, number> = {}
-      buffers[key].forEach(d => { map[d.t] = d.v })
-      const regName = key.slice(key.indexOf(':') + 1)
-      const unit = registerUnits[key] || ''
-      const threshold = getRegisterThreshold(selectedDeviceId.value, regName)
-      return {
-        name: getShortLabel(regName),
-        type: 'line',
-        smooth: true,
-        symbol: 'none',
-        // 颜色由统一主题的色板分配，页面不再自带颜色数组
-        data: times.map(t => map[t] ?? null),
-        markLine: threshold ? {
-          silent: true,
-          symbol: 'none',
-          data: [{
-            yAxis: threshold.value,
-            name: threshold.text,
-            lineStyle: { color: SCADA_LEVEL_COLORS[threshold.level] || SCADA_LEVEL_COLORS.info, type: 'dashed', width: 1 },
-            label: { formatter: `${threshold.text} ${threshold.value}${unit ? ' ' + unit : ''}`, position: 'insideEndTop' },
-          }],
-        } : undefined,
-      }
-    }),
-  }, true)
+  trendChart.setOption(buildTrendOption({ times, series, legendSelected }), true)
 }
 
 // ========== CSV 导出（客户端生成） ==========
@@ -1104,11 +1071,18 @@ function exportChartData() {
   const timeSet = new Set<string>()
   keys.forEach(k => buffers[k].forEach(d => timeSet.add(d.t)))
   const times = Array.from(timeSet).sort()
-  const escCSV = (v: string) => v.includes(',') || v.includes('"') || v.includes('\n') ? `"${v.replace(/"/g, '""')}"` : v
-  let csv = '﻿时间,' + keys.map(k => escCSV(getShortLabel(k.slice(k.indexOf(':') + 1)))).join(',') + '\n'
-  times.forEach(t => {
-    csv += escCSV(t) + ',' + keys.map(k => { const d = buffers[k].find(x => x.t === t); return d ? d.v.toFixed(2) : '' }).join(',') + '\n'
-  })
+
+  // CSV 文本（含字段转义与 BOM）由纯函数层负责 —— 组件只负责取数与下载。
+  // 原实现这里**自己又定义了一份 escCSV**，与 `exportAllData` 里那份
+  // **同名不同义**（一份 null 会抛异常、一份 null 安全）。现已统一。
+  const csv = buildTrendCsv(times, keys.map(k => {
+    const byTime: Record<string, number> = {}
+    buffers[k].forEach(d => { byTime[d.t] = d.v })
+    return {
+      label: getShortLabel(k.slice(k.indexOf(':') + 1)),
+      values: times.map(t => byTime[t] ?? null),
+    }
+  }))
   downloadCSV(csv, `trend_${selectedDeviceId.value}_${new Date().toISOString().slice(0,19).replace(/:/g,'-')}.csv`)
 }
 
@@ -1116,11 +1090,7 @@ async function exportAllData() {
   try {
     const data = await dataApi.getRealtime() as any
     if (!data?.data?.length) { ElMessage.error('无数据可导出'); return }
-    const escCSV = (v: string) => (v.includes(',') || v.includes('"') || v.includes('\n')) ? `"${v.replace(/"/g, '""')}"` : String(v ?? '')
-    let csv = '﻿设备ID,寄存器,值,单位,时间\n'
-    data.data.forEach((item: any) => {
-      csv += `${escCSV(item.device_id)},${escCSV(item.register_name)},${item.value},${escCSV(item.unit||'')},${escCSV(item.timestamp)}\n`
-    })
+    const csv = buildRealtimeCsv(data.data)
     downloadCSV(csv, `all_devices_${new Date().toISOString().slice(0,19).replace(/:/g,'-')}.csv`)
   } catch (e: any) { console.error('[Dashboard] 操作失败:', e); ElMessage.error('导出失败') }
 }

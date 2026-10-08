@@ -365,3 +365,182 @@ export function pushCapped<T>(buf: T[], item: T, cap: number): boolean {
   }
   return trimmed
 }
+
+// ============================================================================
+// 图表 option 构造（纯函数）—— 从 `Dashboard.vue::renderTrend` 抽出来的
+// ============================================================================
+//
+// 为什么抽：这一整块是**纯数据构造**（给定 times/series 就得到固定 option），
+// 但原先内联在组件里，于是**零测试覆盖** —— 而它含真实的正确性面
+// （tooltip 的数值格式化与单位拼接、阈值标线的颜色/文案）。
+// 抽出来后可以直测，且组件只留 `setOption` 这一行胶水。
+//
+// 注意：这里**不 import echarts** —— 只产出普通对象，主题色从纯常量模块取。
+
+import { SCADA_LEVEL_COLORS } from '@/utils/echartsTheme'
+
+/** 阈值标线的输入（与 `getRegisterThreshold` 的返回形状一致）。 */
+export interface ThresholdInfo {
+  value: number
+  text: string
+  level: string
+}
+
+export interface TrendOptionSeries {
+  /** 展示名（组件里是 `getShortLabel(regName)`）。 */
+  name: string
+  /** 与 `times` 等长的数据，缺测点为 `null`。 */
+  data: Array<number | null>
+  /** 该系列的阈值（无则画不出标线）。 */
+  threshold?: ThresholdInfo | null
+  /** 该系列的单位（用于 tooltip 与标线文案）。 */
+  unit?: string
+}
+
+/**
+ * 构造阈值标线。`threshold` 为空时返回 `undefined`（echarts 会忽略）。
+ *
+ * 颜色口径：`SCADA_LEVEL_COLORS[level]`，level 不认识时回退 `info`
+ * —— 与组件原实现一致，**不要**改成抛错或换别的兜底。
+ */
+export function buildThresholdMarkLine(
+  threshold: ThresholdInfo | null | undefined,
+  unit = '',
+): Record<string, unknown> | undefined {
+  if (!threshold) return undefined
+  const suffix = unit ? ' ' + unit : ''
+  return {
+    silent: true,
+    symbol: 'none',
+    data: [{
+      yAxis: threshold.value,
+      name: threshold.text,
+      lineStyle: {
+        color: SCADA_LEVEL_COLORS[threshold.level] || SCADA_LEVEL_COLORS.info,
+        type: 'dashed',
+        width: 1,
+      },
+      label: {
+        formatter: `${threshold.text} ${threshold.value}${suffix}`,
+        position: 'insideEndTop',
+      },
+    }],
+  }
+}
+
+/**
+ * 构造趋势图的 echarts option（纯函数，不依赖 echarts 运行时）。
+ *
+ * `legendSelected` 必须**显式带回**：组件用 `setOption(option, true)`（notMerge），
+ * 会重建图例；不带回的话用户每次刷新勾选的系列开关都会被重置。
+ * 这里只负责"把它放进 option"，取值逻辑留在组件（那是视图状态）。
+ */
+export function buildTrendOption(args: {
+  times: string[]
+  series: TrendOptionSeries[]
+  legendSelected?: Record<string, boolean>
+}): Record<string, unknown> {
+  const { times, series, legendSelected } = args
+
+  // 系列展示名 → 单位（tooltip 用）。按展示名索引，与组件原实现一致。
+  const unitByName: Record<string, string> = {}
+  series.forEach(s => { unitByName[s.name] = s.unit || '' })
+
+  return {
+    legend: {
+      top: 0,
+      right: 0,
+      type: 'scroll',
+      selectedMode: 'multiple',
+      selected: legendSelected,
+    },
+    tooltip: {
+      trigger: 'axis',
+      axisPointer: { type: 'cross' },
+      formatter: (params: unknown) => {
+        const arr = Array.isArray(params) ? params : [params]
+        if (!arr.length) return ''
+        const first = arr[0] as Record<string, unknown>
+        const head = `${first.axisValueLabel ?? first.axisValue ?? ''}`
+        const rows = arr
+          .filter((p: any) => p.value != null && Number.isFinite(Number(p.value)))
+          .map((p: any) => {
+            const unit = unitByName[p.seriesName]
+            return `${p.marker}${p.seriesName}: <b>${Number(p.value).toFixed(2)}</b>${unit ? ' ' + unit : ''}`
+          })
+        return head + rows.join('<br/>')
+      },
+    },
+    grid: { left: 12, right: 16, top: 32, bottom: 8, containLabel: true },
+    xAxis: { type: 'category', data: times, boundaryGap: false },
+    yAxis: { type: 'value', scale: true },
+    series: series.map(s => ({
+      name: s.name,
+      type: 'line',
+      smooth: true,
+      symbol: 'none',
+      // 颜色由统一主题的色板分配，页面不再自带颜色数组
+      data: s.data,
+      markLine: buildThresholdMarkLine(s.threshold, s.unit),
+    })),
+  }
+}
+
+// ============================================================================
+// CSV 导出（纯函数）
+// ============================================================================
+//
+// ⚠️ 抽出来的直接原因：组件里 **`escCSV` 被定义了两遍、且行为不同** ——
+//   * 趋势导出那份：非特殊字符时**原样返回 `v`**，`v` 为 null 会**抛异常**
+//   * 全量导出那份：非特殊字符时返回 `String(v ?? '')`，**null 安全**
+// 同名不同义、同一文件内 —— 正是本仓库反复踩的那一类。
+// 现在**只有一份**（下面这个），口径统一为 null 安全。
+//
+// 另外补上了 `\r`：原实现只判 `,` / `"` / `\n`，
+// 只含 `\r` 的字段不会被引号包起来，Excel/解析器可能把它当行结束。
+
+/**
+ * CSV 字段转义：含 `,` / `"` / `\r` / `\n` 时用双引号包起来，内部 `"` 翻倍。
+ * `null` / `undefined` → 空串（**不抛异常**）。
+ */
+export function escapeCsvField(v: unknown): string {
+  const s = v == null ? '' : String(v)
+  return /[",\r\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s
+}
+
+/**
+ * 构造趋势图导出的 CSV（带 UTF-8 BOM，Excel 打开中文不乱码）。
+ *
+ * @param times  时间轴（已排序）
+ * @param series 每个系列：展示名 + 与 times 等长的数值（缺测为 null）
+ */
+export function buildTrendCsv(
+  times: string[],
+  series: Array<{ label: string; values: Array<number | null> }>,
+): string {
+  let csv = '\ufeff时间,' + series.map(s => escapeCsvField(s.label)).join(',') + '\n'
+  times.forEach((t, i) => {
+    const cells = series.map(s => (s.values[i] == null ? '' : (s.values[i] as number).toFixed(2)))
+    csv += escapeCsvField(t) + ',' + cells.join(',') + '\n'
+  })
+  return csv
+}
+
+/**
+ * 构造「全量实时数据」导出的 CSV。
+ *
+ * ⚠️ `value` 列**刻意不转义**（数值列，转义反而会被当文本）；与组件原实现一致。
+ */
+export function buildRealtimeCsv(rows: Array<Record<string, unknown>>): string {
+  let csv = '设备ID,寄存器,值,单位,时间\n'
+  rows.forEach(item => {
+    csv += [
+      escapeCsvField(item.device_id),
+      escapeCsvField(item.register_name),
+      String(item.value ?? ''),
+      escapeCsvField(item.unit ?? ''),
+      escapeCsvField(item.timestamp),
+    ].join(',') + '\n'
+  })
+  return csv
+}

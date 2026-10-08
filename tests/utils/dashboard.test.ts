@@ -17,7 +17,13 @@ import {
   parseRealtimeItem,
   parseRealtimePayload,
   pushCapped,
+  escapeCsvField,
+  buildTrendCsv,
+  buildRealtimeCsv,
+  buildThresholdMarkLine,
+  buildTrendOption,
 } from '@/utils/dashboard'
+import { SCADA_LEVEL_COLORS } from '@/utils/echartsTheme'
 
 /**
  * `src/utils/dashboard.ts` 的行为契约。
@@ -481,5 +487,171 @@ describe('pushCapped —— 环形缓冲裁剪', () => {
     expect(buf.length).toBe(20)
     expect(buf[0].v).toBe(5)
     expect(buf[19].v).toBe(24)
+  })
+})
+
+// ============================================================================
+// 图表 option 与 CSV 导出（round 187 抽出来的纯函数层）
+// ============================================================================
+//
+// 这两块原先内联在 `Dashboard.vue` 里、**零测试覆盖**，而它们含真实的正确性面：
+//   * CSV 字段转义（引号 / 逗号 / 换行 —— 转义错了导出的表就废了）
+//   * tooltip 的数值格式化与单位拼接
+// 抽出来之后才有办法直测。
+
+describe('escapeCsvField —— CSV 字段转义', () => {
+  it('普通文本原样返回（不加引号）', () => {
+    expect(escapeCsvField('abc')).toBe('abc')
+    expect(escapeCsvField('锅炉温度')).toBe('锅炉温度')
+  })
+
+  it('含逗号 / 双引号 / 换行 → 用双引号包起来', () => {
+    expect(escapeCsvField('a,b')).toBe('"a,b"')
+    expect(escapeCsvField('a\nb')).toBe('"a\nb"')
+    expect(escapeCsvField('say "hi"')).toBe('"say ""hi"""')
+  })
+
+  it('含 **回车** 也要包起来（原实现只判 \n，漏了 \r）', () => {
+    // 这是本轮顺带修掉的一处：只含 \r 的字段不被引号包住时，
+    // 部分解析器会把它当行结束 → 整行错位。
+    expect(escapeCsvField('a\rb')).toBe('"a\rb"')
+  })
+
+  it('null / undefined → 空串，**不抛异常**', () => {
+    // 原实现有两份同名 escCSV：趋势那份 `v.includes` 遇 null 会抛。
+    expect(escapeCsvField(null)).toBe('')
+    expect(escapeCsvField(undefined)).toBe('')
+  })
+
+  it('数字/布尔 → 字符串化', () => {
+    expect(escapeCsvField(25.5)).toBe('25.5')
+    expect(escapeCsvField(true)).toBe('true')
+    expect(escapeCsvField(0)).toBe('0')
+  })
+})
+
+describe('buildTrendCsv', () => {
+  it('BOM + 表头 + 每行时间与数值（保留 2 位小数）', () => {
+    const csv = buildTrendCsv(['t1', 't2'], [{ label: '温度', values: [25.456, 26] }])
+    expect(csv).toBe('\ufeff时间,温度\nt1,25.46\nt2,26.00\n')
+  })
+
+  it('缺测点（null）输出空单元格', () => {
+    const csv = buildTrendCsv(['t1', 't2'], [{ label: '温度', values: [null, 26] }])
+    expect(csv).toBe('\ufeff时间,温度\nt1,\nt2,26.00\n')
+  })
+
+  it('多系列按列排开，列数与表头一致', () => {
+    const csv = buildTrendCsv(['t1'], [
+      { label: '温度', values: [1] },
+      { label: '压力', values: [2] },
+    ])
+    expect(csv).toBe('\ufeff时间,温度,压力\nt1,1.00,2.00\n')
+  })
+
+  it('标签含逗号时被正确转义（否则列会错位）', () => {
+    const csv = buildTrendCsv(['t1'], [{ label: '温度,℃', values: [1] }])
+    expect(csv.split('\n')[0]).toBe('\ufeff时间,"温度,℃"')
+  })
+})
+
+describe('buildRealtimeCsv', () => {
+  it('表头 + 逐行，value 列不转义（数值列）', () => {
+    const csv = buildRealtimeCsv([
+      { device_id: 'dev1', register_name: 'temp', value: 25.5, unit: '℃', timestamp: '2026-01-01' },
+    ])
+    expect(csv).toBe('设备ID,寄存器,值,单位,时间\ndev1,temp,25.5,℃,2026-01-01\n')
+  })
+
+  it('字段为 null 时**不抛异常**（原实现有抛的分支）', () => {
+    expect(() => buildRealtimeCsv([
+      { device_id: null, register_name: null, value: null, unit: null, timestamp: null },
+    ])).not.toThrow()
+    expect(buildRealtimeCsv([
+      { device_id: null, register_name: 'r', value: 1, unit: null, timestamp: 't' },
+    ])).toBe('设备ID,寄存器,值,单位,时间\n,r,1,,t\n')
+  })
+})
+
+describe('buildThresholdMarkLine', () => {
+  it('无阈值 → undefined（echarts 会忽略）', () => {
+    expect(buildThresholdMarkLine(null)).toBeUndefined()
+    expect(buildThresholdMarkLine(undefined)).toBeUndefined()
+  })
+
+  it('颜色取 SCADA_LEVEL_COLORS[level]，未知 level 回退 info', () => {
+    // ⚠️ 这里必须断言**具体值**。第一版我写成 `toBe(自己)` —— 那是同义反复，
+    // 看着像守卫、实际什么都守不住（任何返回值都能过）。
+    const line = buildThresholdMarkLine({ value: 80, text: '上限', level: 'critical' }) as any
+    expect(line.data[0].lineStyle.color).toBe(SCADA_LEVEL_COLORS.critical)
+
+    const unknown = buildThresholdMarkLine({ value: 1, text: 'x', level: '不存在的等级' }) as any
+    expect(unknown.data[0].lineStyle.color).toBe(SCADA_LEVEL_COLORS.info)
+    expect(SCADA_LEVEL_COLORS.info).toBeTruthy()
+  })
+
+  it('有单位时拼进标签文案', () => {
+    const withUnit = buildThresholdMarkLine({ value: 80, text: '上限', level: 'warning' }, '℃') as any
+    expect(withUnit.data[0].label.formatter).toBe('上限 80 ℃')
+    const noUnit = buildThresholdMarkLine({ value: 80, text: '上限', level: 'warning' }) as any
+    expect(noUnit.data[0].label.formatter).toBe('上限 80')
+  })
+})
+
+describe('buildTrendOption', () => {
+  const base = {
+    times: ['t1', 't2'],
+    series: [{ name: '温度', data: [1, null], unit: '℃' }],
+  }
+
+  it('x 轴用 times，系列名与数据透传', () => {
+    const opt = buildTrendOption(base) as any
+    expect(opt.xAxis.data).toEqual(['t1', 't2'])
+    expect(opt.series).toHaveLength(1)
+    expect(opt.series[0].name).toBe('温度')
+    expect(opt.series[0].data).toEqual([1, null])
+  })
+
+  it('图例勾选状态必须透传（setOption notMerge 会重建图例）', () => {
+    const selected = { 温度: false }
+    const opt = buildTrendOption({ ...base, legendSelected: selected }) as any
+    expect(opt.legend.selected).toBe(selected)
+  })
+
+  it('无阈值时 markLine 为 undefined', () => {
+    const opt = buildTrendOption(base) as any
+    expect(opt.series[0].markLine).toBeUndefined()
+  })
+
+  it('有阈值时生成 markLine', () => {
+    const opt = buildTrendOption({
+      times: ['t1'],
+      series: [{ name: '温度', data: [1], unit: '℃', threshold: { value: 80, text: '上限', level: 'critical' } }],
+    }) as any
+    expect(opt.series[0].markLine.data[0].yAxis).toBe(80)
+  })
+
+  it('tooltip：过滤掉 null / 非有限值，数值保留 2 位，带单位', () => {
+    const opt = buildTrendOption(base) as any
+    const out = opt.tooltip.formatter([
+      { axisValueLabel: 't1', seriesName: '温度', value: 25.456, marker: '●' },
+      { axisValueLabel: 't1', seriesName: '温度', value: null, marker: '●' },
+      { axisValueLabel: 't1', seriesName: '温度', value: 'abc', marker: '●' },
+    ])
+    expect(out).toBe('t1●温度: <b>25.46</b> ℃')
+  })
+
+  it('tooltip：空参数返回空串', () => {
+    const opt = buildTrendOption(base) as any
+    expect(opt.tooltip.formatter([])).toBe('')
+  })
+
+  it('tooltip：无单位的系列不加尾随空格', () => {
+    const opt = buildTrendOption({
+      times: ['t1'],
+      series: [{ name: '压力', data: [1] }],
+    }) as any
+    expect(opt.tooltip.formatter([{ axisValueLabel: 't1', seriesName: '压力', value: 1, marker: '' }]))
+      .toBe('t1压力: <b>1.00</b>')
   })
 })
