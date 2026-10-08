@@ -4,9 +4,18 @@ const { spawn, spawnSync } = require('child_process')
 const http = require('http')
 const net = require('net')
 const fs = require('fs')
-// updater 可选
+// updater 可选 —— 但**加载失败必须出声**。
+// 原先写的是 `catch {}`：updater.js 一旦加载失败，setupUpdater/checkForUpdates
+// 会静默保持 null，自动更新就悄悄没了、且没有任何痕迹 ——
+// 正是本项目 round 161 花力气消除的那类「静默失效」。
 let setupUpdater = null, checkForUpdates = null
-try { const u = require('./updater'); setupUpdater = u.setupUpdater; checkForUpdates = u.checkForUpdates } catch {}
+try {
+  const u = require('./updater')
+  setupUpdater = u.setupUpdater
+  checkForUpdates = u.checkForUpdates
+} catch (e) {
+  console.error('[updater] 模块加载失败，自动更新将不可用：', e && e.message)
+}
 const { isFirstRun, markComplete } = require('./first-run')
 // 后端 exe / 运行时端口文件的定位口径（可单测，且被 CI 闸门共用）。
 const backendPaths = require('./backend-paths')
@@ -467,8 +476,18 @@ function createShortcuts() {
     if (!fs.existsSync(desk)) shell.writeShortcutLink(desk, { target: exe, cwd: path.dirname(exe) })
     const appData = process.env.APPDATA || path.join(require('os').homedir(), 'AppData', 'Roaming')
     const smDir = path.join(appData, 'Microsoft', 'Windows', 'Start Menu', 'Programs', 'SmartSCADA')
-    try { if (!fs.existsSync(smDir)) fs.mkdirSync(smDir, { recursive: true }); const sm = path.join(smDir, 'SmartSCADA.lnk'); if (!fs.existsSync(sm)) shell.writeShortcutLink(sm, { target: exe, cwd: path.dirname(exe) }) } catch {}
-  } catch {}
+    try {
+      if (!fs.existsSync(smDir)) fs.mkdirSync(smDir, { recursive: true })
+      const sm = path.join(smDir, 'SmartSCADA.lnk')
+      if (!fs.existsSync(sm)) shell.writeShortcutLink(sm, { target: exe, cwd: path.dirname(exe) })
+    } catch (e) {
+      // 开始菜单快捷方式失败不影响启动，但**必须出声** ——
+      // 静默吞掉的话用户只会觉得"装了但找不到"。
+      console.warn('[shortcut] 开始菜单快捷方式创建失败：', e && e.message)
+    }
+  } catch (e) {
+    console.warn('[shortcut] 桌面快捷方式创建失败：', e && e.message)
+  }
 }
 
 // ============ 主流程 ============
