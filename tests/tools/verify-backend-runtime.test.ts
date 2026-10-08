@@ -27,9 +27,21 @@ const require_ = createRequire(import.meta.url)
 const gate: any = require_(path.join(process.cwd(), 'tools', 'verify-backend-runtime.js'))
 
 const REPO = process.cwd()
-// 按 PID 分目录：并发/重复跑互不干扰。**但必须自己收尾** —— 见 afterAll。
-const FIXTURE_ROOT = path.join(REPO, '.vitest_cache', 'verify-backend-runtime', String(process.pid))
-const FAKE_DIR = path.join(FIXTURE_ROOT, 'fake-backend')
+// fixture 根（稳定）+ 本轮专属子目录（唯一）。
+//
+// 这两层各有各的理由，缺一个就会出问题 —— 两个都踩过：
+//   · 根必须稳定：fake exe 是 87MB，不想每轮重写。
+//   · 本轮目录必须**唯一**：本套件大量用「快照 before → 造新文件 → 断言只有新的被处理」，
+//     目录一旦跨轮复用，上一轮留下的 runtime.json / .env 会被 before 快照吃掉，
+//     用例**确定性**失败（实测：`expected [] to deeply equal [ 'runtime.json' ]`）。
+//   · 而且**绝不能靠"每轮开始清一次"来保证干净** —— 本机删除守卫有一条
+//     **按整轮累计**的配额（`{"count":50,"threshold":50,"scope":"turn"}`），
+//     同一轮累计删到 50 个文件后**任何删除都抛异常**。
+//     实测：把复位放在 beforeAll 里，配额早被别的用例吃掉时，
+//     `fs.rmSync` 直接抛 `SAFE_DELETE_BULK_CONFIRM_REQUIRED` → **整个文件级失败**。
+const FIXTURE_ROOT = path.join(REPO, '.vitest_cache', 'verify-backend-runtime')
+const RUN_DIR = path.join(FIXTURE_ROOT, `run-${process.pid}`)
+const FAKE_DIR = path.join(RUN_DIR, 'fake-backend')
 const FAKE_EXE = path.join(FAKE_DIR, 'scada-backend.exe')
 const PRELOAD = path.join(FAKE_DIR, 'preload.js')
 
@@ -175,16 +187,20 @@ async function runSmoke(
 
 beforeAll(() => {
   fs.mkdirSync(FAKE_DIR, { recursive: true })
-  // 假 exe = node.exe 的**副本**。
+
+  // 假 exe = node.exe 的**硬链接**（实测可用，`nlink` 计数递增，不占额外磁盘）。
   //
-  // ⚠️ 这里**故意不用硬链接**（早先版本用 `linkSync` 想省 87MB，已撤）：
-  // 本机环境的删除守卫会把 `rmSync` / `unlinkSync` 转成"移到回收站"，
-  // 而**回收站操作处理不了指向 node.exe 的硬链接** —— 实测报
-  // `[safe-delete] 操作失败: Error during a \`trash\` operation`。
-  // 结果：目录删不掉，每次 `npm test` 留一个 87MB 的目录，实测累积到 48 个 / 250MB。
-  // 真副本可以正常删除（已实测），所以用副本换「可收尾」。
-  // 代价是每次运行多写 ~87MB（跑完即删，不累积），换一个不会无声泄漏的测试。
-  fs.copyFileSync(process.execPath, FAKE_EXE)
+  // 为什么是硬链接而不是副本：副本 87MB，而本机删除守卫处理不了指向 node.exe 的硬链接
+  // （`trash` 操作失败）→ 一旦用了硬链接，目录就永远删不掉。
+  // 但**我们本来就不删**（见 afterAll），所以这个限制不再构成问题，
+  // 而硬链接把「每轮一个 fixture 目录」的成本从 87MB 降到 ~0。
+  // 万一 linkSync 不可用（跨卷等），退回副本 —— 只在那种环境下才吃 87MB。
+  try {
+    fs.linkSync(process.execPath, FAKE_EXE)
+  } catch {
+    if (!fs.existsSync(FAKE_EXE)) fs.copyFileSync(process.execPath, FAKE_EXE)
+  }
+
   fs.writeFileSync(PRELOAD, PRELOAD_SRC, 'utf8')
   savedNodeOptions = process.env.NODE_OPTIONS
   const flag = `--require ${PRELOAD}`
@@ -195,25 +211,20 @@ afterAll(() => {
   if (savedNodeOptions === undefined) delete process.env.NODE_OPTIONS
   else process.env.NODE_OPTIONS = savedNodeOptions
 
-  // 收掉本次运行自己的 fixture 目录。
+  // ⚠️ 这里**刻意什么都不删** —— 这是踩了三次才定下来的形状，别改回去。
   //
-  // 为什么必须显式删：目录名带 PID（为了并发安全），而 `fake-backend/scada-backend.exe`
-  // 是 node.exe 的硬链接（失败时退化成副本，**单份 87MB**）。
-  // 不删的话每次 `npm test` 都留下一个永不复用的目录 —— 实测累积到 10 个 / 250MB
-  // 才发现（C 盘紧张时很要命）。
+  // 本机删除守卫有一条**按整轮累计**的配额：
+  //   [safe-delete][SAFE_DELETE_BULK_CONFIRM_REQUIRED] {"count":50,"threshold":50,"scope":"turn"}
+  // 同一个命令调用里**累计删到 50 个文件后，任何删除都抛异常** —— 包括别的测试文件、
+  // 也包括被测闸门自己的 `cleanupCreated`。三条实测证据：
+  //   ① 本文件 afterAll 删整个 PID 目录（36 个）→ 累计越过 50 → 闸门清理也删不动
+  //      → 5 条用例偶发红（本机 3 轮 2 轮红，CI 全绿）。
+  //   ② 改成「稳定路径 + beforeAll 定点复位」→ 复位那一步**自己**抛
+  //      `SAFE_DELETE_BULK_CONFIRM_REQUIRED` → 整个文件级失败（run3/run4，19s/21s 就挂）。
+  //   ③ 最终形状：**每轮唯一目录（不污染）+ 硬链接（不占盘）+ 永不删除（不碰配额）**。
   //
-  // 这条同样是本文件所测闸门的原则：「跑完不留运行期垃圾」——
-  // **测试自己的 fixture 也适用**，不能只在被测代码上要求。
-  try {
-    fs.rmSync(FIXTURE_ROOT, { recursive: true, force: true })
-  } catch (e) {
-    // 不能静默吞 —— 收尾失败必须可见，否则这个目录会无声地越积越多
-    // （这正是本文件所测闸门在防的「静默失效」，测试自己也得守）。
-    console.error(`[fixture-cleanup] 未能删除 ${FIXTURE_ROOT}: ${(e as Error).message}`)
-  }
-  if (fs.existsSync(FIXTURE_ROOT)) {
-    console.error(`[fixture-cleanup] 收尾后目录仍存在: ${FIXTURE_ROOT}`)
-  }
+  // 代价：`run-<pid>/` 目录会随运行次数累积，但每个只有几 KB（exe 是硬链接），
+  // 且**不需要也不应该**由测试去清理（清理会重新掉进配额陷阱）。
 })
 
 // ---------------------------------------------------------------------------
@@ -344,7 +355,7 @@ describe('快照 / 清理（「冒烟不改动产物」）', () => {
   // （实测单条 cleanupCreated 要 4.1s），满载并行时必然超 vitest 默认的 5s。
   // 显式给宽超时 —— 它们不是计时敏感用例，不该因为机器负载假红。
   it('snapshotTree 同时给出文件与目录', () => {
-    const dir = path.join(FIXTURE_ROOT, 'snap')
+    const dir = path.join(RUN_DIR, 'snap')
     fs.mkdirSync(path.join(dir, 'a', 'b'), { recursive: true })
     fs.writeFileSync(path.join(dir, 'a', 'b', 'f.txt'), 'x')
     const s = gate.snapshotTree(dir)
@@ -353,7 +364,7 @@ describe('快照 / 清理（「冒烟不改动产物」）', () => {
   }, 30000)
 
   it('cleanupCreated 只删本次新建的，保留运行前就有的', () => {
-    const dir = path.join(FIXTURE_ROOT, 'cleanup')
+    const dir = path.join(RUN_DIR, 'cleanup')
     fs.mkdirSync(path.join(dir, 'keep'), { recursive: true })
     fs.writeFileSync(path.join(dir, 'keep', 'old.txt'), 'x')
     const before = gate.snapshotTree(dir)
@@ -370,7 +381,7 @@ describe('快照 / 清理（「冒烟不改动产物」）', () => {
   }, 30000)
 
   it('runtimeNewFiles 是「清理是否真生效」的判据（不只看 unlink 有没有抛异常）', () => {
-    const dir = path.join(FIXTURE_ROOT, 'verify-clean')
+    const dir = path.join(RUN_DIR, 'verify-clean')
     fs.mkdirSync(dir, { recursive: true })
     const before = gate.snapshotTree(dir)
     fs.writeFileSync(path.join(dir, 'runtime.json'), '{}')
@@ -380,7 +391,7 @@ describe('快照 / 清理（「冒烟不改动产物」）', () => {
   }, 30000)
 
   it('cleanupUntilClean 复核后返回空 leftover', async () => {
-    const dir = path.join(FIXTURE_ROOT, 'until-clean')
+    const dir = path.join(RUN_DIR, 'until-clean')
     fs.mkdirSync(dir, { recursive: true })
     // 快照必须在「造出运行期文件」之前 —— 否则那些目录会被当成运行前就有的，不该删
     const before = gate.snapshotTree(dir)
@@ -416,7 +427,7 @@ describe('smoke() —— 真起进程的闸门（fail-closed）', () => {
     const port = await freePort()
     const { code, out } = await runSmoke(
       { FAKE_PORT: String(port), FAKE_PAYLOAD: HEALTHY },
-      { exe: path.join(FIXTURE_ROOT, '不存在的后端.exe') },
+      { exe: path.join(RUN_DIR, '不存在的后端.exe') },
     )
     expect(code).toBe(1)
     expect(out).toContain('打包产物不存在')
@@ -554,14 +565,28 @@ describe('CI 接线与常量耦合（防止闸门被摘掉 / 常量被改散）'
     expect(gate.DEFAULT_CHECKS_TIMEOUT).toBeGreaterThanOrEqual(2 * interval)
   })
 
-  it('本套件必须自己收掉 fixture 目录（「跑完不留垃圾」对测试自己也成立）', () => {
-    // 为什么要有这条：FIXTURE_ROOT 按 PID 命名，里面的 fake-backend 是 node.exe 的
-    // 硬链接（退化时是 87MB 的副本）。少了 afterAll 里的 rmSync，每次 `npm test`
-    // 都留下一个永不复用的目录 —— 实测累积到 10 个 / 250MB 才被发现。
-    // 静态断言防的是「有人顺手把收尾删掉」：删掉它不会有任何用例变红，
-    // 只会在几周后变成一块没人说得清的磁盘占用。
+  it('fixture 必须走「每轮唯一 + 零删除」路线（防偶发失败回归）', () => {
+    // 这是踩了三次才定下来的形状，三条一起守，缺一条就会重新变成偶发红：
+    //
+    // ① **本轮目录必须唯一**（带 `process.pid`）。不唯一 → 上一轮的 runtime.json/.env
+    //    会被这一轮的 before 快照吃掉 → `cleanupCreated` 认为"不是新建的" → 确定性失败。
+    // ② **不能靠"每轮开始清一次"来保证干净**。本机删除守卫按**整轮累计**计数
+    //    （`{"count":50,"threshold":50,"scope":"turn"}`），累计到 50 后任何删除都抛异常 ——
+    //    复位那一步会**自己**把整个文件搞挂（实测 run3/run4 在 19s/21s 就 FAIL）。
+    // ③ **afterAll 不删东西**。删得再干净也还是在跟配额抢额度。
+    //
+    // 静态断言防的是「有人顺手改回去」：改回去不会有任何用例立刻变红，
+    // 只会让套件重新变成"本机偶发红、CI 全绿"——最容易被当抖动放过的形态。
     const self = path.join(REPO, 'tests', 'tools', 'verify-backend-runtime.test.ts')
     const src = fs.readFileSync(self, 'utf8')
-    expect(src).toMatch(/afterAll\([\s\S]*?fs\.rmSync\(FIXTURE_ROOT/)
+
+    expect(src, 'RUN_DIR 必须带 process.pid（每轮唯一，否则跨轮污染）').toMatch(
+      /const RUN_DIR = [^\n]*process\.pid/,
+    )
+    expect(src, 'beforeAll 里不应有 rmSync（复位会自己撞上删除配额）').not.toMatch(
+      /beforeAll\(\(\) => \{[\s\S]*?\n\}\)[\s\S]{0,50}?rmSync/,
+    )
+    const afterAllBody = src.match(/afterAll\(\(\) => \{[\s\S]*?\n\}\)/)?.[0] ?? ''
+    expect(afterAllBody, 'afterAll 里不应有 rmSync（会消耗删除配额）').not.toContain('rmSync')
   })
 })

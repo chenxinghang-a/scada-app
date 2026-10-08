@@ -286,6 +286,13 @@ function cleanupCreated(root, before) {
       fs.unlinkSync(path.join(root, rel));
     } catch (e) {
       failed.push(rel);
+      // 诊断钩子（默认关闭）：清理失败的原因**默认是看不见的**，只有文件名。
+      // 排查「偶发清理失败」时用 VBR_DEBUG_CLEANUP=1 跑一次即可拿到原始错误。
+      // 注：这里**不把原因塞进返回值** —— 返回值是「哪些没删掉」的路径列表，
+      // 是闸门判定「跑完不留垃圾」的判据，改形状会波及调用方。
+      if (process.env.VBR_DEBUG_CLEANUP) {
+        console.error(`[cleanup-debug] 删不掉 ${rel}: ${(e && e.message) || e}`);
+      }
     }
   }
 
