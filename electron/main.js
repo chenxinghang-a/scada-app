@@ -703,6 +703,11 @@ function setAutoLaunch(enabled) {
 }
 
 function createShortcuts() {
+  // ⚠️ 只在**打包后**管理快捷方式：开发模式（`electron:dev`）里
+  // `app.getPath('exe')` 是 node_modules 里的 electron.exe ——
+  // 无论「创建」还是「自愈重写」都会把用户的快捷方式**带歪**。
+  // （修复版的自愈会把指向正确目标的桌面图标「纠正」成 electron.exe，比不修还糟。）
+  if (!app.isPackaged) return
   try {
     const { shell } = require('electron')
     const exe = app.getPath('exe')

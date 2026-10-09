@@ -77,4 +77,15 @@ describe('快捷方式自愈（存在但目标不对 → 重写）', () => {
     const ensureCalls = [...fn.matchAll(/ensureShortcut\s*\(/g)].length
     expect(ensureCalls, 'ensureShortcut 的调用点少于两处 —— 有入口没接自愈').toBeGreaterThanOrEqual(2)
   })
+
+  it('开发模式（未打包）不碰快捷方式 —— 否则会把桌面图标带歪到 electron.exe', () => {
+    // 推演过的真实风险：`electron:dev` 下 app.getPath('exe') 是 node_modules
+    // 里的 electron.exe；自愈会忠实执行「把错误目标改成当前 exe」——
+    // 于是用户的桌面图标被「修复」成 electron.exe，比不修还糟。
+    const guardIdx = fn.indexOf('isPackaged')
+    expect(guardIdx, '没有 app.isPackaged 守卫').toBeGreaterThan(-1)
+    expect(guardIdx).toBeLessThan(fn.indexOf('readShortcutLink'))
+    expect(guardIdx).toBeLessThan(fn.indexOf('writeShortcutLink'))
+    expect(fn.slice(guardIdx, guardIdx + 60), '守卫必须早退（return），不是记个标记继续走').toMatch(/return/)
+  })
 })
