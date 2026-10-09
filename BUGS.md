@@ -108,34 +108,54 @@ async function apiFetch(url) {
 不是显卡驱动问题。日志里会出现
 `FATAL:gpu_data_manager_impl_private.cc(423) GPU process isn't usable. Goodbye.`
 
-**修复**: **自愈式降级**（`electron/main.js` 顶层，必须在 `app.whenReady()` 之前）
+**修复**: **自愈式降级阶梯**（`electron/main.js` 顶层，必须在 `app.whenReady()` 之前）
 
-1. 每次启动在 userData 写一个 `launch-attempt.json` 标记；
-2. **启动成功**（窗口建好 15 秒后，或正常退出时）删掉它；
-3. 下次启动若发现标记**还在**（且是 **24 小时**内的）→
-   说明上一次**崩在启动阶段** → **自动**启用 `--disable-gpu-sandbox` + 软渲染。
+受限环境里的崩溃是一整条谱系，逐级升级（2026-10-09 实测补全）：
+
+| 级别 | 开关 | 实测结果 |
+|---|---|---|
+| L0 | （默认） | GPU 连崩 9 次（0xC0000005）→ FATAL 秒退 |
+| L1 | `--disable-gpu-sandbox` + 软渲染 | GPU 不崩了，但**渲染进程**崩 ×2 → 白窗（还是打不开！） |
+| L2 | L1 + `--no-sandbox` | 全链路 0 崩溃 ✅ |
+
+> ⚠️ 只到 L1 是不够的：「窗口建出来 + 主进程活 15 秒」**不等于能用**（页面可以是死的）。
+
+1. 每次启动在 userData 写 `launch-attempt.json`（含**本次级别**）；
+2. **启动成功**后删掉它。⚠️ 成功的判据 = 窗口建好 + 稳定 15 秒 +
+   **渲染进程没有死在启动阶段**（`render-process-gone` 在稳定窗口内发生 → 不算成功）；
+3. 下次启动若发现标记**还在**（且是 **24 小时**内的）→ 说明上次没走完正常流程
+   → 在它用的级别上**加一级**重试（0 → 1 → 2）；
+4. 某级别成功过一次 → 记进 `gpu-state.json`（**粘性**）→ 之后的启动**直接从该级起**，
+   不再重复「崩一轮」。
 
 > ⚠️ 回溯窗口是 **24 小时**，不是几十秒。
 > 第一版用 60 秒，结果「今天崩、明天再双击」时标记已过期，
 > **自愈在最需要它的时候失效**。正常退出会清标记，
 > 所以「标记还在」确实意味着上次没走完正常流程。
 
-**用户不需要知道任何开关：第一次崩，第二次自己就好了。**
+**用户不需要知道任何开关：崩过的机器最多经历「崩 → 白窗 → 成功」一轮，之后每次双击都能直接打开。**
+
+> 想回到默认（L0）重新验证：删掉 `%APPDATA%\SmartSCADA\` 下的
+> `gpu-state.json` 与 `launch-attempt.json`。
 
 ### 手动强制兜底（自愈没生效时）
 
-任选一种，**只要存在就强制走软渲染**（原因会打进日志）：
+任选一种，**只要存在就强制至少 L1**（`--disable-gpu-sandbox` + 软渲染；原因会打进日志）：
 
 | 方式 | 怎么做 |
 |---|---|
 | 环境变量 | 设 `SCADA_DISABLE_GPU=1` 再启动 |
 | 标记文件 | 在 `%APPDATA%\SmartSCADA\` 下新建空文件 `disable-gpu.flag` |
 
-排查时先看这两个位置：
-- 启动标记 `%APPDATA%\SmartSCADA\launch-attempt.json`（**还在 = 上次没正常退出**）
-- 主进程控制台输出里的 `[gpu] 已启用兜底（原因=…）`
+排查时先看这几个位置（都在 `%APPDATA%\SmartSCADA\`）：
+- `launch-attempt.json` —— **还在 = 上次没正常退出**（内含上次用的级别）
+- `gpu-state.json` —— 记住的「可用级别」（删掉它即重置回默认 L0）
+- `startup.log` —— 每次启动一行：`boot` / `window-created` / `launch-stable` /
+  `launch-unstable-renderer`（渲染死在启动阶段）/ `renderer-gone`（渲染崩溃详情）
+- 主进程控制台输出里的 `[gpu] 已启用兜底（原因=…, 级别=L…）`
 
-**相关测试**: `tests/electron/gpu-fallback.test.ts`（9 例）
+**相关测试**: `tests/electron/gpu-fallback.test.ts`（16 例，含阶梯与渲染门守卫）、
+`tests/electron/gpu-policy.test.ts`（12 例，纯决策层）。
 
 ---
 

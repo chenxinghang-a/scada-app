@@ -271,3 +271,75 @@ describe('GPU / 沙箱兜底（GPU 进程崩溃时仍能启动）', () => {
     ).toBeLessThan(1200)
   })
 })
+
+// ---------------------------------------------------------------------------
+// 降级阶梯 L2（2026-10-09 增补）——「受限环境」里连渲染进程的沙箱都起不来
+// ---------------------------------------------------------------------------
+// 同日实测：只到 L1 时 GPU 不崩了，但 `[Renderer] 崩溃: crashed -2147483645` ×2，
+// 页面是死的（白窗）——「窗口建出来 + 主进程活 15 秒」**不等于能用**。
+// 升级判据必须把渲染进程算进来；L2（再追加 --no-sandbox）后全链路 0 崩溃。
+
+describe('降级阶梯：L0 → L1 → L2，且成功判据含渲染进程', () => {
+  const src = stripComments(read(MAIN))
+
+  it('L2 开关 no-sandbox 存在，且**受级别门控**（不能无条件关整个沙箱）', () => {
+    expect(src).toContain(`appendSwitch('no-sandbox')`)
+    const idx = src.indexOf(`appendSwitch('no-sandbox')`)
+    const cond = src.slice(Math.max(0, idx - 200), idx)
+    expect(
+      cond,
+      'no-sandbox 没有被 `gpuFallbackLevel >= 2` 门控 —— 无条件关上等于永远关整个 Chromium 沙箱，范围失控',
+    ).toMatch(/gpuFallbackLevel\s*>=\s*2/)
+  })
+
+  it('L2 开关同样必须在 app.whenReady() 之前（否则静默失效）', () => {
+    const idx = src.indexOf(`appendSwitch('no-sandbox')`)
+    const readyIdx = src.indexOf('app.whenReady(')
+    expect(idx).toBeGreaterThan(-1)
+    expect(idx).toBeLessThan(readyIdx)
+  })
+
+  it('渲染进程死在启动阶段 → **不算成功**：保留标记、不记粘性级别', () => {
+    const timers = collectSetTimeouts(src)
+    const clearer = timers.find((t) => t.body.includes('markLaunchSucceeded'))
+    expect(clearer, '没有找到「稳定计时器」').toBeTruthy()
+    expect(clearer!.body, '稳定计时器没有看 rendererGoneEarly —— 白窗会被误记成成功').toContain(
+      'rendererGoneEarly',
+    )
+    expect(clearer!.body).toContain('launch-unstable-renderer')
+    expect(
+      clearer!.body.indexOf('rendererGoneEarly'),
+      '必须先判「渲染死了」再走 markLaunchSucceeded —— 顺序颠倒的话白窗照样记成功',
+    ).toBeLessThan(clearer!.body.indexOf('markLaunchSucceeded'))
+    expect(clearer!.body).toContain('return')
+  })
+
+  it('render-process-gone 会写进诊断日志（升级依据可见，不靠猜）', () => {
+    expect(src).toContain(`writeStartupLog('renderer-gone'`)
+    const handlerIdx = src.indexOf(`on('render-process-gone'`)
+    const logIdx = src.indexOf(`writeStartupLog('renderer-gone'`)
+    expect(handlerIdx).toBeGreaterThan(-1)
+    expect(logIdx, 'render-process-gone 处理器里没写诊断日志').toBeGreaterThan(handlerIdx)
+  })
+
+  it('成功级别是**粘性**的：gpu-state.json 被读、被写、进决策', () => {
+    expect(src).toContain('gpu-state.json')
+    // 决策交给纯函数（gpu-policy），且 goodLevel 必须真的传进去
+    expect(src).toMatch(/decideLevel\s*\(\s*\{/)
+    expect(src).toMatch(/goodLevel\s*:/)
+    // 成功路径要写入
+    const okFn = src.slice(src.indexOf('function markLaunchSucceeded'))
+    const okBody = okFn.slice(0, okFn.indexOf('\n}\n'))
+    expect(okBody, 'markLaunchSucceeded 没有记录粘性成功级别 —— 受限机器每次都要重新崩一轮').toContain(
+      'gpu-state.json',
+    )
+  })
+
+  it('本次启动标记里带级别（升级链路有据可查）', () => {
+    expect(src).toMatch(/level\s*:\s*gpuFallbackLevel/)
+  })
+
+  it('诊断日志每行带级别（boot/stable/unstable 都能看出用的第几级）', () => {
+    expect(src).toMatch(/gpuFallbackLevel\s*:\s*gpuFallbackLevel/)
+  })
+})

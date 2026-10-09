@@ -19,6 +19,8 @@ try {
 const { isFirstRun, markComplete } = require('./first-run')
 // 后端 exe / 运行时端口文件的定位口径（可单测，且被 CI 闸门共用）。
 const backendPaths = require('./backend-paths')
+// GPU / 沙箱降级阶梯的**纯决策层**（级别怎么升、粘性成功级别怎么算；可单测）。
+const gpuPolicy = require('./gpu-policy')
 
 // ============ 常量 ============
 // 端口默认回退到 5000（向后兼容 / 模拟模式）。真实模式下后端监听 5001，
@@ -43,14 +45,24 @@ const MAX_BACKEND_RESTARTS = 5
 //      都关了，范围过大，所以选最窄的这个）。
 //   根因是 **GPU 进程的沙箱在该环境里起不来**（受限会话 / 安全策略拦子进程）。
 //
-// 策略：**自愈式降级**
-//   1. 每次启动在 userData 写一个 `launch-attempt.json` 标记；
-//   2. 启动**成功**（窗口建好）后把它删掉；
-//   3. 下次启动若发现标记**还在**（且是 60 秒内的）→ 说明上一次**崩在启动阶段**
-//      → 自动启用兜底开关。
-//   → 用户**不需要知道任何开关**：第一次崩、第二次自己就好了。
+// 策略：**自愈式降级阶梯**（0 → 1 → 2 级，逐级升级）
+//   L0 默认；
+//   L1 = `--disable-gpu-sandbox` + 软渲染；
+//   L2 = L1 + `--no-sandbox`（实测：受限环境里连**渲染进程**的沙箱也起不来，
+//        只到 L1 的话 GPU 不崩了、窗口却是死的 —— 白窗，仍然「打不开」）。
 //
-// 手动覆盖：环境变量 `SCADA_DISABLE_GPU=1` 或 userData 下的 `disable-gpu.flag`。
+//   1. 每次启动在 userData 写一个 `launch-attempt.json` 标记（含本次级别）；
+//   2. 启动**成功**后把它删掉。⚠️ 成功的判据 = 窗口建好 + 稳定运行 + **渲染进程
+//      没有死在启动阶段**（「窗口建出来」不等于能用）；
+//   3. 下次启动若发现标记**还在**（且是 24 小时内的）→ 说明上一次**没走完正常流程**
+//      → 在它用的级别上**加一级**重试；
+//   4. 某级别成功过一次 → 记进 `gpu-state.json`（粘性）→ 之后的启动**直接从该级起**，
+//      不再重复「先崩一轮」。
+//   → 用户**不需要知道任何开关**：崩过的机器，最多经历「崩→白窗→成功」一轮，
+//     之后每次双击都能直接打开。
+//
+// 手动覆盖：环境变量 `SCADA_DISABLE_GPU=1` 或 userData 下的 `disable-gpu.flag`（≥L1）。
+// 想回到默认（L0）重新验证：删掉 userData 下的 `gpu-state.json` 与 `launch-attempt.json`。
 //
 // ⚠️ 必须在 `app.whenReady()` **之前**调用才生效，所以放在模块顶层。
 // 默认（无标记、无开关）行为**完全不变**。
@@ -70,15 +82,33 @@ const LAUNCH_MARKER = (() => {
 const LAUNCH_MARKER_STALE_MS = 24 * 60 * 60 * 1000
 
 let prevLaunchCrashed = false
+let prevLaunchLevel = 0
 try {
   if (LAUNCH_MARKER && fs.existsSync(LAUNCH_MARKER)) {
     const prev = JSON.parse(fs.readFileSync(LAUNCH_MARKER, 'utf-8'))
     if (prev && typeof prev.at === 'number' && Date.now() - prev.at < LAUNCH_MARKER_STALE_MS) {
       prevLaunchCrashed = true
+      // 旧版标记没有 level 字段 → normalizeLevel 返回 0（等价于「从 L0 崩的」），
+      // 升级到 L1 —— 与旧版的两级自愈行为逐位兼容。
+      prevLaunchLevel = gpuPolicy.normalizeLevel(prev.level)
     }
   }
 } catch (e) {
   console.error('[gpu] 读取上次启动标记失败（忽略）：', e && e.message)
+}
+
+// 「上次成功用过的兜底级别」（粘性）。见 gpu-policy.js 顶部说明：
+// 受限环境里若每次冷启动都从 L0 试起，用户会经历「崩→白窗→成功」的循环，
+// 体感还是「打不开」。成功过一次 L≥1 → 之后的启动直接从这里起。
+let stickyGoodLevel = 0
+try {
+  const statePath = LAUNCH_MARKER ? path.join(path.dirname(LAUNCH_MARKER), 'gpu-state.json') : null
+  if (statePath && fs.existsSync(statePath)) {
+    const st = JSON.parse(fs.readFileSync(statePath, 'utf-8'))
+    stickyGoodLevel = gpuPolicy.normalizeLevel(st && st.goodLevel)
+  }
+} catch (e) {
+  console.error('[gpu] 读取历史成功级别失败（忽略）：', e && e.message)
 }
 
 const forcedFallback = (() => {
@@ -92,19 +122,29 @@ const forcedFallback = (() => {
   return null
 })()
 
-const gpuFallbackReason = forcedFallback || (prevLaunchCrashed ? 'auto-retry' : null)
+const gpuDecision = gpuPolicy.decideLevel({
+  prevCrashed: prevLaunchCrashed,
+  prevLevel: prevLaunchLevel,
+  goodLevel: stickyGoodLevel,
+  manualLevel: forcedFallback ? 1 : 0,
+  manualReason: forcedFallback,
+})
+const gpuFallbackReason = gpuDecision.reason
+const gpuFallbackLevel = gpuDecision.level
 
 try {
   if (gpuFallbackReason) {
-    // 只关 GPU 进程的沙箱 —— 范围最小、实测有效
     app.commandLine.appendSwitch('disable-gpu-sandbox')
     app.disableHardwareAcceleration()
-    console.log(`[gpu] 已启用兜底（原因=${gpuFallbackReason}）：disable-gpu-sandbox + 软渲染`)
+    // L2 及以上：连渲染进程的沙箱也关掉。实测：受限环境里**渲染进程的沙箱**
+    // 同样起不来 —— 只关 GPU 沙箱的话，GPU 不崩了、页面却是死的（白窗），
+    // 正是「还是打不开」的形态。
+    if (gpuFallbackLevel >= 2) app.commandLine.appendSwitch('no-sandbox')
+    console.log(`[gpu] 已启用兜底（原因=${gpuFallbackReason}, 级别=L${gpuFallbackLevel}）：disable-gpu-sandbox + 软渲染${gpuFallbackLevel >= 2 ? ' + no-sandbox' : ''}`)
   }
-  // 写本次尝试标记（启动成功后会被删掉）
   if (LAUNCH_MARKER) {
     fs.writeFileSync(LAUNCH_MARKER, JSON.stringify({
-      at: Date.now(), pid: process.pid, fallback: gpuFallbackReason || null,
+      at: Date.now(), pid: process.pid, fallback: gpuFallbackReason || null, level: gpuFallbackLevel,
     }))
   }
 } catch (e) {
@@ -112,12 +152,24 @@ try {
   console.error('[gpu] 兜底判定失败（忽略，按默认启用硬件加速）：', e && e.message)
 }
 
-/** 启动成功 → 清掉尝试标记，下次按正常模式启动。 */
+/** 启动成功 → 清掉尝试标记；并把本次生效的兜底级别记成「粘性成功级」。 */
 function markLaunchSucceeded() {
   try {
     if (LAUNCH_MARKER && fs.existsSync(LAUNCH_MARKER)) fs.unlinkSync(LAUNCH_MARKER)
   } catch (e) {
     console.error('[gpu] 清理启动标记失败（忽略）：', e && e.message)
+  }
+  // 粘性地记住「哪一级能成功」：L0 也记（统一口径）；之后启动 `decideLevel` 直接用。
+  // 想重新从 L0 验证：删掉 userData 下的 gpu-state.json 即可（见文件顶部说明）。
+  try {
+    if (LAUNCH_MARKER) {
+      const statePath = path.join(path.dirname(LAUNCH_MARKER), 'gpu-state.json')
+      fs.writeFileSync(statePath, JSON.stringify({
+        goodLevel: gpuFallbackLevel, at: Date.now(), version: app.getVersion(),
+      }))
+    }
+  } catch (e) {
+    console.error('[gpu] 记录成功级别失败（忽略）：', e && e.message)
   }
 }
 
@@ -158,6 +210,7 @@ function writeStartupLog(phase, extra) {
       pid: process.pid,
       packaged: app.isPackaged,
       gpuFallback: gpuFallbackReason || null,
+      gpuFallbackLevel: gpuFallbackLevel,
     }, extra || {}))
     fs.appendFileSync(STARTUP_LOG, line + '\n')
   } catch (e) {
@@ -212,6 +265,9 @@ let backendHealthy = false
 let healthCheckTimer = null
 let trayMenuTimer = null
 let isQuitting = false      // 用变量代替 app.isQuitting（更可靠）
+let rendererGone = false     // 当前窗口的渲染进程已崩（崩后不再向它发消息/通知）
+let rendererGoneEarly = false // 渲染进程崩在「启动稳定窗口」内 —— 决定本次启动算不算成功
+let launchStable = false     // 是否已熬过 LAUNCH_STABLE_MS（稳定窗口）
 
 // 单实例锁
 const gotTheLock = app.requestSingleInstanceLock()
@@ -237,8 +293,15 @@ function getSystemInfo() {
 }
 
 function sendToRenderer(channel, data) {
-  if (mainWindow && !mainWindow.isDestroyed()) {
+  // 渲染进程崩过之后，帧会处于 disposed 状态 —— 此时 webContents.send 会在
+  // Electron 内部打出 "Error sending from webFrameMain: ... Render frame was disposed"。
+  // 实测（2026-10-09）：这类噪音一次崩溃就能刷出 50KB，**把真正的时间线埋掉**。
+  // 已知死帧就别再发；其余异常也只记不抛 —— 这只是状态通知，绝不能升级成主进程异常。
+  if (!mainWindow || mainWindow.isDestroyed() || rendererGone) return
+  try {
     mainWindow.webContents.send(channel, data)
+  } catch (e) {
+    console.error('[Renderer] 发送消息失败（已忽略）：', e && e.message)
   }
 }
 
@@ -563,6 +626,8 @@ function createWindow() {
   }
   if (fs.existsSync(iconPath)) opts.icon = iconPath
 
+  rendererGone = false
+  rendererGoneEarly = false
   mainWindow = new BrowserWindow(opts)
 
   // 渲染进程错误日志 + 白屏诊断
@@ -582,6 +647,13 @@ function createWindow() {
   })
   mainWindow.webContents.on('render-process-gone', (_e, details) => {
     console.error('[Renderer] 崩溃:', details.reason, details.exitCode)
+    rendererGone = true
+    // 崩在稳定窗口内 = 这次启动**不算成功**（主进程也许还活着，但窗口是死的）。
+    // 这只是记录；升级决策发生在稳定计时器回调里（见 whenReady）。
+    if (!launchStable) rendererGoneEarly = true
+    writeStartupLog('renderer-gone', {
+      reason: String(details.reason), exitCode: details.exitCode, duringStartup: !launchStable,
+    })
   })
   mainWindow.webContents.on('console-message', (_e, level, msg, line, sourceId) => {
     if (level >= 2) console.error(`[Renderer] ${msg} (${sourceId}:${line})`)
@@ -600,6 +672,8 @@ function createWindow() {
   // 页面加载完成后再注入一次端口：resolveBackendPort() 往往在页面 commit 之前就跑完了，
   // 那次 executeJavaScript 会随旧文档一起作废；刷新/二次加载时同样需要重新注入。
   mainWindow.webContents.on('did-finish-load', () => {
+    // 帧重新加载成功 → 渲染进程恢复可用（刷新/重试后别再拦住状态通知）
+    rendererGone = false
     _lastPushedPort = null
     pushBackendPortToRenderer()
   })
@@ -632,14 +706,35 @@ function createShortcuts() {
   try {
     const { shell } = require('electron')
     const exe = app.getPath('exe')
+
+    // 「图标看着在、其实指错地方」是**真实踩过**的故障形态（2026-10-09）：
+    // 桌面 SmartSCADA.lnk 被外部工具重写成了指向不存在的
+    // `...\Programs\SmartSCADA-1033\` 目录 —— 双击的表现就是
+    // 「Windows 找不到目标」= 用户嘴里的「双击没反应」。
+    // 原先的写法是 `if (!existsSync) 才创建`：**指错了也不管**。
+    // 现在：存在但目标不符（或读不出来）→ 重写自愈；目标正确 → 一个字节都不碰。
+    const ensureShortcut = (lnkPath, label) => {
+      try {
+        if (fs.existsSync(lnkPath)) {
+          let actual = null
+          try { actual = shell.readShortcutLink(lnkPath).target } catch (e) { actual = null }
+          if (actual && String(actual).toLowerCase() === String(exe).toLowerCase()) return
+          console.warn(`[shortcut] ${label}快捷方式目标不对（${actual || '读取失败'}），重写为 ${exe}`)
+          try { fs.unlinkSync(lnkPath) } catch (e) { /* 删不掉就直接覆盖写 */ }
+        }
+        shell.writeShortcutLink(lnkPath, { target: exe, cwd: path.dirname(exe) })
+      } catch (e) {
+        console.warn(`[shortcut] ${label}快捷方式处理失败：`, e && e.message)
+      }
+    }
+
     const desk = path.join(app.getPath('desktop'), 'SmartSCADA.lnk')
-    if (!fs.existsSync(desk)) shell.writeShortcutLink(desk, { target: exe, cwd: path.dirname(exe) })
+    ensureShortcut(desk, '桌面')
     const appData = process.env.APPDATA || path.join(require('os').homedir(), 'AppData', 'Roaming')
     const smDir = path.join(appData, 'Microsoft', 'Windows', 'Start Menu', 'Programs', 'SmartSCADA')
     try {
       if (!fs.existsSync(smDir)) fs.mkdirSync(smDir, { recursive: true })
-      const sm = path.join(smDir, 'SmartSCADA.lnk')
-      if (!fs.existsSync(sm)) shell.writeShortcutLink(sm, { target: exe, cwd: path.dirname(exe) })
+      ensureShortcut(path.join(smDir, 'SmartSCADA.lnk'), '开始菜单')
     } catch (e) {
       // 开始菜单快捷方式失败不影响启动，但**必须出声** ——
       // 静默吞掉的话用户只会觉得"装了但找不到"。
@@ -694,10 +789,20 @@ app.whenReady().then(async () => {
   // 见 LAUNCH_STABLE_MS 的说明 —— GPU 可能在窗口建好之后才崩。
   if (mainWindow) {
     setTimeout(() => {
+      launchStable = true
+      if (rendererGoneEarly) {
+        // 窗口建出来了、主进程也活够了 15 秒 —— 但**渲染进程死在启动阶段**。
+        // 实测过这种形态：GPU 只关到 L1 时页面进程崩 ×2，窗口是死的（白窗）。
+        // 这**不算成功**：保留标记（下次启动在本次级别上再升一级），不记 gpu-state。
+        writeStartupLog('launch-unstable-renderer', {
+          stableMs: LAUNCH_STABLE_MS, fallbackLevel: gpuFallbackLevel,
+        })
+        return
+      }
       markLaunchSucceeded()
       // 稳定运行满 LAUNCH_STABLE_MS → 这次启动**确实成功了**。
       // 日志里有了这一行，才能把「窗口建出来但随后崩」和「压根没建出来」区分开。
-      writeStartupLog('launch-stable', { stableMs: LAUNCH_STABLE_MS })
+      writeStartupLog('launch-stable', { stableMs: LAUNCH_STABLE_MS, fallbackLevel: gpuFallbackLevel })
     }, LAUNCH_STABLE_MS)
   }
 
