@@ -178,6 +178,16 @@ jobs:
         # 是原则问题：绕过闸门的构建产物不该被信任。
         run: npm run verify:dist
 
+      - name: Verify dist runtime (real Chromium smoke — catches white-screen class)
+        # 第五道闸门（2026-10-09 补）：页面必须在**真 Chromium**里挂载出来。
+        # 背景（实锤缺陷）：manualChunks 把 element-plus 的 es/utils/vue/** 误分进
+        # vendor-vue → vendor-vue ⇄ vendor-element 循环依赖 →
+        # `Cannot access 'isFunction' before initialization` → Vue 初始化抛异常 → 白屏。
+        # verify:dist / verify:asar / 全部单测都拦不住这类缺陷 ——
+        # 它们全绿的同时页面可以是白的。本步骤用仓库自带 Electron 真跑 dist，
+        # 断言 #app 挂载成功且无未捕获异常（失败即挡住后面的打包）。
+        run: npm run verify:dist-runtime
+
       - name: Build NSIS installer
         # 不走 npm run electron:build（它会再跑一遍 build），直接调 electron-builder。
         #

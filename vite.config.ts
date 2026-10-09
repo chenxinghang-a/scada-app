@@ -60,9 +60,18 @@ export default defineConfig({
             // 'element-plus'。放后面会让 vendor-icons 分支永远不可达，图标被塞进
             // vendor-vue，既拉大首屏关键路径，也让 vendor-vue 体积无法解释。
             if (id.includes('@element-plus/icons-vue')) return 'vendor-icons'
+            // ⚠️ element-plus 必须排在 'vue/' **之前**（2026-10-09 白屏事故的根因修复）：
+            // element-plus 内部有 es/utils/vue/** 这类路径，会被下面的 'vue/' 规则截走 →
+            // 同一个库被拆进两个 chunk，形成循环依赖：
+            //     vendor-vue ⇄ vendor-element （互有静态 import）
+            // 于是初始化顺序错乱：element 的组件在**顶层**调用 defineComponent 时，
+            // vue 的 isFunction 还处于 TDZ → 未捕获异常 →
+            //     Uncaught ReferenceError: Cannot access 'isFunction' before initialization
+            // → Vue 应用挂载失败 → **页面永久白屏**（所有静态闸门/单测都拦不住，
+            //   现在由 tools/verify-dist-runtime.js 用真 Chromium 拦住）。
+            if (id.includes('element-plus')) return 'vendor-element'
             // Vue 核心
             if (id.includes('vue/') || id.includes('vue-router') || id.includes('pinia')) return 'vendor-vue'
-            if (id.includes('element-plus')) return 'vendor-element'
             // ECharts 单独拆
             if (id.includes('echarts')) {
               // ECharts 核心和渲染器放一起，图表类型按需加载

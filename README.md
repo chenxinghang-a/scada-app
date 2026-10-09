@@ -162,6 +162,10 @@ set SCADA_DISABLE_GPU=1 && "%LOCALAPPDATA%\Programs\SmartSCADA\SmartSCADA.exe"
   launch-unstable-renderer / renderer-gone）；
 - 日志里搜 `[gpu] 已启用兜底（原因=…, 级别=L…）`。
 
+**打开后是白窗？** 属于已修复的打包缺陷（见 [`BUGS.md` 的 Bug 6](BUGS.md)）：chunk 循环依赖
+导致页面初始化异常、永远挂不上。v1.3.1081 起由「dist 运行时闸门」
+（`tools/verify-dist-runtime.js`）在打包前用真 Chromium 拦截这类问题。
+
 完整根因（GPU 进程沙箱、为什么是三级阶梯、为什么回溯窗口是 24 小时）见
 [`BUGS.md` 的 Bug 5](BUGS.md)。
 

@@ -159,6 +159,40 @@ async function apiFetch(url) {
 
 ---
 
+## Bug 6: 打包后**白屏**（页面永远挂不上）🔴 严重
+
+**现象**: 应用能打开、窗口标题正确，但**页面全白**，等多久都不出来。
+（人眼排查「打不开」时，这最容易被当成「还在加载」而放过。）
+
+**根因**（2026-10-09 用运行时闸门 + 未压缩构建实锤）:
+`vite.config.ts` 的 manualChunks 里，`'vue/'` 规则排在 `'element-plus'` 规则**前面** ——
+而 element-plus 内部有 `es/utils/vue/**` 这类路径，会被 `'vue/'` 子串截走：
+
+| chunk | 内容 |
+|---|---|
+| `vendor-vue` | vue 核心 + **element-plus 的 es/utils/vue/\*\*（被误分）** |
+| `vendor-element` | element-plus 其余部分 |
+
+→ 两个 chunk **互相 import**（循环依赖）。初始化顺序随之错乱：element 的组件在
+**顶层**调用 `defineComponent` 时，vue 的 `isFunction`（`const`，还没执行到声明处）
+处于 TDZ：
+
+    Uncaught ReferenceError: Cannot access 'isFunction' before initialization
+    (vendor-vue-*.js)
+
+→ Vue 应用初始化抛异常 → `#app` 永远挂不上 → **白屏**。
+
+**修复**: manualChunks 里把 `element-plus` 判断**提到 `vue/` 之前**。
+（同类「子串匹配误分」以后照这个思路排查 —— **规则的顺序就是分类的优先级**。）
+
+**守卫**: `tools/verify-dist-runtime.js` —— 用仓库自带 Electron **真跑** dist 页面，
+断言 `#app` 挂载成功、无未捕获异常 / 渲染崩溃 / 加载失败。
+已接入 `electron:build` 链与 CI（第五道闸门）。
+⚠️ 这是本项目**第一道"看像素"的闸门**：verify:dist / verify:asar / 全部单测
+可以同时全绿而页面是白的 —— **只有把页面真跑起来才知道**。
+
+---
+
 ## 迁移计划
 
 将 `industrial_scada` (Flask + Jinja2) 后端整合到 `scada-app` (Vue 3 + Electron)：
