@@ -134,6 +134,29 @@ scada-app/
 - **管理员**: admin / admin123
 - 首次登录后请修改密码
 
+## 双击打不开？（桌面版排障）
+
+症状：双击图标后**没有窗口**，或窗口一闪即退。
+
+**先再双击一次。** 应用有**自愈式降级**：第一次因 GPU 进程沙箱起不来而崩，
+第二次启动会自动切到软渲染并正常打开 —— 不需要你做任何事。
+
+若第二次仍然打不开，**手动强制兜底**（任选一种）：
+
+```bash
+# 方式一：环境变量
+set SCADA_DISABLE_GPU=1 && "%LOCALAPPDATA%\Programs\SmartSCADA\SmartSCADA.exe"
+```
+
+方式二：在 `%APPDATA%\SmartSCADA\` 下新建一个空文件 `disable-gpu.flag`。
+
+排查点：
+- `%APPDATA%\SmartSCADA\launch-attempt.json` —— **这个文件还在**就说明上次没正常退出；
+- 日志里搜 `[gpu] 已启用兜底（原因=…）`。
+
+完整根因（GPU 进程沙箱、为什么选 `--disable-gpu-sandbox`、
+为什么回溯窗口是 24 小时）见 [`BUGS.md` 的 Bug 5](BUGS.md)。
+
 ## 配置说明
 
 后端配置文件位于 `配置/` 目录：

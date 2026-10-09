@@ -59,6 +59,53 @@ function stripComments(src: string): string {
     .replace(/(^|[^:])\/\/.*$/gm, '$1')
 }
 
+/**
+ * 按**括号配平**取出源码里每个 `setTimeout(...)` 的回调体与延时实参。
+ *
+ * 为什么不用正则直接匹配某一种写法：`setTimeout(markLaunchSucceeded, DELAY)` 与
+ * `setTimeout(() => { … }, DELAY)` 是**同一意图的两种形状**，写死任一种都会在
+ * 别人重构时假红（round 206 实测踩到）。配平取值对形状免疫。
+ *
+ * ⚠️ 只做括号配平，不解析字符串字面量 —— 本文件里的 setTimeout 实参不含
+ * 「引号里有括号/逗号」的写法。真出现时配平会失败，`clearer` 找不到 → 用例**显式变红**
+ * （而不是静默放行），所以这个简化是可接受的。
+ */
+function collectSetTimeouts(src: string): { start: number; end: number; body: string; delay: string }[] {
+  const out: { start: number; end: number; body: string; delay: string }[] = []
+  const re = /setTimeout\s*\(/g
+  let m: RegExpExecArray | null
+  while ((m = re.exec(src))) {
+    const open = src.indexOf('(', m.index)
+    let depth = 0
+    for (let i = open; i < src.length; i++) {
+      const c = src[i]
+      if (c === '(') depth++
+      else if (c === ')') {
+        depth--
+        if (depth === 0) {
+          const inner = src.slice(open + 1, i)
+          let d = 0
+          let comma = -1
+          for (let j = 0; j < inner.length; j++) {
+            const ch = inner[j]
+            if (ch === '(' || ch === '[' || ch === '{') d++
+            else if (ch === ')' || ch === ']' || ch === '}') d--
+            else if (ch === ',' && d === 0) comma = j
+          }
+          out.push({
+            start: m.index,
+            end: i,
+            body: comma === -1 ? inner : inner.slice(0, comma),
+            delay: comma === -1 ? '' : inner.slice(comma + 1),
+          })
+          break
+        }
+      }
+    }
+  }
+  return out
+}
+
 describe('GPU / 沙箱兜底（GPU 进程崩溃时仍能启动）', () => {
   const src = stripComments(read(MAIN))
 
@@ -114,11 +161,41 @@ describe('GPU / 沙箱兜底（GPU 进程崩溃时仍能启动）', () => {
     // **必须是延时清**，不能一建好窗口就清。
     // 实测（dev 模式）：窗口都出来了、后端都 spawn 了，1 秒后 GPU 才连崩 9 次 FATAL ——
     // 立刻清标记会把这次崩溃记成「成功」，自愈永远不触发。
+    //
+    // ⚠️ 这条判据 round 206 又改了一次，改法本身有教训：
+    //   原先写死 `setTimeout(markLaunchSucceeded, LAUNCH_STABLE_MS)` 这**一种字面形状**。
+    //   round 206 往那个回调里加了一行启动诊断日志（变成
+    //   `setTimeout(() => { markLaunchSucceeded(); writeStartupLog(…) }, LAUNCH_STABLE_MS)`）——
+    //   **形状变了、意图没变**，判据却红了 → 典型的「判据落在形状上而不是意图上」。
+    //   改成「按括号配平取出每个 setTimeout 的回调体与延时实参」之后，
+    //   两条断言才真正对着**意图**：
+    //     ① 清标记的那个 setTimeout，延时实参必须是 LAUNCH_STABLE_MS；
+    //     ② whenReady 回调体里**每一处** `markLaunchSucceeded()` 都必须落在某个 setTimeout 之内。
+    //   （② 是必要的：只查 ① 的话，往 whenReady 顶层再加一句不延时的清标记不会被发现 ——
+    //     实测过。注意 ② 的作用域必须**只限 whenReady 回调体**：
+    //     `before-quit` 里那句不延时的清标记是**正确**的，不该被误判。）
     expect(/LAUNCH_STABLE_MS/.test(src), '没有稳定运行时长常量').toBe(true)
+
+    const timers = collectSetTimeouts(src)
+    const clearer = timers.find((t) => t.body.includes('markLaunchSucceeded'))
+    expect(clearer, '没有任何 setTimeout 回调里清启动标记').toBeTruthy()
     expect(
-      /setTimeout\s*\(\s*markLaunchSucceeded\s*,\s*LAUNCH_STABLE_MS\s*\)/.test(src),
-      '清标记不是延时调用 —— 窗口一建好就清，会把「建好窗口后才崩」记成成功',
-    ).toBe(true)
+      clearer!.delay,
+      '清标记的 setTimeout 延时不是 LAUNCH_STABLE_MS —— 窗口一建好就清，'
+      + '会把「建好窗口后才崩」记成成功',
+    ).toContain('LAUNCH_STABLE_MS')
+
+    const readyBody = src
+      .slice(readyIdx, src.indexOf('}).catch(', readyIdx))
+    const inTimer = (idx: number) => timers.some((t) => idx > t.start && idx < t.end)
+    const strayCalls = [...readyBody.matchAll(/markLaunchSucceeded\s*\(\s*\)/g)]
+      .map((m) => m.index!)
+      .filter((i) => !inTimer(i + readyIdx))
+    expect(
+      strayCalls,
+      'whenReady 回调体里有**不在 setTimeout 里**的 markLaunchSucceeded() —— '
+      + '不延时清标记会让自愈失效',
+    ).toEqual([])
   })
 
   it('自愈的回溯窗口足够宽（不会因用户隔久了再点就失效）', () => {

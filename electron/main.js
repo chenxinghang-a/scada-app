@@ -127,6 +127,68 @@ function markLaunchSucceeded() {
 //: 若一建好窗口就清标记，这次崩溃就**不会被记为失败**，自愈永远不触发。
 const LAUNCH_STABLE_MS = 15000
 
+// ============ 启动诊断日志（round 206） ============
+// 为什么需要它：本文件顶部的症状说明里写着「双击图标完全没反应（进程秒退、
+// 无窗口、无提示、**无日志**）」—— 而 round 197c 只修了「打不开」，
+// **没有修「打不开时什么证据都不留」**。于是：
+//   * 用户看到的是「双击没反应」；
+//   * 排查的人（用户/我）手上**一个字节的证据都没有**，
+//     只能靠反复试 —— 这正是本项目最忌讳的「静默失效」。
+// 注意 `update.log` 帮不上忙：它每行都是「自动更新未启用」，
+// 只能证明进程起过，**证明不了窗口有没有建出来**。
+//
+// 落点：`<userData>/startup.log`（Windows: %APPDATA%\SmartSCADA\startup.log）
+// 格式：每行一条 JSON，**只追加**，超过 256 KB 截断重开（不无限长）。
+// 纪律：**这个函数自己绝不许抛** —— 诊断日志把启动搞挂是最糟的结果。
+const STARTUP_LOG = (() => {
+  try { return path.join(app.getPath('userData'), 'startup.log') } catch (e) { return null }
+})()
+const STARTUP_LOG_MAX_BYTES = 256 * 1024
+
+function writeStartupLog(phase, extra) {
+  try {
+    if (!STARTUP_LOG) return
+    try {
+      if (fs.statSync(STARTUP_LOG).size > STARTUP_LOG_MAX_BYTES) fs.unlinkSync(STARTUP_LOG)
+    } catch (e) { /* 不存在就无所谓 */ }
+    const line = JSON.stringify(Object.assign({
+      at: new Date().toISOString(),
+      phase,
+      version: app.getVersion(),
+      pid: process.pid,
+      packaged: app.isPackaged,
+      gpuFallback: gpuFallbackReason || null,
+    }, extra || {}))
+    fs.appendFileSync(STARTUP_LOG, line + '\n')
+  } catch (e) {
+    // 只往 stderr 说一句，绝不向上抛
+    console.error('[startup] 写诊断日志失败（忽略）：', e && e.message)
+  }
+}
+
+//: 建窗口失败时的**可见**兜底：弹窗 + 告诉用户日志在哪 + 两种手动覆盖。
+//: 此前这条路径是**纯静默**的 —— 用户只看到「双击没反应」。
+function showWindowFailureDialog(err) {
+  const msg = String((err && err.message) || err || '未知错误')
+  const dir = STARTUP_LOG ? path.dirname(STARTUP_LOG) : '(拿不到 userData)'
+  try {
+    dialog.showErrorBox(
+      'SmartSCADA 启动失败：无法创建窗口',
+      `窗口创建失败，应用无法继续启动。\n\n` +
+      `原因：${msg}\n\n` +
+      `诊断日志（每次启动都会追加一行）：\n${STARTUP_LOG || '(不可用)'}\n\n` +
+      `可以试这两种**强制兜底**方式（任选一种，都不需要改配置）：\n` +
+      `  1) 先设环境变量 SCADA_DISABLE_GPU=1，再启动\n` +
+      `  2) 在下面这个目录里新建一个空文件 disable-gpu.flag\n     ${dir}`
+    )
+  } catch (e) {
+    console.error('[startup] 弹窗失败（忽略）：', e && e.message)
+  }
+}
+
+// 每次启动先记一条 —— 这条在 GPU 初始化之前，所以**即使 GPU 直接 FATAL 也有痕迹**。
+writeStartupLog('boot')
+
 // 后端运行时端口文件（后端启动后写入 {port,host,pid,mode,started_at}）的定位
 // **不在这里拼路径** —— 见 electron/backend-paths.js。
 //
@@ -594,6 +656,7 @@ app.whenReady().then(async () => {
 
   const backendExists = fs.existsSync(getBackendPath())
   if (!backendExists) {
+    writeStartupLog('backend-missing', { backendPath: String(getBackendPath()) })
     dialog.showErrorBox('后端缺失', `找不到: ${getBackendPath()}\n请重新安装。`)
     app.quit(); return
   }
@@ -603,7 +666,20 @@ app.whenReady().then(async () => {
   createTray()
 
   if (!isHiddenLaunch) {
-    createWindow()
+    // createWindow() 此前**裸调用**：`new BrowserWindow()` 抛错时
+    // 整条 whenReady 链以 unhandled rejection 结束，进程退出、无窗口、
+    // **不弹窗、不写日志** —— 正是「双击没反应」那个症状。
+    // 现在：接住 → 写诊断日志 → 弹窗告诉用户原因与手动兜底方式。
+    try {
+      createWindow()
+      writeStartupLog('window-created')
+    } catch (err) {
+      writeStartupLog('window-failed', {
+        message: String((err && err.message) || err),
+        stack: String((err && err.stack) || '').slice(0, 800),
+      })
+      showWindowFailureDialog(err)
+    }
     if (mainWindow && setupUpdater) {
       setupUpdater(() => mainWindow) // 传 getter，窗口重建后自动指向新窗口
       if (!isDev && checkForUpdates) setTimeout(() => checkForUpdates(), 15000)
@@ -617,7 +693,12 @@ app.whenReady().then(async () => {
   // `LAUNCH_STABLE_MS` 之后才算「这次启动真的成功了」。
   // 见 LAUNCH_STABLE_MS 的说明 —— GPU 可能在窗口建好之后才崩。
   if (mainWindow) {
-    setTimeout(markLaunchSucceeded, LAUNCH_STABLE_MS)
+    setTimeout(() => {
+      markLaunchSucceeded()
+      // 稳定运行满 LAUNCH_STABLE_MS → 这次启动**确实成功了**。
+      // 日志里有了这一行，才能把「窗口建出来但随后崩」和「压根没建出来」区分开。
+      writeStartupLog('launch-stable', { stableMs: LAUNCH_STABLE_MS })
+    }, LAUNCH_STABLE_MS)
   }
 
   startBackend().then(started => {
@@ -625,6 +706,14 @@ app.whenReady().then(async () => {
   })
 
   startHealthMonitor()
+}).catch((err) => {
+  // 兜底：whenReady 链上任何一步抛错（含上面 try/catch 之外的）都要留下痕迹，
+  // 而不是变成一条无人看见的 unhandled rejection。
+  writeStartupLog('when-ready-failed', {
+    message: String((err && err.message) || err),
+    stack: String((err && err.stack) || '').slice(0, 800),
+  })
+  showWindowFailureDialog(err)
 })
 
 // ============ 生命周期 ============
@@ -638,6 +727,7 @@ app.on('before-quit', (e) => {
   // 这样「标记还在」才真正等于「上次没走完正常流程」（崩溃 / 被强杀），
   // 自愈降级据此触发 —— 见文件顶部的 GPU/沙箱兜底说明。
   markLaunchSucceeded()
+  writeStartupLog('quit')
   if (!isQuitting) {
     e.preventDefault()
     quitApp() // 返回 promise，app.exit(0) 会在清理完成后调用
