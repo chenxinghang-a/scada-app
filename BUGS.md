@@ -159,6 +159,29 @@ async function apiFetch(url) {
 
 ---
 
+## Bug 7: 首次登录被 403「强改密契约」卡死 🔴 严重
+
+**现象**: 全新安装后，登录页输入 admin / admin123 → 弹「登录失败，请检查用户名和密码」
+（看起来像密码错）。实测：**用户根本无法进入系统**。
+
+**根因**: 后端对"首次登录强改密"**有意**返回 **403 + 成功体**
+（`status='must_change_password'` + token / refresh_token / user ——
+设计如此，让前端拿着令牌去走改密页）。
+而 `src/api/request.ts` 的响应拦截器把**所有** 403 一律吞成
+「权限不足」并 reject。于是 `authStore` 的归一化、`Login.vue` 的跳转分支、
+`/force-change-password` 路由与改密页 —— **全都写好了，却全部接不到**。
+（典型「接线断在中间层」：两端都实现了契约，中间一层把它翻译成了错误。）
+
+**修复**: 拦截器对「403 + must_change_password 标记」**原样透传**（返回响应体）；
+其余 403 维持原行为（「权限不足」+ reject）。
+
+**守卫**: `tests/api/request.test.ts` 新增回归（403 透传 + 不误报 + 不跳登录）；
+原有「403 统一提示权限不足」用例继续钉住普通 403。
+
+**实测**: 真机 CDP 全流程 —— 登录 → 强改密页 → 改密 → 新密码重登 → **仪表盘** ✓。
+
+---
+
 ## Bug 6: 打包后**白屏**（页面永远挂不上）🔴 严重
 
 **现象**: 应用能打开、窗口标题正确，但**页面全白**，等多久都不出来。
@@ -231,6 +254,29 @@ CDP 探针断言 `#app` 挂载 + 无渲染层致命错误；已接入 `verify:pa
 + **重载一次**（单次，不循环）；无论成败都写 `startup.log`
 （`mount-failed` / `mount-failed-persist`）。就算还有没归零的时序边角，
 用户也不会再看到「永远灰白的屏」——而且证据完整可查。
+
+### 事故③（同日第三轮）：echarts 的 charts ⇄ core 循环 —— **登录之后进不了仪表盘**
+
+**现象**: 修复①②④之后，全新安装里：页面正常、登录接口返回 200、会话已落盘、
+`ElMessage` 弹出「登录成功」—— 然后 **URL 一动不动**，界面留在登录页，
+**最终用户永远进不去系统**（且没有任何可见的报错）。
+
+**定位**（CDP 钩子抓 unhandled rejection）:
+- `router.push('/dashboard')` → 仪表盘视图的**懒加载 chunk 链**开始加载；
+- 该链里 `vendor-echarts-charts` 与 `vendor-echarts-core` **互相 import**
+  （manualChunks 把它们拆开，而图表类型模块与核心模块本来就双向依赖）；
+- 懒加载那一刻触发 `__extends` 基类 undefined → unhandled rejection →
+  **vue-router 静默中止导航** → URL 不变、无错误提示。
+
+**修复**: `echarts` 与 **`zrender`**（后者路径不含 'echarts'，原会掉进
+vendor-other 再被拆一次）全部并入同一个 `vendor-echarts` chunk。
+构建后 chunk 图**零环**。
+
+**守卫升级**: `verify:dist-runtime` / `verify:packaged-runtime` **各增加
+「仪表盘导航烟测」**：塞一个假会话（路由守卫只看存在性与角色）→ 真跳
+`#/dashboard` → 断言导航期间无 `Class extends / Uncaught` 且页面出现
+「仪表盘」内容。事故③只发生在**这一步**，只测登录页的闸门对它完全瞎。
+（升级后的闸门对"修复前产物"实测判红：`#app=1` 但导航 ok=false。）
 
 ---
 
