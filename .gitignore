@@ -33,3 +33,5 @@ Thumbs.db
 .guardvibe/
 src/.guardvibe/
 src/**/.guardvibe/
+# 调试构建（vite build --minify false 的产物，2026-10-10 白屏事故排查用）
+dist-dbg/

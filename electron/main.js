@@ -750,6 +750,40 @@ function createShortcuts() {
   }
 }
 
+// ============ 白屏自愈（2026-10-10，事故②的防御性收口） ============
+// 事故②复盘：打包版页面在"特定用户数据状态"下挂载失败（__extends 类循环 +
+// 加载时序），窗口正常但 #app 永远为空 —— 用户看到灰白屏、任何日志都没有
+// 「页面没挂上」这个事实。修掉已知的循环之后，这里再加一道**自愈**：
+// 启动 N 秒后探测 `#app` 是否挂载；没挂上 → 清一次代码缓存并重载一次页面。
+// 两个收益：① 绝大多数"缓存/时序类"页面初始化失败可被自动修复；
+//          ② 修复与否都会写进 startup.log，不再出现"什么证据都不留"。
+let mountWatchdogFired = false
+const MOUNT_WATCHDOG_MS = 8000
+function armMountWatchdog() {
+  if (isDev) return // 开发模式页面在 vite dev server 上，语义不同、不掺和
+  setTimeout(async () => {
+    if (!mainWindow || mainWindow.isDestroyed() || isQuitting) return
+    let mounted = -1
+    try {
+      mounted = await mainWindow.webContents.executeJavaScript(
+        '(() => { const el = document.getElementById("app"); return el ? el.children.length : -1 })()'
+      )
+    } catch (e) {
+      // 页面还没就绪/渲染进程刚崩 —— 都走"没挂上"的兜底路径
+      mounted = -1
+    }
+    if (mounted > 0) return // 正常挂载，什么都不做
+    if (mountWatchdogFired) {
+      writeStartupLog('mount-failed-persist', { mounted })
+      return
+    }
+    mountWatchdogFired = true
+    writeStartupLog('mount-failed', { mounted, action: 'clear-code-caches-and-reload' })
+    try { session.defaultSession.clearCodeCaches({}) } catch (e) { /* 清不掉也继续 */ }
+    try { mainWindow.webContents.reload() } catch (e) { /* 重载失败就到此为止 */ }
+  }, MOUNT_WATCHDOG_MS)
+}
+
 // ============ 主流程 ============
 app.whenReady().then(async () => {
   const isHiddenLaunch = process.argv.includes('--hidden')
@@ -785,6 +819,9 @@ app.whenReady().then(async () => {
       if (!isDev && checkForUpdates) setTimeout(() => checkForUpdates(), 15000)
     }
   }
+
+  // 白屏自愈探针（打包版专用；见 armMountWatchdog 的函数注释）
+  armMountWatchdog()
 
   // 启动前先确定后端真实端口（读 runtime.json，否则探测 5000/5001，回退 5000）
   await resolveBackendPort()
