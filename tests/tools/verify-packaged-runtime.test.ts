@@ -61,4 +61,11 @@ describe('verify-packaged-runtime：判据与安全形状', () => {
   it('子进程剥掉 ELECTRON_RUN_AS_NODE（防工具自身被静默毒死）', () => {
     expect(CMD).toContain('delete childEnv.ELECTRON_RUN_AS_NODE')
   })
+
+  it('包含仪表盘导航烟测（事故③：懒加载链的崩溃只在导航到 /dashboard 时爆）', () => {
+    expect(CMD).toContain('probeDashboard')
+    expect(CMD).toContain('#/dashboard')
+    expect(CMD).toContain('仪表盘')
+    expect(CMD).toContain("localStorage.setItem('auth_token'")
+  })
 })

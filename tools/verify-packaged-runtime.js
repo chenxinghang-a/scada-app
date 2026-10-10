@@ -112,6 +112,90 @@ function probeMount(page, timeoutMs) {
   })
 }
 
+/**
+ * **仪表盘导航烟测**（2026-10-10 事故③加的，必须有）：
+ * 往 localStorage 塞一个**假会话**（路由守卫只看存在性与角色，不看后端），
+ * 然后真的导航到 `#/dashboard` —— 这会触发仪表盘视图的**懒加载 chunk**，
+ * 而事故③的崩溃（懒加载链里的第三条循环 → `__extends` 基类 undefined）
+ * 恰好只在"这一步"爆发：登录页好好的，一点登录进仪表盘，导航就被静默中止，
+ * 用户永远进不去系统。只测登录页的闸门对这类问题**完全瞎**。
+ *
+ * 判据（注意假会话的 401 不是缺陷）：
+ *   - 导航期间出现 `Class extends / Uncaught / before initialization` → **FAIL**（事故③签名）；
+ *   - 页面文本出现「仪表盘」**或**日志出现 `[Dashboard]`（证明路由+组件真的跑起来了）
+ *     → **PASS**。⚠️ 假令牌会让仪表盘的 API 调用 401、拦截器随后按设计清会话弹回
+ *     登录页 —— 那是**正确行为**、不是产品缺陷；所以必须用「150ms 快轮询」抓住
+ *     仪表盘渲染过的那一瞬间，并接受随后的弹回。
+ */
+function probeDashboard(page, timeoutMs) {
+  return new Promise((resolve) => {
+    const ws = new WebSocket(page.webSocketDebuggerUrl)
+    const errs = []
+    let sawDashboard = false
+    let seq = 1
+    let settled = false
+    let lastHash = ''
+    let lastText = ''
+    const finish = (v) => { if (!settled) { settled = true; try { ws.close() } catch (e) {} resolve(v) } }
+    const deadline = Date.now() + timeoutMs
+    const tick = () => {
+      if (Date.now() > deadline) {
+        finish({ ok: false, reason: 'timeout', hash: lastHash, text: lastText, sawDashboard })
+        return
+      }
+      try {
+        ws.send(JSON.stringify({
+          id: 1000 + (seq++), method: 'Runtime.evaluate', params: {
+            expression: 'JSON.stringify({hash: location.hash, text: (document.body.innerText||"").replace(/\\s+/g," ").slice(0,140)})',
+            returnByValue: true,
+          },
+        }))
+      } catch (e) { finish({ ok: false, reason: 'send-failed' }); return }
+      setTimeout(tick, 150)
+    }
+    ws.onopen = () => {
+      ws.send(JSON.stringify({ id: 1, method: 'Runtime.enable' }))
+      ws.send(JSON.stringify({
+        id: 2, method: 'Runtime.evaluate', params: {
+          expression: `(() => {
+            localStorage.setItem('auth_token', 'gate.test.token');
+            localStorage.setItem('scada_user', JSON.stringify({ username: 'gate', role: 'admin' }));
+            location.hash = '#/dashboard';
+            return 'navigating';
+          })()`,
+          returnByValue: true,
+        },
+      }))
+      tick()
+    }
+    ws.onmessage = (ev) => {
+      let msg
+      try { msg = JSON.parse(String(ev.data)) } catch { return }
+      if (msg.method === 'Runtime.consoleAPICalled') {
+        const t = (msg.params.args || []).map((a) => String(a.value || a.description || '')).join(' ')
+        if (/Class extends|Uncaught|before initialization/.test(t) && msg.params.type === 'error') {
+          errs.push(t.slice(0, 140))
+        }
+        // 仪表盘组件跑起来的直接证据（其自身日志），假会话下很常见
+        if (/\[Dashboard\]/.test(t)) sawDashboard = true
+      }
+      if (msg.method === 'Runtime.exceptionThrown') {
+        const t = String((msg.params.exceptionDetails && msg.params.exceptionDetails.text) || '')
+        if (/Class extends|Uncaught|before initialization/.test(t)) errs.push(t.slice(0, 140))
+      }
+      if (msg.result && msg.result.result && typeof msg.result.result.value === 'string' && msg.result.result.value.startsWith('{')) {
+        try { const st = JSON.parse(msg.result.result.value); lastHash = st.hash; lastText = st.text } catch (e) {}
+        if (errs.length > 0) { finish({ ok: false, reason: 'fatal-during-nav: ' + errs[0], hash: lastHash }); return }
+        if (sawDashboard || lastText.includes('仪表盘')) {
+          finish({ ok: true, hash: lastHash, text: lastText, sawDashboard })
+          return
+        }
+      }
+    }
+    ws.onerror = () => finish({ ok: false, reason: 'ws-error' })
+  })
+}
+
 async function main(argv) {
   const { exe, port: wantPort, waitSec } = parseArgs(argv)
 
@@ -154,19 +238,23 @@ async function main(argv) {
     console.log(`[packaged-runtime] 页面目标：${page.url}`)
 
     const result = await probeMount(page, Math.max(15000, waitSec * 1000))
+    const dash = result.mounted > 0
+      ? await probeDashboard(page, 25000)
+      : { ok: false, reason: 'mount-failed', hash: '' }
     const logText = readTail(appLog, 200000)
     const fatalLines = logText.split('\n').filter((l) =>
       /\[Renderer\].*(Uncaught|TypeError|before initialization|Class extends|Failed to fetch dynamically)/.test(l)
     )
 
-    const ok = result.mounted > 0 && fatalLines.length === 0
+    const ok = result.mounted > 0 && dash.ok && fatalLines.length === 0
     if (ok) {
-      console.log(`[packaged-runtime] PASS：打包版页面挂载成功（#app 子节点=${result.mounted}），无渲染层致命错误。`)
+      console.log(`[packaged-runtime] PASS：页面挂载成功（#app 子节点=${result.mounted}），仪表盘导航烟测通过（hash=${dash.hash}），无渲染层致命错误。`)
       return 0
     }
     console.error(
-      '[packaged-runtime] FAIL：打包版页面没有正常挂载 —— 用户看到的就是**打不开/灰白屏**。\n' +
-      `  #app 子节点 = ${result.mounted}（原因：${result.reason}）\n` +
+      '[packaged-runtime] FAIL：打包版页面未通过运行时验收 —— 用户看到的就是**打不开/进不去**。\n' +
+      `  #app 子节点 = ${result.mounted}（挂载：${result.reason}）\n` +
+      `  仪表盘导航：ok=${dash.ok} reason=${dash.reason || ''} ${dash.hash ? 'hash=' + dash.hash : ''}\n` +
       (fatalLines.length ? '  渲染层致命错误：\n' + fatalLines.slice(0, 8).map((l) => '    ' + l).join('\n') + '\n' : '')
     )
     return 1

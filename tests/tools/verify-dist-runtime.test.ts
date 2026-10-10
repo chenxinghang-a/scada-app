@@ -56,4 +56,13 @@ describe('verify-dist-runtime：判据形状', () => {
     expect(CMD).toContain('openSync(runLog')
     expect(CMD).toContain('readFileSync(runLog')
   })
+
+  it('包含仪表盘导航烟测（事故③：懒加载链的崩溃只在导航到 /dashboard 时爆）', () => {
+    expect(CMD).toContain('#/dashboard')
+    expect(CMD).toContain('仪表盘')
+    expect(CMD).toContain('VDR_DASH')
+    // 假会话（路由守卫只看存在性与角色）+ 判定必须包含导航结果
+    expect(CMD).toContain('auth_token')
+    expect(CMD).toMatch(/dash\.ok/)
+  })
 })

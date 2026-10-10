@@ -60,6 +60,7 @@ const path = require('path')
 const DIST = process.env.VDR_DIST
 const WAIT_MS = Number(process.env.VDR_WAIT_MS || 12000)
 const signals = []
+let dashRan = false
 
 for (const sw of ['disable-gpu', 'disable-gpu-sandbox', 'no-sandbox']) {
   app.commandLine.appendSwitch(sw)
@@ -75,6 +76,8 @@ app.whenReady().then(async () => {
 
   wc.on('console-message', (_e, level, msg, line, sourceId) => {
     if (level >= 2) signals.push('console[' + level + '] ' + msg + ' (' + sourceId + ':' + line + ')')
+    // 仪表盘组件跑起来的直接证据（假会话下其自身日志很常见）——导航烟测的 PASS 信号之一
+    if (String(msg).includes('[Dashboard]')) dashRan = true
   })
   wc.on('render-process-gone', (_e, d) => { signals.push('renderer-gone ' + d.reason + ' ' + d.exitCode) })
   wc.on('did-fail-load', (_e, code, desc, url) => { signals.push('did-fail-load ' + code + ' ' + desc + ' ' + url) })
@@ -101,10 +104,40 @@ app.whenReady().then(async () => {
   }
 
   console.log('VDR_RESULT ' + JSON.stringify({ mounted, title }))
+
+  // 仪表盘导航烟测（2026-10-10 事故③）：塞假会话 + 跳 #/dashboard ——
+  // 仪表盘视图的**懒加载 chunk 链**只在这一步被加载，而事故③（第三条 chunk 循环
+  // → __extends 基类 undefined）恰好只在这一步爆：登录页好好的、进仪表盘静默中止。
+  // ⚠️ 假令牌会让仪表盘 API 401 → 拦截器按设计清会话弹回登录页 —— **那是正确行为**；
+  // 所以用 150ms 快轮询抓「仪表盘渲染过」的瞬间（文本或 [Dashboard] 日志），
+  // 只要没出现事故③签名（Class extends / Uncaught / before initialization）就算过。
+  let dash = { ok: false, hash: '', text: '', sawDashboard: false }
+  if (mounted > 0) {
+    try {
+      await wc.executeJavaScript(
+        '(() => { localStorage.setItem("auth_token", "gate.test.token");' +
+        ' localStorage.setItem("scada_user", JSON.stringify({ username: "gate", role: "admin" }));' +
+        ' location.hash = "#/dashboard"; return "navigating"; })()'
+      )
+      const dashDeadline = Date.now() + 25000
+      while (Date.now() < dashDeadline) {
+        await new Promise(r => setTimeout(r, 150))
+        const st = await wc.executeJavaScript(
+          'JSON.stringify({hash: location.hash, text: (document.body.innerText||"").replace(/\\s+/g," ").slice(0,140)})'
+        )
+        try { const p = JSON.parse(st); dash.hash = p.hash; dash.text = p.text } catch (e) {}
+        dash.sawDashboard = dashRan
+        if (dashRan || (dash.text && dash.text.indexOf('仪表盘') !== -1)) { dash.ok = true; break }
+        if (signals.some(s => /Class extends|Uncaught|before initialization/.test(s))) break
+      }
+    } catch (e) { signals.push('dash-eval-failed ' + String(e && e.message)) }
+  }
+  console.log('VDR_DASH ' + JSON.stringify(dash))
+
   for (const s of signals.slice(0, 20)) console.log('VDR_SIGNAL ' + s)
 
-  const bad = signals.some(s => /Uncaught|before initialization|renderer-gone|did-fail-load|eval-failed/.test(s))
-  const ok = mounted > 0 && !bad
+  const bad = signals.some(s => /Uncaught|Class extends|before initialization|renderer-gone|did-fail-load|eval-failed/.test(s))
+  const ok = mounted > 0 && dash.ok && !bad
   app.exit(ok ? 0 : 1)
 })
 `
@@ -172,16 +205,19 @@ function main(argv) {
   }
   let result
   try { result = JSON.parse(m[1]) } catch (e) { console.error('[dist-runtime] 结果行解析失败：', m[1]); return 1 }
+  const dashMatch = out.match(/VDR_DASH (\{.*\})/)
+  const dash = dashMatch ? JSON.parse(dashMatch[1]) : { ok: false, reason: 'no-dash-result' }
 
-  const badSignal = out.split('\n').some(l => l.startsWith('VDR_SIGNAL') && /Uncaught|before initialization|renderer-gone|did-fail-load|eval-failed/.test(l))
-  const ok = result.mounted > 0 && !badSignal
+  const badSignal = out.split('\n').some(l => l.startsWith('VDR_SIGNAL') && /Uncaught|Class extends|before initialization|renderer-gone|did-fail-load|eval-failed/.test(l))
+  const ok = result.mounted > 0 && dash.ok && !badSignal
   if (ok) {
-    console.log(`[dist-runtime] PASS：页面挂载成功（#app 子节点=${result.mounted}，title=${JSON.stringify(result.title)}）`)
+    console.log(`[dist-runtime] PASS：页面挂载成功（#app 子节点=${result.mounted}），仪表盘导航烟测通过（hash=${dash.hash}）。`)
     return 0
   }
   console.error(
-    '[dist-runtime] FAIL：页面没有在真实 Chromium 里挂载出来 —— 用户看到的就是**白屏**。\n' +
+    '[dist-runtime] FAIL：页面未通过运行时验收 —— 用户看到的就是**白屏 / 进不去**。\n' +
     `  #app 子节点 = ${result.mounted}（>0 才算挂载成功）\n` +
+    `  仪表盘导航：ok=${dash.ok}${dash.hash ? ' hash=' + dash.hash : ''}${dash.text ? ' text=' + String(dash.text).slice(0, 80) : ''}\n` +
     '  上面 VDR_SIGNAL 行是浏览器侧收集到的异常/崩溃信号（第一嫌疑：初始化期未捕获异常）。'
   )
   return 1
