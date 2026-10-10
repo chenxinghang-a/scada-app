@@ -247,6 +247,16 @@ api.interceptors.response.use(
       }
 
       if (status === 403) {
+        // 首次登录强改密：后端按契约用 **403** 表达业务信号，响应体是**成功体**
+        // （含 token / refresh_token / user / status='must_change_password'）。
+        // 这是「进入改密流程」的入口 —— 必须原样交给调用方
+        // （authStore 落盘会话 → Login.vue 路由到 /force-change-password → 改密页）。
+        // 被这里吞成「权限不足」并 reject 的话，整条强改密链路永远不可达 ——
+        // 实测（2026-10-10，全新安装 + admin 首次登录）：用户**根本无法进入系统**，
+        // 且界面只报「登录失败，请检查用户名和密码」，看起来像密码错。
+        if (data && (data.status === 'must_change_password' || data.must_change_password === true)) {
+          return Promise.resolve(data)
+        }
         ElMessage.error('权限不足')
       } else if (status !== 401) {
         // 非 401/403 错误不跳转，只提示（后端错误体可能用 error 或 message 字段）

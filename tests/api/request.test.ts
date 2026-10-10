@@ -320,6 +320,30 @@ describe('错误文案提取', () => {
     await expect(api.get('/users')).rejects.toBeTruthy()
     expect(H.elError).toHaveBeenCalledWith('权限不足')
   })
+
+  it('403 + must_change_password → 原样交给调用方（首次登录强改密流程的入口）', async () => {
+    // 回归点（2026-10-10 实测缺陷）：后端对「首次登录」**有意**用 403 返回成功体
+    // （status='must_change_password' + token / refresh_token / user）。
+    // 拦截器若一律吞成「权限不足」并 reject，authStore 落盘会话、
+    // Login.vue 路由到 /force-change-password、改密页 —— 整条链路全部接不到，
+    // 用户永远登不进去（界面还只报「登录失败」，看着像密码错）。
+    const body = {
+      success: true,
+      status: 'must_change_password',
+      must_change_password: true,
+      message: '首次登录请修改密码',
+      token: 'tok-1',
+      refresh_token: 'r-1',
+      user: { username: 'admin', role: 'admin' },
+    }
+    mock.setHandler(() => ({ status: 403, data: body }))
+
+    const res = await api.post('/auth/login', { username: 'admin', password: 'admin123' })
+
+    expect(res).toEqual(body) // 响应体原样送达（调用方据此走改密流程）
+    expect(H.elError).not.toHaveBeenCalledWith('权限不足') // 不误报权限问题
+    expect(H.pushes).toEqual([]) // 不触发登录跳转
+  })
 })
 
 // ===========================================================================
