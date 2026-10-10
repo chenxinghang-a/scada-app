@@ -745,6 +745,20 @@ function createShortcuts() {
       // 静默吞掉的话用户只会觉得"装了但找不到"。
       console.warn('[shortcut] 开始菜单快捷方式创建失败：', e && e.message)
     }
+
+    // 孤儿 lnk（2026-10-10 实机发现）：**旧版本**曾在 `Programs\` 直下写过
+    // `SmartSCADA.lnk`（无子目录）；升级后新版本只管子目录版，它就成了没人管的孤儿。
+    // 实测形态：外部工具把它写坏成 `C:\UserscxxAppData...SmartSCADA-1033\SmartSCADA.exe`
+    // （反斜杠全部丢失 + 指向已不存在的目录）—— 它显示在开始菜单里、**点击必失败**。
+    // 处理原则：**只修不删** —— 用户可能把它「固定到开始菜单/任务栏」（固定项引用该
+    // 文件路径），删了会变成死链；存在但目标不对 → 重写为当前 exe。
+    // 不新建：仅当它已存在才处理（全新环境不应产生无子目录版）。
+    const orphan = path.join(appData, 'Microsoft', 'Windows', 'Start Menu', 'Programs', 'SmartSCADA.lnk')
+    try {
+      if (fs.existsSync(orphan)) ensureShortcut(orphan, '开始菜单(旧版残留)')
+    } catch (e) {
+      console.warn('[shortcut] 开始菜单旧版残留处理失败：', e && e.message)
+    }
   } catch (e) {
     console.warn('[shortcut] 桌面快捷方式创建失败：', e && e.message)
   }

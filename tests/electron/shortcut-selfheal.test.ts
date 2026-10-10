@@ -32,7 +32,12 @@ function stripComments(src: string): string {
 describe('快捷方式自愈（存在但目标不对 → 重写）', () => {
   const src = stripComments(read(MAIN))
   const fnStart = src.indexOf('function createShortcuts')
-  const fn = src.slice(fnStart, src.indexOf('\n}\n', fnStart))
+  // ⚠️ 切片必须真正停在函数结尾。2026-10-10 发现：原实现用 indexOf('\n}\n')
+  // 找函数尾，但**工作区文件是 CRLF**（pnpm/git autocrlf），'\n}\n' 永远匹配不到
+  // → slice(fnStart, -1) = 扫到**文件尾**，断言被函数后面的代码喂饱（变异不红）。
+  // 修法：从 fnStart 起找第一个**行首顶格 }**（兼容 CRLF/LF；函数体内所有 } 都有缩进）。
+  const fnEndMatch = /^}/m.exec(src.slice(fnStart))
+  const fn = src.slice(fnStart, fnStart + (fnEndMatch ? fnEndMatch.index : src.length - fnStart))
 
   it('有 createShortcuts，且会**读取现有快捷方式的目标**做比对', () => {
     expect(fnStart).toBeGreaterThan(-1)
@@ -87,5 +92,20 @@ describe('快捷方式自愈（存在但目标不对 → 重写）', () => {
     expect(guardIdx).toBeLessThan(fn.indexOf('readShortcutLink'))
     expect(guardIdx).toBeLessThan(fn.indexOf('writeShortcutLink'))
     expect(fn.slice(guardIdx, guardIdx + 60), '守卫必须早退（return），不是记个标记继续走').toMatch(/return/)
+  })
+
+  it('孤儿 lnk（旧版无子目录版）存在才修、复用自愈逻辑（只修不删、不新建）', () => {
+    // 实机发现（2026-10-10）：旧版本曾在 `Programs\` 直下写过无子目录的
+    // `SmartSCADA.lnk`；升级后没人管它，实测有一条被外部工具写坏成
+    // `C:\UserscxxAppData...SmartSCADA-1033\...`（反斜杠全丢）——点击必失败。
+    // 纪律：① 路径必须区分于子目录版（`'Programs', 'SmartSCADA'` vs `'Programs', 'SmartSCADA.lnk'`）；
+    //      ② existsSync 门控（不新建 —— 全新环境不该产生无子目录版）；
+    //      ③ 复用 ensureShortcut（同一套「读比对→不对才重写，且只修不删」）。
+    const orphanIdx = fn.search(/'Programs',\s*'SmartSCADA\.lnk'/)
+    expect(orphanIdx, '没有处理旧版无子目录版 lnk 的路径构造').toBeGreaterThan(-1)
+    const existsIdx = fn.indexOf('existsSync', orphanIdx)
+    expect(existsIdx, '孤儿 lnk 没有 existsSync 门控 —— 会新建不该存在的条目').toBeGreaterThan(orphanIdx)
+    const after = fn.slice(orphanIdx, Math.min(fn.length, orphanIdx + 220))
+    expect(after, '孤儿 lnk 没有复用 ensureShortcut 自愈').toContain('ensureShortcut')
   })
 })
