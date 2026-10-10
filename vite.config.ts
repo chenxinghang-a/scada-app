@@ -78,8 +78,18 @@ export default defineConfig({
               if (id.includes('/chart/') || id.includes('/components/')) return 'vendor-echarts-charts'
               return 'vendor-echarts-core'
             }
-            // Socket.IO单独拆
-            if (id.includes('socket.io')) return 'vendor-socketio'
+            // ⚠️ Socket.IO 必须与「其它第三方」合并在同一 chunk（2026-10-10 灰白屏事故②）：
+            // socket.io-client ⇄ lodash 工具（vendor-other）是**双向依赖**：
+            //   other → socketio：取 Emitter 供某些类 extend；
+            //   socketio → other：取 fromPairs/get/set 等工具函数。
+            // 拆成两个 chunk = **chunk 级循环**；而 socketio 是被**懒加载视图**
+            // （Login/Dashboard/…都会 import 它）引入的，和入口引入 other 的时机
+            // 组合出不同的初始化顺序 —— 在坏顺序下 TS 编译产物里的
+            //   __extends(Foo, Base) 拿到 undefined 的 Base，直接抛
+            //   TypeError: Class extends value undefined is not a constructor or null
+            // → Vue 应用挂载失败 → 灰白屏（实测：打包版必现，开发/测试环境偶发不现，极难查）。
+            // 合并进同一 chunk 后，循环在 chunk **内部**由 rollup 保证顺序，任何加载时序都安全。
+            if (id.includes('socket.io') || id.includes('engine.io')) return 'vendor-other'
             // 其他第三方
             return 'vendor-other'
           }

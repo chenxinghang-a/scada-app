@@ -191,6 +191,32 @@ async function apiFetch(url) {
 ⚠️ 这是本项目**第一道"看像素"的闸门**：verify:dist / verify:asar / 全部单测
 可以同时全绿而页面是白的 —— **只有把页面真跑起来才知道**。
 
+### 事故②（同日第二轮）：socket.io ⇄ vendor-other 的**懒加载时序**白屏
+
+**现象**: 事故①修完后，打包版**仍然**灰白屏（窗口正常、页面永远挂不上），
+而开发/测试环境用**同一份字节**反复验证却全绿 —— 一度看起来像"环境玄学"。
+
+**根因**（用打包版故障实例 + CDP 探针抓堆栈实锤）:
+- `vendor-socketio` 是被**懒加载视图**（Login/Dashboard/… 都会 import）引入的，
+  而 `vendor-other` 由入口 chunk 引入 —— 两者的初始化顺序**随加载时序浮动**；
+- 两个 chunk 之间存在**双向依赖**（other→socketio：`Emitter`；
+  socketio→other：工具函数）；
+- 坏顺序下，TS 编译产物里的 `__extends(Foo, Base)` 拿到 undefined 的 `Base`：
+
+      TypeError: Class extends value undefined is not a constructor or null
+      at mt (vendor-other-*.js)      ← mt = TypeScript 的 __extends 帮助函数
+
+- → Vue 应用挂载失败 → 灰白屏。
+
+**修复**: manualChunks 里把 `socket.io` / `engine.io` **并入 `vendor-other`** ——
+循环收进 chunk **内部**，由 rollup 保证顺序，任何加载时序都安全。
+构建后 chunk 引用图**零环**。
+
+**守卫的诚实说明**: `verify:dist-runtime` 在**开发上下文**里对这类
+"懒加载时序"问题**不敏感**（同一份字节：闸门里通过、打包版里必现）——
+本次靠"打包版故障实例 + CDP 探针堆栈"才定位。把闸门升级为
+「直接对打包版 exe 跑探针」（`verify:packaged-runtime`）已列入待办。
+
 ---
 
 ## 迁移计划
