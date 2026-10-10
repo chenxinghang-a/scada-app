@@ -218,6 +218,22 @@ jobs:
         # 与 npm run verify:asar 是同一支脚本，理由同上 —— CI 不得绕过发布闸门。
         run: node tools/verify-asar.js release/win-unpacked/resources/app.asar
 
+      - name: Verify version coherence (frontend vs shipped backend)
+        # 第六道闸门（round 208）：**产物**里的前后端版本必须一致，且等于 package.json。
+        #
+        # 为什么必须单独有这一道：`verify-staging.js` 只管**源**（`backend/`），
+        # 而用户装到机器上的是**产物**（`release/win-unpacked/resources/**`），
+        # 中间隔着 electron-builder 的复制 + extraResources 过滤。
+        #
+        # 实测（2026-10-10，本机）：打出来的安装包是「前端 1.3.1081 + 后端 1.3.1079」——
+        # 当时的 verify-staging.js **只查 mtime、完全不查 VERSION**，
+        # 而 `cp -r` / `robocopy` 会把 mtime **刷新成复制那一刻**，
+        # 于是一份**陈旧后端**复制进 `backend/` 就能满足「mtime 晚于 HEAD」而过闸门
+        # （实测差 55 秒，放行）。后果是 `/api/health/status` 自报旧版本、UI 却是新版本。
+        #
+        # 判据是 fail-closed 的：读不到版本号也判负（没有「跳过」分支）。
+        run: node tools/verify-version-coherence.js --packaged release/win-unpacked --source backend --require-source
+
       - name: Smoke shipped backend (from win-unpacked resources)
         # 第四道闸门：验**安装包内**那一份后端能不能跑。
         #
