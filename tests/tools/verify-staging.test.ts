@@ -164,13 +164,35 @@ describe('tools/verify-staging.js 暂存闸门', () => {
     })
 
     it('mtime 早于后端仓库 HEAD → 判负（新鲜度判据保留）', async () => {
-      const dir = makeStaging('stale-mtime', { mtime: new Date('2020-01-01T00:00:00Z') })
-      const r = await run(dir)
+      // ⚠️ 必须**自带**后端仓库夹具，不能依赖环境里恰好有后端仓库 ——
+      //    第一版就是依赖了 `../industrial_scada` 之类，
+      //    **本机绿、CI 红**（前端 CI 的 build-and-test job 里没有后端 checkout：
+      //    后端只在 electron-build job 里被 clone 成 backend-src）→
+      //    探测返回 null → 新鲜度判据降级为「不判」→ 这条本该判负的用例变绿 → CI 红。
+      const root = path.join(FIXTURE_ROOT, 'stale-vs-be')
+      const futureEpoch = Math.floor(Date.now() / 1000) + 86400   // 明天：比夹具新
+      if (!(await makeFakeBackendRepo(path.join(root, 'backend-src'), futureEpoch))) {
+        throw new Error('造不出假后端仓库（git 不可用）—— 这条用例失去判别力')
+      }
+      const dir = path.join(root, 'staging')
+      makeStagingAt(dir, REPO_VERSION, new Date('2020-01-01T00:00:00Z'))
+
+      const r = await runWithEnv(dir, { SCADA_BACKEND_REPO: path.join(root, 'backend-src') })
       expect(r.code).toBe(1)
       // 守卫 4：断言**原因文本**，而且断言它落在「后端仓库」这条路径上
       // （判据①的参照物 2026-10-10 已从「前端 HEAD」改成「后端仓库 HEAD」）
       expect(r.out).toContain('比**后端仓库**')
       expect(r.out).toContain('HEAD 提交时间还旧')
+    })
+
+    it('探测不到后端仓库 → 新鲜度判据**降级**，但版本一致性判据仍生效', async () => {
+      // 这是「静默降级」那条口径的守卫：降级可以，但 ② 不能跟着一起失效。
+      const dir = makeStaging('degrade', { version: '0.0.1-wrong' })
+      const r = await runWithEnv(dir, { SCADA_BACKEND_REPO: path.join(FIXTURE_ROOT, 'nope') })
+      // ① 降级（不判新鲜度）→ 不会因为 mtime 判负；
+      // ② 仍然生效 → 版本不一致照样判负。
+      expect(r.code).toBe(1)
+      expect(r.out).toContain('版本与本仓库**不一致**')
     })
   })
 })
