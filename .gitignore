@@ -26,6 +26,8 @@ backend/logs/
 backend/data/
 # 暂存目录改名 aside（规避环境批量删除保护，见 skill safe-delete-guard-workarounds）
 backend.stale-*/
+# 暂存目录重新暂存前的本地保留份（同日多轮重建用，2026-10-10）
+backend.prev-*/
 *.log
 *.pid
 .DS_Store
