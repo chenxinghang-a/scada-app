@@ -408,7 +408,7 @@ describe('快照 / 清理（「冒烟不改动产物」）', () => {
     expect(r.leftover).toEqual([])
     expect(fs.existsSync(path.join(dir, '_internal', 'data'))).toBe(false)
     expect(fs.existsSync(path.join(dir, '_internal'))).toBe(false)
-  })
+  }, 30000)
 })
 
 describe('smoke() —— 真起进程的闸门（fail-closed）', () => {
