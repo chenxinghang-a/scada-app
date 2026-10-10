@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeAll } from 'vitest'
 import { spawn } from 'node:child_process'
+import { createRequire } from 'node:module'
 import fs from 'node:fs'
 import path from 'node:path'
 
@@ -47,6 +48,38 @@ function run(dir: string): Promise<{ code: number; out: string }> {
     child.on('error', (e) => resolve({ code: -1, out: `spawn 失败: ${e.message}` }))
     child.on('close', (code) => resolve({ code: code ?? -1, out }))
   })
+}
+
+/** 带额外环境变量跑闸门（用于把后端仓库落点指到夹具上）。 */
+function runWithEnv(dir: string, extraEnv: Record<string, string>):
+Promise<{ code: number; out: string }> {
+  return new Promise((resolve) => {
+    const child = spawn(process.execPath, [TOOL, '--dir', dir],
+                        { env: { ...process.env, ...extraEnv } })
+    let out = ''
+    child.stdout.on('data', (d) => { out += d })
+    child.stderr.on('data', (d) => { out += d })
+    child.on('error', (e) => resolve({ code: -1, out: `spawn 失败: ${e.message}` }))
+    child.on('close', (code) => resolve({ code: code ?? -1, out }))
+  })
+}
+
+/** 以模块方式加载闸门（`tools/` 不是包，用 createRequire 取 CommonJS 导出）。 */
+const mod = createRequire(import.meta.url)(TOOL) as {
+  backendRepoCandidates: () => string[]
+  backendHeadTime: () => { time: number | null; where: string | null }
+  assessStaging: (dir: string, headTime?: number | null) => Record<string, unknown>
+}
+
+/** 在**指定路径**造一个暂存目录夹具（需要显式控制位置时用）。 */
+function makeStagingAt(dir: string, version: string | null, mtime?: Date): void {
+  fs.mkdirSync(path.join(dir, '_internal'), { recursive: true })
+  const exe = path.join(dir, 'scada-backend.exe')
+  fs.writeFileSync(exe, 'fake-exe')
+  if (mtime) fs.utimesSync(exe, mtime, mtime)
+  if (version !== null) {
+    fs.writeFileSync(path.join(dir, '_internal', 'VERSION'), version, 'utf8')
+  }
 }
 
 interface FixtureOpts {
@@ -130,11 +163,105 @@ describe('tools/verify-staging.js 暂存闸门', () => {
       expect(r.out).toContain('robocopy')
     })
 
-    it('mtime 早于 HEAD 提交时间 → 仍按「陈旧」判负（老判据保留）', async () => {
+    it('mtime 早于后端仓库 HEAD → 判负（新鲜度判据保留）', async () => {
       const dir = makeStaging('stale-mtime', { mtime: new Date('2020-01-01T00:00:00Z') })
       const r = await run(dir)
       expect(r.code).toBe(1)
-      expect(r.out).toContain('比 HEAD 提交时间还旧')
+      // 守卫 4：断言**原因文本**，而且断言它落在「后端仓库」这条路径上
+      // （判据①的参照物 2026-10-10 已从「前端 HEAD」改成「后端仓库 HEAD」）
+      expect(r.out).toContain('比**后端仓库**')
+      expect(r.out).toContain('HEAD 提交时间还旧')
     })
+  })
+})
+
+// ---------------------------------------------------------------------------
+// 判据①的参照物：**后端仓库**的 HEAD，不是前端仓库的 HEAD
+// ---------------------------------------------------------------------------
+
+/**
+ * 回归背景（wb 在 2026-10-10 报的**假阳性**）：
+ *   他在前端提交（HEAD 17:42）**之前**，我用后端源码重建了后端产物（mtime 17:35）
+ *   → 旧的判据①（拿**前端** HEAD 去比后端产物 mtime）判红。
+ *   但「**前端提交晚于后端构建**」是完全合法的场景 ——
+ *   后端产物是不是「后端当前源码」的产物，跟前端什么时候提交**无关**。
+ *
+ * 判别性：下面这条用例造一个**HEAD 很旧**的假后端仓库，
+ * 而夹具产物的 mtime 是「现在」→ **必须通过**。
+ * 旧实现会拿前端 HEAD（一般比这个旧时间新）去比 → 判红 → 用例失败。
+ */
+function runCmd(cmd: string, args: string[], opts: { cwd: string; env?: NodeJS.ProcessEnv }):
+Promise<{ code: number; out: string }> {
+  return new Promise((resolve) => {
+    const child = spawn(cmd, args, { cwd: opts.cwd, env: opts.env ?? process.env })
+    let out = ''
+    child.stdout.on('data', (d) => { out += d })
+    child.stderr.on('data', (d) => { out += d })
+    child.on('error', (e) => resolve({ code: -1, out: `spawn 失败: ${e.message}` }))
+    child.on('close', (code) => resolve({ code: code ?? -1, out }))
+  })
+}
+
+/** 造一个 HEAD 提交时间被钉在 `epochSec` 的假 git 仓库。 */
+async function makeFakeBackendRepo(dir: string, epochSec: number): Promise<boolean> {
+  fs.mkdirSync(dir, { recursive: true })
+  const stamp = `${epochSec} +0000`
+  const env = { ...process.env, GIT_AUTHOR_DATE: stamp, GIT_COMMITTER_DATE: stamp }
+  const init = await runCmd('git', ['init', '-q'], { cwd: dir, env })
+  if (init.code !== 0) return false
+  const commit = await runCmd(
+    'git', ['-c', 'user.email=t@t', '-c', 'user.name=t',
+            'commit', '-q', '--allow-empty', '-m', 'x'], { cwd: dir, env })
+  return commit.code === 0
+}
+
+describe('判据①的参照物是后端仓库，不是前端仓库', () => {
+  it('候选落点包含本机并列布局与 CI 的 backend-src', () => {
+    const cands = (mod as any).backendRepoCandidates()
+    expect(cands.some((c: string) => c.includes('industrial_scada'))).toBe(true)
+    expect(cands).toContain('backend-src')
+  })
+
+  it('★ 回归：后端 HEAD 旧、前端 HEAD 新 → 仍然通过（wb 报的假阳性）', async () => {
+    const root = path.join(FIXTURE_ROOT, 'be-old')
+    // 2020-01-01：比任何「现在的」夹具 mtime 都旧
+    const oldEpoch = 1577836800
+    const okRepo = await makeFakeBackendRepo(path.join(root, 'backend-src'), oldEpoch)
+    if (!okRepo) {
+      // 造不出假仓库（环境无 git）→ 显式失败，不要静默跳过
+      throw new Error('造不出假后端仓库（git 不可用）—— 这条回归用例失去了判别力')
+    }
+    const staging = path.join(root, 'staging')
+
+    // ⚠️ 夹具 mtime 必须**卡在两个参照物之间**，否则这条用例没有判别力：
+    //    第一版用的是 `new Date()`（= 现在），而前端 HEAD 就在刚刚提交 →
+    //    产物比前端 HEAD 还新 → **两种参照物都通过** → 变异「退回前端 HEAD」**没被抓住**
+    //    （变异台实测）。改成「**前端 HEAD − 1 秒**」：
+    //      · 新逻辑（参照物 = 假后端 HEAD 2020）→ 产物更新 → **通过** ✓
+    //      · 旧逻辑（参照物 = 前端 HEAD）      → 产物更旧 → **判负** → 用例变红 ✓
+    //    这样「参照物是谁」就真的被区分开了，而且不依赖机器上的具体时刻。
+    const feHead = (mod as any).headCommitTime(REPO) as number | null
+    if (!feHead) throw new Error('读不到前端仓库 HEAD —— 这条回归用例失去判别力')
+    makeStagingAt(staging, REPO_VERSION, new Date((feHead - 1) * 1000))
+
+    const r = await runWithEnv(staging, { SCADA_BACKEND_REPO: path.join(root, 'backend-src') })
+    expect(r.code).toBe(0)
+    expect(r.out).toContain('版本一致')
+  })
+
+  it('后端 HEAD 比产物新 → 判负（新鲜度判据仍然有效）', async () => {
+    const root = path.join(FIXTURE_ROOT, 'be-new')
+    const futureEpoch = Math.floor(Date.now() / 1000) + 86400   // 明天
+    const okRepo = await makeFakeBackendRepo(path.join(root, 'backend-src'), futureEpoch)
+    if (!okRepo) throw new Error('造不出假后端仓库（git 不可用）')
+
+    const staging = path.join(root, 'staging')
+    makeStagingAt(staging, REPO_VERSION, new Date())
+
+    const r = await runWithEnv(staging, { SCADA_BACKEND_REPO: path.join(root, 'backend-src') })
+    expect(r.code).toBe(1)
+    // 守卫 4：断言失败原因落在**正确的那条路径**上
+    expect(r.out).toContain('比**后端仓库**')
+    expect(r.out).toContain('不可能是后端当前源码的产物')
   })
 })

@@ -15,11 +15,23 @@
  *   当时的 `electron:build` 只跑 `verify:dist`，而 `verify:dist` 只看 `dist/`，
  *   **根本不会看 `backend/`**。也就是说这个陈旧包会被打出来、且四道闸门一道都拦不住。
  *
- * 判据（与 `gen_release_manifest.py` 的 `stale` 同一口径）
- * ------------------------------------------------------
- *   ① 暂存产物 mtime **早于 HEAD 提交时间** ⇒ 它不可能是本次源码的产物。
- *      用"早于 HEAD 提交时间"而不是"早于 N 小时"，是为了不依赖机器时钟的绝对时刻。
+ * 判据（2026-10-11 修订参照物）
+ * -----------------------------
+ *   ① 暂存产物 mtime **早于「后端仓库」的 HEAD 提交时间** ⇒ 它不可能是后端当前源码的产物。
  *   ② 暂存后端自报的 `_internal/VERSION` **必须等于本仓库 `package.json` 的版本**。
+ *
+ * ⚠️ 判据 ① 的参照物 2026-10-10 从「**前端**仓库的 HEAD」改成了「**后端**仓库的 HEAD」。
+ *   原来拿前端 HEAD 去比后端产物，**跨仓库这么比在语义上就是错的** ——
+ *   实测（wb 报的假阳性）：他在前端提交（HEAD 17:42）之前，我用后端源码重建了产物
+ *   （mtime 17:35）→ 判据 ① 红。可是「**前端提交晚于后端构建**」是完全合法的场景：
+ *   后端产物是不是「后端当前源码」的产物，跟前端什么时候提交**无关**。
+ *   → 现在按后端仓库自己的 HEAD 比。后端仓库落点按候选列表探测
+ *     （本机 `../industrial_scada`、CI 的 `backend-src`、`SCADA_BACKEND_REPO` 覆盖）。
+ *
+ * ⚠️ **探测不到后端仓库时不判新鲜度（判据 ① 降级），但仍判判据 ②。**
+ *   这是刻意的：判据 ②（版本一致性）才是真正防「错版本包」的那条，
+ *   而新鲜度判据一旦参照物拿不到就只能瞎猜 —— 宁可少判一条，也不要造一个会假红的判据
+ *   （假红的闸门早晚被人关掉）。
  *
  * ⚠️ 判据 ② 是 2026-10-10 补的（round 208）。**只有判据 ① 的版本是 fail-open 的**：
  *   `cp -r` / `robocopy` 会把 mtime **刷新成复制那一刻**，于是
@@ -53,6 +65,48 @@ const ENTRY = 'scada-backend.exe'
 const VERSION_REL = path.join('_internal', 'VERSION')
 
 /**
+ * 后端源码仓库的候选落点（相对本仓库根）。
+ *
+ * ⚠️ 本机这两个仓库**不是并列布局**（前端 `C:\Users\cxx\scada-app`、
+ *    后端 `C:\Users\cxx\WorkBuddy\Claw\industrial_scada`），所以只写
+ *    `../industrial_scada` 是**找不到**的 —— 实测踩到（探测返回 null →
+ *    新鲜度判据静默降级 → 一条本该红的用例变绿）。
+ *    候选列表要按**实际见过的布局**逐个列，并且提供环境变量覆盖口。
+ *
+ * * `SCADA_BACKEND_REPO` —— 显式覆盖（换布局 / 别的机器不用改代码）
+ * * `../industrial_scada` —— 两仓库并列的布局（CI 之外的常见放法）
+ * * `../WorkBuddy/Claw/industrial_scada` —— **本机的实际布局**
+ * * `backend-src` —— CI 的 `Checkout backend source (industrial_scada)` 落点
+ * * `../scada` —— 后端在 GitHub 上的仓库名就是 `scada`，本地克隆可能叫这个
+ */
+function backendRepoCandidates() {
+  return [
+    process.env.SCADA_BACKEND_REPO,
+    path.join('..', 'industrial_scada'),
+    path.join('..', 'WorkBuddy', 'Claw', 'industrial_scada'),
+    'backend-src',
+    path.join('..', 'scada'),
+  ].filter(Boolean)
+}
+
+/**
+ * 后端仓库的 HEAD 提交时间（epoch 秒）。
+ * @returns {{time: number|null, where: string|null}} 探测不到时 `time` 为 null。
+ */
+function backendHeadTime() {
+  for (const cand of backendRepoCandidates()) {
+    try {
+      if (!fs.existsSync(path.join(cand, '.git'))) continue
+    } catch {
+      continue
+    }
+    const t = headCommitTime(cand)
+    if (t != null) return { time: t, where: cand }
+  }
+  return { time: null, where: null }
+}
+
+/**
  * 本仓库（前端）的版本号 —— lockstep 的参照物。
  * @returns {string|null}
  */
@@ -78,12 +132,12 @@ function stagedVersion(dir = DEFAULT_DIR) {
 }
 
 /**
- * HEAD 提交时间（epoch 秒）。非 git 仓库返回 null（调用方据此降级）。
+ * 指定仓库的 HEAD 提交时间（epoch 秒）。非 git 仓库返回 null（调用方据此降级）。
  */
-function headCommitTime() {
+function headCommitTime(repoDir = process.cwd()) {
   try {
     const out = execFileSync('git', ['log', '-1', '--format=%ct'], {
-      cwd: process.cwd(),
+      cwd: repoDir,
       encoding: 'utf8',
       stdio: ['ignore', 'pipe', 'ignore'],
     })
@@ -97,9 +151,10 @@ function headCommitTime() {
 /**
  * 判定暂存目录是否"陈旧"。
  * @returns {{ok: boolean, reason?: string, entryMtime?: number, headTime?: number|null,
- *            stagedVersion?: string|null, repoVersion?: string|null}}
+ *            stagedVersion?: string|null, repoVersion?: string|null,
+ *            backendRepo?: string|null}}
  */
-function assessStaging(dir = DEFAULT_DIR, headTime = headCommitTime()) {
+function assessStaging(dir = DEFAULT_DIR, headTime = undefined) {
   const entry = path.join(dir, ENTRY)
   if (!fs.existsSync(entry)) {
     return {
@@ -114,16 +169,25 @@ function assessStaging(dir = DEFAULT_DIR, headTime = headCommitTime()) {
   const mtimeMs = fs.statSync(entry).mtimeMs
   const mtimeSec = Math.floor(mtimeMs / 1000)
 
-  if (headTime != null && mtimeSec < headTime) {
-    const days = ((headTime - mtimeSec) / 86400).toFixed(1)
+  // ---- 判据 ①：新鲜度（参照物 = **后端仓库**的 HEAD；探测不到则降级为「不判」）----
+  const explicit = headTime !== undefined
+  const be = explicit
+    ? { time: headTime, where: '(调用方显式给出)' }
+    : backendHeadTime()
+  const refTime = be.time
+
+  if (refTime != null && mtimeSec < refTime) {
+    const days = ((refTime - mtimeSec) / 86400).toFixed(1)
     return {
       ok: false,
       entryMtime: mtimeSec,
-      headTime,
+      headTime: refTime,
+      backendRepo: be.where,
       reason:
-        `${entry} 比 HEAD 提交时间还旧（落后约 ${days} 天）—— 它不可能是本次源码的产物。\n` +
-        `  mtime    = ${new Date(mtimeMs).toISOString()}\n` +
-        `  HEAD 提交 = ${new Date(headTime * 1000).toISOString()}\n` +
+        `${entry} 比**后端仓库**（${be.where}）的 HEAD 提交时间还旧（落后约 ${days} 天）` +
+        '—— 它不可能是后端当前源码的产物。\n' +
+        `  mtime        = ${new Date(mtimeMs).toISOString()}\n` +
+        `  后端 HEAD 提交 = ${new Date(refTime * 1000).toISOString()}\n` +
         '  直接打包会产出「版本号是新的、内容是旧的」安装包。\n' +
         '  请重新构建后端并重新暂存后再打包。',
     }
@@ -137,7 +201,8 @@ function assessStaging(dir = DEFAULT_DIR, headTime = headCommitTime()) {
     return {
       ok: false,
       entryMtime: mtimeSec,
-      headTime,
+      headTime: refTime,
+      backendRepo: be.where,
       stagedVersion: null,
       repoVersion: want,
       reason:
@@ -151,7 +216,8 @@ function assessStaging(dir = DEFAULT_DIR, headTime = headCommitTime()) {
     return {
       ok: false,
       entryMtime: mtimeSec,
-      headTime,
+      headTime: refTime,
+      backendRepo: be.where,
       stagedVersion: got,
       repoVersion: want,
       reason:
@@ -166,7 +232,10 @@ function assessStaging(dir = DEFAULT_DIR, headTime = headCommitTime()) {
     }
   }
 
-  return { ok: true, entryMtime: mtimeSec, headTime, stagedVersion: got, repoVersion: want }
+  return {
+    ok: true, entryMtime: mtimeSec, headTime: refTime, backendRepo: be.where,
+    stagedVersion: got, repoVersion: want,
+  }
 }
 
 function main(argv = process.argv.slice(2)) {
@@ -186,17 +255,18 @@ function main(argv = process.argv.slice(2)) {
     console.error(`[staging] 暂存目录不可用于打包：\n  ${r.reason}`)
     return 1
   }
-  const head = r.headTime == null ? '（非 git 仓库，跳过新鲜度判据）' : new Date(r.headTime * 1000).toISOString()
+  const fresh = r.headTime == null
+    ? '（探测不到后端仓库，跳过新鲜度判据；版本一致性判据仍生效）'
+    : `比后端仓库 HEAD(${r.backendRepo}) 新`
   console.log(
-    `[staging] OK：${path.join(dir, ENTRY)} 是本次源码之后的产物（HEAD=${head}），` +
-    `版本一致 = ${r.stagedVersion}`,
+    `[staging] OK：${path.join(dir, ENTRY)} ${fresh}，版本一致 = ${r.stagedVersion}`,
   )
   return 0
 }
 
 module.exports = {
-  assessStaging, headCommitTime, repoVersion, stagedVersion,
-  DEFAULT_DIR, ENTRY, VERSION_REL,
+  assessStaging, headCommitTime, repoVersion, stagedVersion, backendHeadTime,
+  backendRepoCandidates, DEFAULT_DIR, ENTRY, VERSION_REL,
 }
 
 if (require.main === module) {
