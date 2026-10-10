@@ -252,6 +252,14 @@ jobs:
         # resources/）不会破坏后端自己的路径推导（paths.py 的 frozen 分支）。
         run: node tools/verify-backend-runtime.js --exe release/win-unpacked/resources/backend/scada-backend.exe
 
+      - name: Verify packaged runtime (launch shipped exe & probe #app)
+        # 第七道闸门（2026-10-10 事故②的教训）：**要发出去的那只 exe 本身**必须
+        # 真的能把页面挂载出来。dist 闸门（verify:dist-runtime）测的是源产物、
+        # 开发上下文 —— 事故②里同一份字节「闸门绿、装出来灰白屏」。
+        # 本步骤用一次性 userData（脚本内部保证，不碰 %APPDATA%）启动
+        # release/win-unpacked/SmartSCADA.exe，CDP 探针断言 #app 挂载 + 无渲染层致命错误。
+        run: node tools/verify-packaged-runtime.js
+
       - name: Report build failure as annotation
         # 只在失败时执行：把 electron-builder 的关键行发成 annotation，
         # 让"为什么红"在远端可直接查询，而不是只有 exit code 1。

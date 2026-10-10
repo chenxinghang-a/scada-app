@@ -214,8 +214,12 @@ async function apiFetch(url) {
 
 **守卫的诚实说明**: `verify:dist-runtime` 在**开发上下文**里对这类
 "懒加载时序"问题**不敏感**（同一份字节：闸门里通过、打包版里必现）——
-本次靠"打包版故障实例 + CDP 探针堆栈"才定位。把闸门升级为
-「直接对打包版 exe 跑探针」（`verify:packaged-runtime`）已列入待办。
+本次靠"打包版故障实例 + CDP 探针堆栈"才定位。
+**补上了**：新增第七道闸门 `verify:packaged-runtime`（`tools/verify-packaged-runtime.js`）
+—— 用一次性 userData（不碰 `%APPDATA%`）启动 **`release/win-unpacked/SmartSCADA.exe` 本体**，
+CDP 探针断言 `#app` 挂载 + 无渲染层致命错误；已接入 `verify:packaged` 链与 CI。
+事故后自检：对修复版 PASS、对"事故期产物"这一类问题可判红（判据覆盖
+`Uncaught / TypeError / Class extends / before initialization`）。
 
 **触发条件的补充实测（同日更晚）**: 崩溃与**用户数据状态**强相关 ——
 同一份 1082 产物：旧用户数据 → 打包版必崩（`#app=0`）；
