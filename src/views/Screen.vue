@@ -404,7 +404,9 @@ function connectSocket() {
   const token = getAuthToken()
   const url = token ? `${baseUrl}?token=${encodeURIComponent(token)}` : baseUrl
   socket = io(url, {
-    transports: ['websocket', 'polling'],
+    // ⚠️ polling 优先（默认顺序）：本后端要求先 polling 握手再升级 websocket；
+    //    websocket 优先会直连被 400 且不降级（详见 Dashboard.vue 同处注释与守卫测试）。
+    transports: ['polling', 'websocket'],
     reconnection: true,
     reconnectionDelay: 3000,
   })

@@ -1111,7 +1111,12 @@ function connectSocket() {
   // token 通过 query 传递 — 后端从 request.args.get('token') 读取
   const socketUrl = token ? `${baseUrl}?token=${encodeURIComponent(token)}` : baseUrl
   socket = io(socketUrl, {
-    transports: ['websocket', 'polling'],
+    // ⚠️ polling 必须先于 websocket（= socket.io 默认顺序）。别"优化"成 websocket 优先：
+    //    本后端要求先 polling 握手拿 sid、再升级 websocket；写成 ['websocket','polling']
+    //    时 client 会反复尝试「直连 websocket」→ 被服务端 400（Invalid websocket upgrade）
+    //    且**不降级**（2026-10-10 实测：E2E 全程 6 次 socket 请求全 400、0 次 polling）
+    //    → 实时通道永远连不上（性能监控「未连接」、数据大屏 0/0、报警输出停在「同步中」）。
+    transports: ['polling', 'websocket'],
     reconnection: true,
     reconnectionDelay: 3000,
     reconnectionAttempts: Infinity,

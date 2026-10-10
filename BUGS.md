@@ -280,6 +280,39 @@ vendor-other 再被拆一次）全部并入同一个 `vendor-echarts` chunk。
 
 ---
 
+## Bug 8: 实时数据通道从未连上（socket.io transports 顺序）🟠 中危（功能面）
+
+**现象**: 性能监控页显示「未连接」、数据大屏全 0/0、报警输出停在「同步中」——
+实时推送类功能**全部不可用**（页面本身能打开，HTTP 轮询的数据照常显示，所以一直没被注意）。
+发现于 2026-10-10 全菜单巡检的副观察项——**三个症状同一根因**。
+
+**根因**: 三处 `io(url, { transports: ['websocket', 'polling'] })`（websocket 优先）。
+socket.io-client 会**直奔 websocket**；而本后端（Werkzeug + engine.io threading）
+要求**先 polling 握手拿 sid、再升级**，直连 websocket 被服务端 **400
+（`Invalid websocket upgrade`）**；且 **client 不降级**（不会退到数组第二个
+polling）→ 重连循环里反复 400。
+
+**实测证据**: E2E 全程 socket 请求 = **6 次全 `transport=websocket`+400、0 次 polling**；
+`curl` 直接对同一后端做 polling 握手 = **200**（`upgrades:["websocket"]`）——服务端
+polling 路径完好，问题在客户端配置。
+
+**修复**: 三处改回 **polling 优先**（`['polling','websocket']` = socket.io 默认顺序；
+`Dashboard.vue` / `Screen.vue` / `AlarmOutput.vue`），并注释「别优化回 websocket 优先」。
+
+**守卫**: `tests/socket-transport-order.test.ts` —— 静态扫描 `src` 全部 `transports:`
+数组，断言**首位不得是 websocket**；+ 三视图正向对照（存在、有 io(、polling 开头）。
+变异验证：任一改回 websocket 优先 → 2 例全红（精确报出文件与值）。
+
+**实测（修复后）**: dist 探针（真实前端 + reload 携带会话）→ 部署版后端日志出现完整
+序列：`polling 握手 200 → 数据帧 POST 200 → 长轮询 GET 200 → …` —— **实时通道建立** ✓
+（功能面完整复核（订阅数据显示）并入 1084 的 E2E + 全菜单巡检。）
+
+**观察项（后端侧，非本缺陷）**: polling 稳定后未观察到 websocket 升级请求
+（可能被服务端拒绝后静默保持 polling——功能等价，不影响可用性；`simple-websocket`
+是否在 frozen 环境真正生效值得二号机侧看一眼）。
+
+---
+
 ## 迁移计划
 
 将 `industrial_scada` (Flask + Jinja2) 后端整合到 `scada-app` (Vue 3 + Electron)：
