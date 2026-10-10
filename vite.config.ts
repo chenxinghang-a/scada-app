@@ -72,12 +72,14 @@ export default defineConfig({
             if (id.includes('element-plus')) return 'vendor-element'
             // Vue 核心
             if (id.includes('vue/') || id.includes('vue-router') || id.includes('pinia')) return 'vendor-vue'
-            // ECharts 单独拆
-            if (id.includes('echarts')) {
-              // ECharts 核心和渲染器放一起，图表类型按需加载
-              if (id.includes('/chart/') || id.includes('/components/')) return 'vendor-echarts-charts'
-              return 'vendor-echarts-core'
-            }
+            // ⚠️ ECharts 全家（**含 zrender**）必须合进同一个 chunk（2026-10-10 事故③，与①②同族）：
+            // 实测：拆成 charts/core 两个 chunk 后**互相 import**（图表类型要 core 的基类、
+            // core 里也有模块要 charts 的组件）→ chunk 级循环 → 打开仪表盘（懒加载 charts
+            // 那一刻）触发同一个 "__extends 基类 undefined" 崩溃：
+            //     登录成功 → router.push('/dashboard') → 导航被中止 → **永远进不了系统**。
+            // 另：zrender 路径不含 'echarts'，原来会掉进 vendor-other 再被拆一次（本循环的一部分），
+            // 这里一并归拢。代价：图表包不再按需拆——换来的是任何加载时序都安全。
+            if (id.includes('echarts') || id.includes('zrender')) return 'vendor-echarts'
             // ⚠️ Socket.IO 必须与「其它第三方」合并在同一 chunk（2026-10-10 灰白屏事故②）：
             // socket.io-client ⇄ lodash 工具（vendor-other）是**双向依赖**：
             //   other → socketio：取 Emitter 供某些类 extend；
