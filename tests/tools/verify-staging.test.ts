@@ -2,6 +2,7 @@ import { describe, it, expect, beforeAll } from 'vitest'
 import { spawn } from 'node:child_process'
 import { createRequire } from 'node:module'
 import fs from 'node:fs'
+import os from 'node:os'
 import path from 'node:path'
 
 /**
@@ -317,14 +318,33 @@ describe('git 调用挂起（超时）→ fail-closed，**不得**降级（2026-
     expect(Number(t)).toBeGreaterThan(0)
   })
 
-  it('★ 端到端：注入极短超时跑闸门 → 退出码 1，且报因是"环境卡住"而非"暂存目录有问题"', async () => {
+  // ⚠️ 端到端只在 POSIX 跑，且**不靠"1ms 必然超时"**这一脆弱假设：
+  //    实测 CI（Linux）上 git 快得在 1ms 内就跑完了 → 闸门正常 exit 0 → **假红**
+  //    （本地 Windows 慢，1ms 必然超时，所以本地是全绿的 —— 典型的平台相关脆弱断言）。
+  //    改法：用 SCADA_GIT_BIN 指向一个**必然挂起**的 shim（`sleep 60`），跨平台语义明确。
+  //    Windows 上无法用 .cmd shim（Node 安全限制报 EINVAL）→ 该平台 skip；
+  //    其判别力由上面的**单元级真触发（1ms + 真实 git）**承担。
+  const itE2E = process.platform === 'win32' ? it.skip : it
+  itE2E('★ 端到端（POSIX）：git 指向"永挂起"shim → 退出码 1，且报因是"环境卡住"而非"暂存目录有问题"', async () => {
     const root = path.join(FIXTURE_ROOT, 'timeout-case')
     const staging = path.join(root, 'staging')
     makeStagingAt(staging, REPO_VERSION, new Date())
 
-    const r = await runWithEnv(staging, { SCADA_GIT_TIMEOUT_MS: '1' })
-    expect(r.code).toBe(1)
-    // 报因必须指向"环境卡住"（让排查方向正确），不能混成"暂存目录不可用于打包"
-    expect(r.out).toMatch(/闸门无法完成|挂起/)
+    // 造一个必然挂起的假 git（sleep 60 ≫ 注入的 500ms 超时）
+    const shimDir = fs.mkdtempSync(path.join(os.tmpdir(), 'hang-git-'))
+    const shim = path.join(shimDir, 'git-hang')
+    fs.writeFileSync(shim, '#!/bin/sh\nsleep 60\n')
+    fs.chmodSync(shim, 0o755)
+    try {
+      const r = await runWithEnv(staging, {
+        SCADA_GIT_BIN: shim,
+        SCADA_GIT_TIMEOUT_MS: '500',
+      })
+      expect(r.code).toBe(1)
+      // 报因必须指向"环境卡住"（让排查方向正确），不能混成"暂存目录不可用于打包"
+      expect(r.out).toMatch(/闸门无法完成|挂起/)
+    } finally {
+      try { fs.rmSync(shimDir, { recursive: true, force: true }) } catch { /* 清理失败不影响结论 */ }
+    }
   }, 30000)
 })

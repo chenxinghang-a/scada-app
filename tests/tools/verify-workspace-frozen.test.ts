@@ -677,26 +677,45 @@ describe('git 调用挂起（超时）→ fail-closed，**不得**降级（2026-
     expect(typeof fp.error === 'string' || fp.error === null).toBe(true)
   })
 
-  // ★ 跨平台"真触发超时"：**不靠 shim**，而是把超时压到 1ms —— 真实 git 必然来不及。
-  //   实测：timeout=1ms 时 `execFileSync('git', ['log', ...])` 稳定抛 ETIMEDOUT/SIGTERM。
-  //   （Windows 下无法用 .cmd shim：Node 安全限制使其抛 EINVAL，故早先的 shim 方案作废。）
-  it('★ 真触发超时（跨平台）：把 git 超时压到 1ms → repoFingerprint.timedOut === true', () => {
+  // ★ "真触发超时"的两条路（各平台取更稳的那条）：
+  //   · POSIX：用 SCADA_GIT_BIN 指向**必然挂起**的 shim（sleep 60 ≫ 超时）—— 语义明确、不靠时序。
+  //   · Windows：无法用 .cmd shim（Node 安全限制报 EINVAL）→ 退回"把超时压到 1ms"
+  //     （Windows 进程启动慢，1ms 必然来不及 —— 本地实测稳定触发）。
+  //   ⚠️ 为什么不能在 POSIX 也用 1ms：实测 CI（Linux）git 快得在 1ms 内就跑完 → 假红。
+  const isWin = process.platform === 'win32'
+  it('★ 真触发超时：git 挂起 → repoFingerprint.timedOut === true', () => {
     // ⚠️ 为什么必须"真跑"而不是只构造假快照（2026-10-12 自测炸出的教训）：
     //    只喂构造数据的测试**测不到**"repoFingerprint 与真实超时的联系" ——
     //    实测：把源码里 `timedOut` 拍成恒 false（= 把挂起当降级、复刻事故），
-    //    纯构造版测试**29/29 全绿**（Windows 上 shim 版被 skip），一点没抓到。
+    //    纯构造版测试**全绿**，一点没抓到。**判别力自检必须是端到端的**。
+    let cleanup: (() => void) | null = null
+    const prevBin = process.env.SCADA_GIT_BIN
     const prevTimeout = process.env.SCADA_GIT_TIMEOUT_MS
     try {
-      process.env.SCADA_GIT_TIMEOUT_MS = '1'
+      if (isWin) {
+        process.env.SCADA_GIT_TIMEOUT_MS = '1'
+      } else {
+        const shimDir = fs.mkdtempSync(path.join(os.tmpdir(), 'hang-git-'))
+        const shim = path.join(shimDir, 'git-hang')
+        fs.writeFileSync(shim, '#!/bin/sh\nsleep 60\n')
+        fs.chmodSync(shim, 0o755)
+        cleanup = () => { try { fs.rmSync(shimDir, { recursive: true, force: true }) } catch { /* 忽略 */ } }
+        process.env.SCADA_GIT_BIN = shim
+        process.env.SCADA_GIT_TIMEOUT_MS = '500'
+      }
       const fp = mod.repoFingerprint(REPO)
       expect(fp.timedOut).toBe(true)
       expect(fp.head).toBe(null)
       expect(String(fp.error)).toMatch(/挂起/)
     } finally {
+      if (prevBin === undefined) delete process.env.SCADA_GIT_BIN
+      else process.env.SCADA_GIT_BIN = prevBin
       if (prevTimeout === undefined) delete process.env.SCADA_GIT_TIMEOUT_MS
       else process.env.SCADA_GIT_TIMEOUT_MS = prevTimeout
+      if (cleanup) cleanup()
     }
   }, 30000)
+
 
   it('★ 反向对照：正常超时下 repoFingerprint 不得误报 timedOut（防"恒真"）', () => {
     // 没有这条，上面那条可能因为"永远为真"而假绿。
