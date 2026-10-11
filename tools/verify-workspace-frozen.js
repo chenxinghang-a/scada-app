@@ -312,6 +312,59 @@ function main(argv = process.argv.slice(2)) {
 
   const problems = diffSnapshots(pre, snap)
 
+  // ---- 时效检查（2026-10-11 补）----
+  //
+  // 为什么需要：`--pre` 与 `--post` 之间本该只隔一次构建（几分钟）。
+  // 若基线是几小时/几天前的，说明那次构建**没跑成**（崩了/被中断/忘了配对），
+  // 而现在的 `--post` 是在拿一个**过期的参照物**比对。
+  //
+  // 实测（自测阶段）：`--pre` 后有人提交了一个合理的新 commit，
+  // `--post` 报的是「**构建窗口内**有人提交/切换了分支」——
+  // 措辞把人引向"构建时被污染"，而真实原因是"基线是上一次的"。
+  // **错误的报因比没有报因更贵**：它会让人去查一个不存在的问题。
+  //
+  // 处置：一旦基线过旧，**结论本身不可信** → 明确区分两种情况，
+  // 不让「窗口内污染」的判词在过期基线上冒充结论。
+  const MAX_AGE_MS = (() => {
+    const n = Number(process.env.SCADA_FROZEN_MAX_AGE_MS)
+    return Number.isFinite(n) && n > 0 ? n : 30 * 60 * 1000 // 默认 30 分钟
+  })()
+  const ageMs = Date.now() - Date.parse(pre.capturedAt || 0)
+  const stale = Number.isFinite(ageMs) && ageMs > MAX_AGE_MS
+
+  if (stale && problems.length) {
+    const mins = Math.round(ageMs / 60000)
+    console.error(
+      `[frozen] ❌ 基线**已过期**（${mins} 分钟前，阈值 ${Math.round(MAX_AGE_MS / 60000)} 分钟）——` +
+      '本次比对**结论不可信**：\n' +
+      '\n  这意味着：`--pre` 与 `--post` 之间不止隔了一次构建。' +
+      '\n  多半是上一次构建崩溃/被中断，或者忘了配对就重跑了。' +
+      '\n' +
+      `\n  基线时间：${pre.capturedAt}\n` +
+      `  当前时间：${snap.capturedAt}\n` +
+      '\n  本次检测到的差异（**可能只是"工作区自然演进了"，不一定是构建期污染**）：\n' +
+      problems.map((p) => `    · ${p}`).join('\n') +
+      '\n' +
+      '\n  处置：**重新跑一次 `--pre`**（紧接着构建），不要凭这次的结论判断产物。' +
+      '\n  若确实要放宽时效（例如构建本身就很慢），设 SCADA_FROZEN_MAX_AGE_MS 覆盖，' +
+      '\n  但请先想清楚"这段时间里工作区会不会被别的进程改"。',
+    )
+    return 1
+  }
+
+  if (stale && !problems.length) {
+    // 过旧但两边恰好一致 —— 不判负（没有污染证据），但**必须留痕**：
+    // 一个"过期参照物 + 恰好一致"的通过，可信度远低于新鲜基线。
+    const mins = Math.round(ageMs / 60000)
+    console.log(
+      `[frozen] OK（⚠️ 基线较旧：${mins} 分钟前，阈值 ${Math.round(MAX_AGE_MS / 60000)} 分钟）` +
+      '：构建窗口内工作区未变动；' +
+      '\n         但参照物已不新鲜，「未变动」的保证弱于新鲜基线 —— ' +
+      '若这次是长时间构建，建议核对 --pre 与 --post 确实配成一对。',
+    )
+    return 0
+  }
+
   if (problems.length) {
     console.error(
       '[frozen] ❌ 构建窗口内工作区被改动 —— 产物不可信：\n' +

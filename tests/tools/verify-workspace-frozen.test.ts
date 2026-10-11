@@ -89,7 +89,6 @@ function makeWorkRoot(): string {
 function runIn(root: string, phase: '--pre' | '--post', backendRepo?: string) {
   return runRaw(root, [phase], backendRepo)
 }
-
 /**
  * 在指定根里跑闸门，参数自由。
  *
@@ -97,10 +96,11 @@ function runIn(root: string, phase: '--pre' | '--post', backendRepo?: string) {
  *    绝不对真实 `TOOL` 直接 spawn —— 它的 REPO_ROOT 是编译期常量、
  *    不受 cwd 影响，直接跑会写真实仓库的基线并探测真实后端仓库（别的会话的工作区）。
  */
-function runRaw(root: string, args: string[], backendRepo?: string) {
+function runRaw(root: string, args: string[], backendRepo?: string, extraEnv?: Record<string, string>) {
   const env = { ...process.env }
   if (backendRepo) env.SCADA_BACKEND_REPO = backendRepo
   else delete env.SCADA_BACKEND_REPO
+  if (extraEnv) Object.assign(env, extraEnv)
   return new Promise<{ code: number; out: string }>((resolve) => {
     const child = spawn(
       process.execPath,
@@ -113,6 +113,16 @@ function runRaw(root: string, args: string[], backendRepo?: string) {
     child.on('error', (e) => resolve({ code: -1, out: `spawn 失败: ${e.message}` }))
     child.on('close', (code) => resolve({ code: code ?? -1, out }))
   })
+}
+
+/** 带额外环境变量跑（用于把基线时效阈值压到 0）。 */
+function runInWithEnv(
+  root: string,
+  phase: '--pre' | '--post',
+  backendRepo: string | undefined,
+  extraEnv: Record<string, string>,
+) {
+  return runRaw(root, [phase], backendRepo, extraEnv)
 }
 
 beforeAll(() => {
@@ -362,6 +372,72 @@ describe('★ 自指污染：闸门不得把自己写的基线当成污染', () 
     const post = await runIn(root, '--post', undefined)
     expect(post.code).toBe(1)
     expect(post.out).toContain('not_gate_artifact.py')
+  }, 30000)
+})
+
+describe('基线时效（防「过期参照物给出误导性判词」）', () => {
+  it('基线过旧 + 检测到差异 → 判词是「基线已过期」，不是「构建窗口内被改动」', async () => {
+    // 为什么要有这条：`--pre` 与 `--post` 本该只隔一次构建（几分钟）。
+    // 若基线是几小时前的（上次构建崩了/被中断/忘了配对），现在的 `--post`
+    // 是在拿**过期参照物**比对 —— 此时「构建窗口内被改动」这个判词是**误导**，
+    // 会把人引去查一个不存在的问题。
+    // 实测过：`--pre` 后有人提交了一个合理 commit，旧版报的正是
+    // 「构建窗口内有人提交」——而真实原因是「基线是上一次的」。
+    const be = freshRepo('age-be')
+    initRepo(be)
+    fs.writeFileSync(path.join(be, 'app.py'), 'print(1)\n')
+    commitAll(be, 'init')
+
+    const pre = await runIn(WORK_ROOT, '--pre', be)
+    expect(pre.code).toBe(0)
+
+    // 造一个差异 + 把阈值压到 0（等价于「基线已过期」）
+    fs.writeFileSync(path.join(be, 'late.py'), 'x\n')
+    const post = await runInWithEnv(WORK_ROOT, '--post', be, { SCADA_FROZEN_MAX_AGE_MS: '1' })
+
+    expect(post.code).toBe(1)
+    expect(post.out).toContain('基线**已过期**')
+    expect(post.out).toContain('结论不可信')
+    // 关键：不得给出「构建窗口内工作区被改动」这个（此刻不可信的）判词
+    expect(post.out).not.toContain('构建窗口内工作区被改动 —— 产物不可信')
+    // 且必须给出正确处置
+    expect(post.out).toContain('重新跑一次')
+
+    fs.rmSync(path.join(be, 'late.py'), { force: true })
+  }, 30000)
+
+  it('基线过旧但两边恰好一致 → 放行，但必须显式留痕（可信度弱于新鲜基线）', async () => {
+    const be = freshRepo('age-clean-be')
+    initRepo(be)
+    fs.writeFileSync(path.join(be, 'app.py'), 'print(1)\n')
+    commitAll(be, 'init')
+
+    const pre = await runIn(WORK_ROOT, '--pre', be)
+    expect(pre.code).toBe(0)
+
+    const post = await runInWithEnv(WORK_ROOT, '--post', be, { SCADA_FROZEN_MAX_AGE_MS: '1' })
+    expect(post.code).toBe(0)
+    expect(post.out).toContain('基线较旧')
+    // 不能静默通过 —— 必须让人知道「参照物不新鲜」
+    expect(post.out).toContain('弱于新鲜基线')
+  }, 30000)
+
+  it('新鲜基线 + 真污染 → 判词仍是「构建窗口内工作区被改动」（时效逻辑不得削弱主判据）', async () => {
+    const be = freshRepo('age-fresh-dirty-be')
+    initRepo(be)
+    fs.writeFileSync(path.join(be, 'app.py'), 'print(1)\n')
+    commitAll(be, 'init')
+
+    const pre = await runIn(WORK_ROOT, '--pre', be)
+    expect(pre.code).toBe(0)
+    fs.writeFileSync(path.join(be, 'pollution.py'), 'x\n')
+
+    const post = await runIn(WORK_ROOT, '--post', be) // 不压阈值 = 新鲜
+    expect(post.code).toBe(1)
+    expect(post.out).toContain('构建窗口内工作区被改动')
+    expect(post.out).not.toContain('基线**已过期**')
+
+    fs.rmSync(path.join(be, 'pollution.py'), { force: true })
   }, 30000)
 })
 
