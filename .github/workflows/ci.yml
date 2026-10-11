@@ -74,6 +74,24 @@ jobs:
           repository: chenxinghang-a/scada
           path: backend-src
 
+      - name: Record workspace baseline (gate 8 · pre)
+        # 第八道闸门（2026-10-11 补）：**双时刻工作区断言**。
+        #
+        # 为什么 CI 里也需要它 —— 这里不是"CI 是全新 clone 所以不会脏"那么简单：
+        #   本 job 从 checkout 到 electron-builder 之间有**约 10 个步骤**
+        #   （PyInstaller、两次 npm ci、build、三组测试、dist 验证……）。
+        #   任何一步意外改动了被跟踪的源码（依赖的 postinstall 脚本、
+        #   工具写出的临时文件、将来可能加的缓存恢复），都会让**打包进去的源码
+        #   与 checkout 出来的不是同一份**，而下游七道闸门全部看不见这件事 ——
+        #   它们只管产物内部一致性。
+        #
+        # 与 `npm run electron:build:frozen` 是同一支脚本、同一套判据：
+        #   ① HEAD ② porcelain（抓未跟踪新文件）③ git diff HEAD 正文哈希。
+        #   CI 环境下 `backend-src` 会被候选列表自动探测到，一并纳入指纹。
+        #
+        # 放在 backend checkout 之后：那一刻两个仓库的源码都已就位。
+        run: node tools/verify-workspace-frozen.js --pre
+
       - uses: actions/setup-python@v5
         with:
           python-version: '3.13'
@@ -212,6 +230,18 @@ jobs:
         run: |
           set -o pipefail
           npx electron-builder --win --publish never 2>&1 | tee electron-build.log
+
+      - name: Assert workspace unchanged since checkout (gate 8 · post)
+        # 第八道闸门的后半程：与上面 `gate 8 · pre` 拍的基线比对。
+        #
+        # 位置很关键 —— **紧跟 electron-builder 之后**，在其它产物验证之前：
+        # 到这一步「打包用的源码」就已经固定了（产物躺在 release/ 里），
+        # 此刻断言最准；再往后的步骤只读产物、不再影响源码。
+        #
+        # 判负即意味着：**这个安装包是用"与 checkout 不一致的源码"打的**，
+        # 下游七道闸门（asar / 版本一致 / 后端能跑 / 打包版能挂载）**全部看不见**这件事。
+        # fail-closed：不一致则 exit 1，直接挡住本 job，不产出可发布的包。
+        run: node tools/verify-workspace-frozen.js --post
 
       - name: Verify asar integrity
         # 第二道闸门：安装包内 app.asar 的 dist/index.html 引用必须全部存在且非空。

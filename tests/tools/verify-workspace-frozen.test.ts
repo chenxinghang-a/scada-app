@@ -65,25 +65,6 @@ function commitAll(dir: string, msg: string): void {
   git(dir, ['commit', '-q', '-m', msg])
 }
 
-/** 跑闸门；可指定 `SCADA_BACKEND_REPO` 把后端指向夹具。 */
-function run(
-  phase: '--pre' | '--post',
-  backendRepo?: string,
-  cwd = REPO,
-): Promise<{ code: number; out: string }> {
-  return new Promise((resolve) => {
-    const env = { ...process.env }
-    if (backendRepo) env.SCADA_BACKEND_REPO = backendRepo
-    else delete env.SCADA_BACKEND_REPO
-    const child = spawn(process.execPath, [TOOL, phase], { cwd, env })
-    let out = ''
-    child.stdout.on('data', (d) => { out += d })
-    child.stderr.on('data', (d) => { out += d })
-    child.on('error', (e) => resolve({ code: -1, out: `spawn 失败: ${e.message}` }))
-    child.on('close', (code) => resolve({ code: code ?? -1, out }))
-  })
-}
-
 /**
  * 关键：闸门的基线是一个**仓库内固定路径**的文件
  * （`<repo>/.vitest_cache/workspace-frozen-state.json`）。
@@ -106,13 +87,24 @@ function makeWorkRoot(): string {
 
 /** 在 workroot 里跑闸门。 */
 function runIn(root: string, phase: '--pre' | '--post', backendRepo?: string) {
+  return runRaw(root, [phase], backendRepo)
+}
+
+/**
+ * 在指定根里跑闸门，参数自由。
+ *
+ * ⚠️ 一律走**复制的副本**（`<root>/tools/verify-workspace-frozen.js`），
+ *    绝不对真实 `TOOL` 直接 spawn —— 它的 REPO_ROOT 是编译期常量、
+ *    不受 cwd 影响，直接跑会写真实仓库的基线并探测真实后端仓库（别的会话的工作区）。
+ */
+function runRaw(root: string, args: string[], backendRepo?: string) {
   const env = { ...process.env }
   if (backendRepo) env.SCADA_BACKEND_REPO = backendRepo
   else delete env.SCADA_BACKEND_REPO
   return new Promise<{ code: number; out: string }>((resolve) => {
     const child = spawn(
       process.execPath,
-      [path.join(root, 'tools', 'verify-workspace-frozen.js'), phase],
+      [path.join(root, 'tools', 'verify-workspace-frozen.js'), ...args],
       { cwd: root, env },
     )
     let out = ''
@@ -135,9 +127,24 @@ beforeAll(() => {
 // ---------------------------------------------------------------------------
 
 describe('用法与 fail-closed（不降级放行）', () => {
-  it('--pre / --post 必须二选一，同时给或都不给都报用法错', async () => {
-    const r1 = await run('--pre', undefined, WORK_ROOT)
-    expect(typeof r1.code).toBe('number') // 只是确认能跑，不在这里断言
+  it('--pre / --post 二选一：同时给或都不给都报用法错（exit 1）', async () => {
+    // ⚠️ 必须用**隔离的 workroot** 跑，不能对真实 TOOL 直接跑：
+    //    `TOOL` 的 REPO_ROOT 是编译期常量（resolve(__dirname,'..') = 真实仓库根），
+    //    **不受 cwd 影响** —— 直接跑它会往真实仓库写 .vitest_cache/ 下的基线文件，
+    //    并且去探测**真实后端仓库**（那是另一个会话的活工作区）。
+    //    首版就是这么写的，属测试污染，已改。
+    const iso = path.join(FIXTURE_ROOT, 'usage')
+    fs.mkdirSync(path.join(iso, 'tools'), { recursive: true })
+    fs.copyFileSync(TOOL, path.join(iso, 'tools', 'verify-workspace-frozen.js'))
+    fs.copyFileSync(path.join(REPO, 'package.json'), path.join(iso, 'package.json'))
+
+    const both = await runRaw(iso, ['--pre', '--post'])
+    expect(both.code).toBe(1)
+    expect(both.out).toContain('用法')
+
+    const neither = await runRaw(iso, [])
+    expect(neither.code).toBe(1)
+    expect(neither.out).toContain('用法')
   }, 30000)
 
   it('没有基线就跑 --post → exit 1 且说明必须先跑 --pre', async () => {
@@ -358,6 +365,40 @@ describe('★ 自指污染：闸门不得把自己写的基线当成污染', () 
   }, 30000)
 })
 
+describe('测试自身不得污染真实仓库（首版就是这样被自己污染的）', () => {
+  it('本测试文件里不得出现对真实 TOOL 的直接 spawn', () => {
+    // 为什么要有这条：
+    //   `TOOL`（= 真实仓库里的 verify-workspace-frozen.js）的 REPO_ROOT 是
+    //   **编译期常量** `resolve(__dirname, '..')`，**不受 spawn 的 cwd 影响**。
+    //   直接 spawn 它 = 往**真实仓库**写基线文件（`.vitest_cache/workspace-frozen-state.json`）
+    //   + 去探测**真实后端仓库**（另一个会话的活工作区）。
+    //
+    //   首版就是这么写的（一个 `run()` 辅助函数），后果实测：
+    //     * 真实仓库被留下一个 state 文件 → 本机下次 `electron:build:frozen`
+    //       会拿旧基线比对 → 直接误红；
+    //     * 而且它是 flaky 的来源之一。
+    //
+    //   一律走 `<workroot>/tools/verify-workspace-frozen.js` 副本。
+    const src = fs.readFileSync(
+      path.join(REPO, 'tests', 'tools', 'verify-workspace-frozen.test.ts'),
+      'utf8',
+    )
+    // 断言：spawn 的脚本路径参数必须来自 root（拼 `'tools', 'verify-workspace-frozen.js'`），
+    // 而不是那个裸的 TOOL 常量。
+    expect(src, '不得把 TOOL 直接喂给 spawn（会写真实仓库基线）')
+      .not.toMatch(/spawn\([^)]*\[\s*TOOL\s*,/)
+    expect(src).toContain("path.join(root, 'tools', 'verify-workspace-frozen.js')")
+  })
+
+  it('真实仓库的 .vitest_cache 下不该留基线文件（测试跑完必须干净）', () => {
+    // 这条是本测试文件**自己**的副作用检查：跑完后真实仓库的 STATE_FILE 不该存在。
+    // （正常构建时它存在是**对的** —— pre 写了、post 读；但测试跑完不该留。）
+    const realState = path.join(REPO, '.vitest_cache', 'workspace-frozen-state.json')
+    // 注意：本断言依赖「测试全程只碰副本」。若它挂了，说明又有人在碰真实仓库。
+    expect(fs.existsSync(realState), `测试污染了真实仓库：${realState} 应不存在`).toBe(false)
+  })
+})
+
 describe('候选列表与 verify-staging.js 保持一致（防两处漂移）', () => {
   it('backendRepoCandidates() 的两份实现（含 env 覆盖位）逐项相同', () => {
     const req = createRequire(import.meta.url)
@@ -411,5 +452,48 @@ describe('与构建链的接线（防止闸门被摘掉）', () => {
     expect(src).toContain('_frozen("post")')
     // 污染时必须返回退出码 3（区别于「构建失败 1」），不能悄悄当成功
     expect(src).toContain('return 3')
+  })
+
+  it('CI 里也接了闸门，且 pre/post **夹住**了打包步骤', () => {
+    // 为什么 CI 也要有：本 job 从 checkout 到 electron-builder 之间有约 10 个步骤
+    // （PyInstaller、两次 npm ci、build、三组测试……）。任何一步意外改了被跟踪源码
+    // （依赖的 postinstall、工具写出的文件、将来可能加的缓存恢复），都会让
+    // **打包进去的源码 ≠ checkout 出来的源码**，而下游七道闸门看不见这件事。
+    const yml = fs.readFileSync(
+      path.join(REPO, '.github', 'workflows', 'ci.yml'),
+      'utf8',
+    )
+
+    const iPre = yml.indexOf('verify-workspace-frozen.js --pre')
+    const iBuild = yml.indexOf('name: Build NSIS installer')
+    const iPost = yml.indexOf('verify-workspace-frozen.js --post')
+
+    expect(iPre, '--pre 未接进 CI').toBeGreaterThanOrEqual(0)
+    expect(iPost, '--post 未接进 CI').toBeGreaterThanOrEqual(0)
+
+    // ★ 核心：pre 必须在打包**之前**、post 在打包**之后** —— 否则断言的不是
+    //   「打包用的那份源码」，而是别的时刻的快照，等于没测。
+    expect(iBuild).toBeGreaterThan(iPre)
+    expect(iPost).toBeGreaterThan(iBuild)
+  })
+
+  it('CI 的 post 断言必须紧跟打包，且不能是 if: always() 之外的软失败', () => {
+    // 这条防「闸门被接成提醒而不是门」—— 若 post 带了 `continue-on-error: true`
+    // 或 `if: always()`（在失败步骤里也当成功），它就退化成只打日志。
+    const yml = fs.readFileSync(
+      path.join(REPO, '.github', 'workflows', 'ci.yml'),
+      'utf8',
+    )
+    const idx = yml.indexOf('verify-workspace-frozen.js --post')
+    // 取该 run 所在 step 块（往上找最近的 `- name:`，往下到下一个 `- name:`）
+    const blockStart = yml.lastIndexOf('\n      - name:', idx)
+    const blockEnd = yml.indexOf('\n      - name:', idx)
+    const block = yml.slice(blockStart, blockEnd === -1 ? undefined : blockEnd)
+
+    expect(block).not.toContain('continue-on-error: true')
+    // 允许 `if: always()` 的前提是它**仍然会因 exit 1 让 job 失败**；
+    // 但我们这里刻意不加（它会掩盖「前面的步骤崩了」这一事实），
+    // 所以直接断言没有 if 条件 —— 若将来看清理由要加，改这条测试即可。
+    expect(block).not.toMatch(/^\s+if:/m)
   })
 })

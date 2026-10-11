@@ -347,13 +347,22 @@ polling 路径完好，问题在客户端配置。
 只比哈希会**漏掉「构建中新建一个 .py」**（而 PyInstaller 恰恰会收它）；
 只比 porcelain 则漏掉「改一个已修改文件的正文」（行仍是 ` M`）。
 
-**接线**: `npm run electron:build:frozen`（pre → 原链 → post）；
-本机脚本 `tools/run_electron_build.py` 也在构建前后调闸门，污染时**退出码 3**
-（区别于「构建失败 1」）—— 包已产出但**不可信，禁止部署**。
+**接线**: 三处，覆盖本机两个入口 + CI（2026-10-11 补 CI 一处）：
+- `npm run electron:build:frozen`（pre → 原链 → post）；**原 `electron:build` 不动**，不打断既有用法
+- 本机脚本 `tools/run_electron_build.py` 构建前后调闸门，污染时**退出码 3**
+  （区别于「构建失败 1」）—— 包已产出但**不可信，禁止部署**
+- **CI**（`.github/workflows/ci.yml` 的 `electron-build` job）：`--pre` 放在
+  backend checkout 之后、`--post` **紧跟 `Build NSIS installer`**。
+  CI 虽是全新 clone，但该 job 从 checkout 到打包之间有约 10 个步骤
+  （PyInstaller、两次 `npm ci`、build、三组测试、dist 验证……），
+  任何一步意外改了被跟踪源码，都会让**打包进去的源码 ≠ checkout 出来的源码**，
+  而下游七道闸门同样看不见。有守卫测试断言 pre/post **夹住**打包步骤、
+  且 post 不带 `continue-on-error` / `if:`（防退化成"只打日志的提醒"）。
 
-**守卫**: `tests/tools/verify-workspace-frozen.test.ts`（15 例，含 2 例自指污染 +
-候选列表与 `verify-staging.js` 的一致性绑定）。
-变异验证：① 去掉 porcelain 判据 → 未跟踪文件用例精确红；② 去掉自产物剔除 → 自指用例红。
+**守卫**: `tests/tools/verify-workspace-frozen.test.ts`（17 例，含 2 例自指污染 +
+候选列表与 `verify-staging.js` 的一致性绑定 + 3 例接线守卫）。
+变异验证：① 去掉 porcelain 判据 → 未跟踪文件用例精确红；② 去掉自产物剔除 → 自指用例红；
+③ 把 CI 的 post 移到打包之前 → 「夹住」用例精确红。
 
 **自指污染（首版缺陷，自测抓出）**: 首版闸门把自己的基线文件
 （`.vitest_cache/workspace-frozen-state.json`）当成了「新出现的污染文件」——
