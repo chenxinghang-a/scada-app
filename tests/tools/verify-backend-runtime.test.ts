@@ -83,7 +83,40 @@ if (writeRuntime) {
   )
 }
 
+// ---- 实时通道（socket.io / engine.io）白名单 ------------------------------
+//
+// 这个夹具**必须**忠实地模拟真后端的 Origin 白名单行为，否则测不到东西：
+// 闸门阶段二点五会「Origin: file:// 必须放行」+「非白名单必须被拒」。
+// 若夹具对任何 Origin 都回 200（早先的写法），反向对照会**恒失败** ——
+// 而更糟的是那种夹具会让「白名单被改成全开」这个真缺陷**测不出来**。
+// 默认值取真后端 websocket.py 的降级默认（'file://' 是桌面版的生命线）：
+//   return ['file://', 'http://localhost:5000', 'http://127.0.0.1:5000']
+// FAKE_SOCKET_ORIGINS 可覆盖；字面量 '*' 表示「全开」（用来做判别力对照）。
+const socketOrigins = process.env.FAKE_SOCKET_ORIGINS
+  ? process.env.FAKE_SOCKET_ORIGINS.split(',').map((s) => s.trim()).filter(Boolean)
+  : ['file://', 'http://localhost:5000', 'http://127.0.0.1:5000']
+const socketOpen = socketOrigins.includes('*')
+
 http.createServer((req, res) => {
+  // socket.io / engine.io 握手路径：按 Origin 白名单放行或拒绝。
+  // 真后端是 SocketIO(app, cors_allowed_origins=...) 在 engine.io 层回：
+  //   白名单 → 200 + 握手包；非白名单 → 400 + "Not an accepted origin."
+  if ((req.url || '').startsWith('/socket.io/')) {
+    const origin = req.headers['origin']
+    const allowed = socketOpen || (origin !== undefined && socketOrigins.includes(origin))
+    if (!allowed) {
+      res.writeHead(400, { 'Content-Type': 'text/plain' })
+      res.end(origin + ' is not an accepted origin.')
+      return
+    }
+    const hs = '0{"sid":"fake-sid","upgrades":["websocket"],"pingInterval":25000,"pingTimeout":20000}'
+    // 真后端回显 Origin（非 '*' 时不设 ACAO）；这里只在明确有 Origin 时回显
+    const headers = { 'Content-Type': 'text/plain' }
+    if (origin) headers['Access-Control-Allow-Origin'] = origin
+    res.writeHead(200, headers)
+    res.end(hs)
+    return
+  }
   res.writeHead(status, { 'Content-Type': 'application/json' })
   res.end(payload)
 }).listen(port, '127.0.0.1')
@@ -561,6 +594,55 @@ describe('smoke() —— 真起进程的闸门（fail-closed）', () => {
     expect(code).toBe(1)
     expect(out).toContain('不一致')
     expect(out).toContain(String(other))
+  }, 30000)
+
+  // ---- 阶段二点五：实时通道（socket.io / engine.io）握手 ---------------------
+  //
+  // 这三条是本轮新增探测的**判别力保证**。没有它们，阶段二点五就是一段
+  // 只会走 happy path 的代码 —— 与「健康绿 + 页面挂载绿 → 收工」是同一种病：
+  // 闸门看着在跑，但它测的性质与「实时通道能不能用」无关。
+  //
+  // 两条反向 + 一条正向，正好覆盖历史上真实出过的两种形态：
+  //   · 白名单漏了 `file://`（1087 头号缺陷）→ 桌面版静默无实时数据；
+  //   · 白名单被改成全开 `*` → 「能连上」变成假象，闸门被拆掉而不是修好。
+
+  it('【实时通道】白名单不含 file:// → exit 1（桌面版将静默失去实时数据）', async () => {
+    const port = await freePort()
+    // 白名单故意只留 localhost —— 这正是 Electron 桌面版（file://）连不上的形态。
+    const { code, out } = await runSmoke({
+      FAKE_PORT: String(port), FAKE_PAYLOAD: HEALTHY,
+      FAKE_SOCKET_ORIGINS: 'http://localhost:5000,http://127.0.0.1:5000',
+    })
+    expect(code).toBe(1)
+    // 断言「原因」：这条与「反向对照失败」都返回 1，只看 exit code 会互相掩护。
+    expect(out).toContain('socket.io 握手被拒')
+    expect(out).toContain('静默失去实时数据')
+    expect(out).toContain('file://')
+    // 健康端点明明 healthy —— 正是这条探测存在的理由：健康绿推不出实时通道绿。
+    expect(out).toContain('global_status : healthy')
+  }, 30000)
+
+  it('【实时通道】反向对照：白名单被改成全开 * → exit 1', async () => {
+    const port = await freePort()
+    // '*' = 接受任何 Origin。此时 `file://` 当然「通过」，但那是闸门被拆，
+    // 不是修好 —— 反向对照必须把这种「假通过」抓出来。
+    const { code, out } = await runSmoke({
+      FAKE_PORT: String(port), FAKE_PAYLOAD: HEALTHY, FAKE_SOCKET_ORIGINS: '*',
+    })
+    expect(code).toBe(1)
+    expect(out).toContain('反向对照失败')
+    expect(out).toContain('evil.example.com')
+    expect(out).toContain('形同虚设')
+  }, 30000)
+
+  it('【实时通道】【正向对照】白名单正确 → file:// 放行 + 非白名单被拒', async () => {
+    const port = await freePort()
+    const { code, out } = await runSmoke({ FAKE_PORT: String(port), FAKE_PAYLOAD: HEALTHY })
+    expect(code).toBe(0)
+    // 正向证据：既要看到 file:// 放行，也要看到 evil 被拒 —— 缺任一条这段就是空跑。
+    expect(out).toContain('Origin=file:// → HTTP 200')
+    expect(out).toContain('ACAO="file://"')
+    expect(out).toContain('Origin=evil → HTTP 400')
   }, 30000)
 })
 

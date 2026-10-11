@@ -19,16 +19,25 @@
  * 于是「构建成功 + exe 存在 + CI 全绿」与「产物一运行就崩」可以同时成立。
  * 这是典型的 **fail-open 闸门**：闸门装了，但它测的性质与「能不能用」无关。
  *
- * 本脚本把闸门改成 fail-closed，判五件事：
+ * 本脚本把闸门改成 fail-closed，判六件事：
  *
  *   1. 进程**活着**（没在启动阶段就退出 —— 缺 hiddenimport 的典型症状）；
  *   2. 端口**起来了**；
  *   3. `/api/health/status` 返回 200 且 `success == true`；
  *   4. 健康判定**没有确定的负面信号**，且后台巡检线程**已跑过至少一轮**；
- *   5. **前后端契约**：后端写出的 `runtime.json`，必须能在**前端自己算出的路径**
+ *   5. **实时通道**（socket.io / engine.io）握手：`Origin: file://` 必须通过，
+ *      且**非白名单 Origin 必须被拒**（反向对照）；
+ *   6. **前后端契约**：后端写出的 `runtime.json`，必须能在**前端自己算出的路径**
  *      上找到，且里面的端口等于实际监听端口。
  *
- * 第 5 条是本脚本与后端仓库那份闸门（`.github/scripts/smoke_packaged_backend.py`）
+ * 第 5 条补的是「健康绿 ≠ 实时通道能用」这条缝：
+ *   `/api/health/status` 走普通 HTTP 路由（读 Flask-CORS），实时通道走
+ *   socket.io/engine.io（读 `web.cors.origins`）—— **两份配置、两条路径**。
+ *   Bug 8（transports 顺序）与 1087（origins 缺 `file://`）都出在这一层，
+ *   且两者发生时**健康端点全程 healthy、页面照常挂载** —— 前端静默无数据。
+ *   反向对照是判别力保证：没有它，`file://` 通过可能只是"CORS 被全开"。
+ *
+ * 第 6 条是本脚本与后端仓库那份闸门（`.github/scripts/smoke_packaged_backend.py`）
  * 的本质区别，也是它存在的主要理由 —— 后端那份测的是「后端自己能不能跑」，
  * 测不到「前端能不能找到它」。而 2026-09-24 实测到的真实缺陷正好落在这一层：
  *
@@ -376,6 +385,48 @@ function httpGet(url, timeoutMs) {
 }
 
 /**
+ * 与 `httpGet` 同款，但**支持自定义请求头**（socket.io 探测需要 `Origin`）。
+ *
+ * 为什么探测 socket.io 要用 `http.get` 而不是 fetch/undici：
+ * 本机/CI 的环境里 fetch 会**走系统代理**，对 127.0.0.1 的请求被拦坏；
+ * `http.get` 不经代理（与 `httpGet` 的理由一致）。
+ *
+ * @param {string} url
+ * @param {Record<string,string>} headers
+ * @param {number} timeoutMs
+ * @returns {Promise<{status: number|null, headers: Record<string,string>, body: string}>}
+ */
+function httpGetWithHeaders(url, headers, timeoutMs) {
+  return new Promise((resolve) => {
+    let settled = false;
+    const done = (v) => { if (!settled) { settled = true; resolve(v); } };
+    let req;
+    try {
+      req = http.get(url, { timeout: timeoutMs, headers: headers || {} }, (res) => {
+        const chunks = [];
+        let size = 0;
+        res.on('data', (c) => {
+          size += c.length;
+          if (size <= MAX_BODY_BYTES) chunks.push(c);
+        });
+        res.on('end', () => {
+          done({
+            status: res.statusCode ?? null,
+            headers: res.headers || {},
+            body: Buffer.concat(chunks).toString('utf-8'),
+          });
+        });
+        res.on('error', (e) => done({ status: res.statusCode ?? null, headers: res.headers || {}, body: `响应流错误: ${e.message}` }));
+      });
+    } catch (e) {
+      return done({ status: null, headers: {}, body: `请求构造失败: ${e.message}` });
+    }
+    req.on('error', (e) => done({ status: null, headers: {}, body: `请求失败: ${e.message}` }));
+    req.on('timeout', () => { try { req.destroy(); } catch (e) { /* */ } done({ status: null, headers: {}, body: `请求超时(${timeoutMs}ms)` }); });
+  });
+}
+
+/**
  * 杀掉整棵进程树（含根进程）。
  *
  * 必须整树：PyInstaller onedir 的 exe 会拉起子进程（采集线程 / 后台任务），
@@ -689,6 +740,54 @@ async function smoke(opts) {
       return fail(`健康检查未在 ${checksTimeout}s 内通过: ${lastNote}`, readLog(), logTail);
     }
 
+    // ---- 阶段二点五：实时通道（socket.io / engine.io）握手 ----------------
+    // 为什么必须单独验这一层（Bug 8 家族 + 1087 头号缺陷）：
+    //   `/api/health/status` 走的是**普通 HTTP 路由**，它读的是 Flask-CORS 的配置；
+    //   而实时通道走的是 **socket.io / engine.io**，读的是 `web.cors.origins`
+    //   （`展示层/websocket.py::_load_cors_origins()`）—— **两份配置、两条路径**。
+    //   历史上两者都出过事：
+    //     · Bug 8：transports 顺序 → 实时通道从未连上（健康端点全程绿）；
+    //     · 1087：origins 不含 `file://` → 打包版（file:// 上下文）握手被拒 400，
+    //             而健康端点照样 healthy、页面照样挂载 —— **前端全程静默无实时数据**。
+    //   所以「健康绿 + 页面挂载绿」**推不出**「实时通道能用」，必须真握手一次。
+    //
+    // 判据（两条缺一不可）：
+    //   ① `Origin: file://` → 握手**通过**（HTTP 200 且响应体是 engine.io 握手包、
+    //      不含 "not an accepted origin"）；
+    //   ② **反向对照**：非白名单 Origin（`http://evil.example.com`）→ **必须被拒**。
+    //   没有 ②，①的"通过"可能只是"CORS 被全开了" —— 那是把闸门拆掉，不是修好。
+    const sockUrl = `http://127.0.0.1:${port}/socket.io/?EIO=4&transport=polling`;
+    const originOk = await httpGetWithHeaders(sockUrl, { Origin: 'file://' }, 10000);
+    const originBody = originOk.body || '';
+    const originRejected = /not an accepted origin/i.test(originBody);
+    if (originRejected || originOk.status !== 200) {
+      return fail(
+        `socket.io 握手被拒（Origin: file://）—— 打包版前端将**静默失去实时数据**。\n`
+        + `       HTTP ${originOk.status}, body=${originBody.slice(0, 160)}\n`
+        + '       后果：Health 端点照样 healthy、页面照样挂载 —— 只有实时数据永不更新，\n'
+        + '       用户在界面看不出异常（除非盯着数值不动）。\n'
+        + '       修法：把 `file://` 加进后端 `配置/system.yaml` 的 `web.cors.origins`',
+        readLog(), logTail);
+    }
+    const acao = originOk.headers['access-control-allow-origin'];
+    console.log(`socket   : Origin=file:// → HTTP ${originOk.status} ACAO=${JSON.stringify(acao)}`);
+
+    // ② 反向对照：非白名单 Origin 必须被拒（证明白名单真的在筛，不是全开）
+    const originEvil = await httpGetWithHeaders(sockUrl, { Origin: 'http://evil.example.com' }, 10000);
+    // engine.io 对未接受 Origin 的形态通常是 HTTP 400 + "Not an accepted origin."
+    // （少数版本回 200 但 body 里带拒绝串）—— 两种形态都要认。
+    const evilBlocked = /not an accepted origin/i.test(originEvil.body || '')
+      || originEvil.status === 400;
+    if (!evilBlocked) {
+      return fail(
+        '反向对照失败：非白名单 Origin（http://evil.example.com）**没有被拒** —— '
+        + '说明 CORS 白名单形同虚设（很可能是被改成了全开 `*`）。\n'
+        + `       HTTP ${originEvil.status}, body=${String(originEvil.body || '').slice(0, 160)}\n`
+        + '       这一条是「①握手通过」的**判别力保证**：没有它，①通过可能只是闸门被拆。',
+        readLog(), logTail);
+    }
+    console.log(`socket   : Origin=evil → HTTP ${originEvil.status}（已按预期拒绝）`);
+
     // ---- 阶段三：前后端端口文件契约 -------------------------------------
     // 这是本脚本存在的**主要理由**：后端能跑 ≠ 前端找得到它。
     // 用前端真正的实现（electron/backend-paths.js，main.js 用的就是它）去找
@@ -712,7 +811,8 @@ async function smoke(opts) {
     }
     console.log(`runtime  : ${found}（port=${reported}，与实际监听一致）`);
 
-    console.log('\n[PASS] 打包产物能启动、模块全部就绪、后台巡检线程已跑过至少一轮，'
+    console.log('\n[PASS] 打包产物能启动、模块全部就绪、后台巡检线程已跑过至少一轮、'
+      + '实时通道握手通过（file:// 放行 + 非白名单被拒），'
       + '且前端能在自己的口径上找到后端端口文件');
     ok = true;
     return 0;
