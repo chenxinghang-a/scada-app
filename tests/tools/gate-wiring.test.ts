@@ -283,44 +283,66 @@ describe('闸门接线（死闸门探测）', () => {
     expect(existing.has('tools/verify-dist.js')).toBe(true)
   })
 
-  it('⑤ scripts/ 下的脚本必须被人引用（防「孤儿脚本」）', () => {
+  it('⑤ 脚本位置（根目录 / scripts/ / .github/scripts/）下的脚本必须有人引用', () => {
     const orphans = findOrphanScripts()
     expect(
       orphans,
-      '以下 `scripts/` 下的脚本**没有任何引用者**（不在任何 npm script、CI 步骤、' +
-        '测试或其它源码里被调用）—— 写了等于没写，且容易误导后人以为它在生效：\n' +
+      '以下脚本**没有任何引用者**（不在任何 npm script、CI 步骤、测试或其它源码里被调用）' +
+        '—— 写了等于没写，且容易误导后人以为它在生效：\n' +
         orphans.map((o) => `  ${o}`).join('\n') +
-        '\n修法：把它接进正确的链路（npm script / CI / 测试），或删掉它（若已作废）。' +
+        '\n修法：把它接进正确的链路（npm script / CI / 测试），或删掉它（若已作废）；' +
+        '若确实是"一次性生成器"（产物已入库、只需按需重跑），加进 ONE_SHOT_GENERATORS 并写理由。' +
         '\n（本仓纪律：失效脚本应由人删除文件，而不是登记成"已知孤儿"。）',
     ).toEqual([])
   })
 
   it('⑤b 判别力自检：findOrphanScripts 能区分「被引用」与「没人引用」', () => {
-    // 用真实仓库的 scripts/ 目录，但喂一份合成的"引用者文本"：
-    // 不包含任何脚本名 → 所有脚本都应被判为孤儿（证明识别非恒空）；
+    // 用真实仓库的脚本集合，但喂一份合成的"引用者文本"：
+    // 不包含任何脚本名 → 全部（除一次性生成器豁免外）都应被判孤儿（证明识别非恒空）；
     // 含某个脚本名 → 那个必须落榜（证明匹配真的生效）。
-    const real = (() => {
-      const dir = path.join(REPO, 'scripts')
-      return fs.existsSync(dir)
-        ? fs.readdirSync(dir).filter((f) => /\.(ts|js|cjs|mjs)$/.test(f)).sort()
-        : []
-    })()
-    if (real.length === 0) return // 无 scripts/ 时本判据不适用（不假装通过）
+    const real = scandScriptFiles()
+    if (real.length === 0) return // 无候选脚本时本判据不适用（不假装通过）
 
+    const exempt = new Set(ONE_SHOT_GENERATORS.map((e) => e.file))
     const none = findOrphanScripts({ referrers: '' })
-    expect(none.length, '空引用者文本下所有脚本都该判孤儿（识别失效则恒空）').toBe(real.length)
+    expect(
+      none.length,
+      '空引用者文本下的孤儿数 != 候选脚本数 − 豁免数（识别失效则恒空）',
+    ).toBe(real.length - exempt.size)
 
-    const one = findOrphanScripts({ referrers: `npx ts-node scripts/${real[0]}` })
-    expect(one.includes(real[0]), '引用者文本里出现了却仍被判孤儿 —— 匹配失效').toBe(false)
+    const target = real.find((f) => !exempt.has(f))
+    if (target) {
+      const one = findOrphanScripts({ referrers: `npx ts-node ${target}` })
+      expect(one.includes(target), '引用者文本里出现了却仍被判孤儿 —— 匹配失效').toBe(false)
+    }
+  })
+
+  it('⑤c 一次性生成器豁免表不得含「已不存在的文件」（防豁免表变垃圾场）', () => {
+    const stale = ONE_SHOT_GENERATORS.filter((e) => !fs.existsSync(path.join(REPO, e.file)))
+    expect(
+      stale.map((e) => e.file),
+      '以下文件已加到 ONE_SHOT_GENERATORS 豁免表，但文件**已不存在** —— ' +
+        '豁免表应在文件删除时同步清理，否则它会积累成"看起来有人管、实际是垃圾"的清单：',
+    ).toEqual([])
+    // 豁免表每条都必须写理由（防止有人图省事塞个空理由进来）
+    const noReason = ONE_SHOT_GENERATORS.filter((e) => !e.why?.trim())
+    expect(noReason.map((e) => e.file), '豁免表有条目没写理由').toEqual([])
   })
 })
 
 /**
- * 找出 `scripts/` 下**没有任何引用者**的脚本。
+ * 找出「脚本位置」下**没有任何引用者**的脚本。
+ *
+ * 脚本位置（`SCRIPT_LOCATIONS`，扩展名按位置区分 —— 见该常量注释）：
+ *   · 仓库根目录（`.py` / `.sh` / `.bat` / `.cjs` / `.mjs`）—— 例如 `generate_icons.py`
+ *   · `scripts/`（`.ts` / `.js` / `.cjs` / `.mjs` / `.py` / `.sh` / `.bat`）
+ *   · `.github/scripts/`（同上）
+ * 注意**不扫** `tools/`（那是 ①~④ 的地盘）与 `electron/`、`src/`（那是运行时代码）。
  *
  * 判据：「引用者文本」= 全部 npm script 命令 + package.json + ci.yml +
  * 全仓测试/源码正文（`.ts/.js/.vue/.json/.yml/.md`）拼接。某脚本文件名
- * （不含扩展名的 basename）在其中**一次都没出现**，即为孤儿。
+ * （不含扩展名的 basename）在其中**一次都没出现**，即为孤儿 —— 除非它在
+ * `ONE_SHOT_GENERATORS` 豁免表里（见该表注释）。
  *
  * ⚠️ **必须排除本守卫文件自身**（实测踩过）：本守卫的注释里会点名被检查的脚本
  * （例如"本仓实测发现 `scripts/generate-api.ts`"），若把自身计入引用者，
@@ -334,13 +356,8 @@ describe('闸门接线（死闸门探测）', () => {
  *
  * `opts.referrers` 仅用于判别力自检（⑤b）注入合成的引用者文本。
  */
-function findOrphanScripts(opts?: { referrers?: string; dir?: string }): string[] {
-  const dir = path.join(REPO, 'scripts')
-  if (!fs.existsSync(dir)) return []
-  const files = fs
-    .readdirSync(dir)
-    .filter((f) => /\.(ts|js|cjs|mjs)$/.test(f))
-    .sort()
+function findOrphanScripts(opts?: { referrers?: string }): string[] {
+  const files = scandScriptFiles()
   if (files.length === 0) return []
 
   let haystack = opts?.referrers
@@ -355,6 +372,7 @@ function findOrphanScripts(opts?: { referrers?: string; dir?: string }): string[
         path.join(REPO, 'src'),
         path.join(REPO, 'electron'),
         path.join(REPO, 'tools'),
+        path.join(REPO, '.github'),
       ],
       selfPath,
     )
@@ -362,11 +380,61 @@ function findOrphanScripts(opts?: { referrers?: string; dir?: string }): string[
       Object.values(s).join('\n') + '\n' + pkgText + '\n' + ciText + '\n' + srcText
   }
 
+  const exempt = new Set(ONE_SHOT_GENERATORS.map((e) => e.file))
   return files.filter((f) => {
-    const base = f.replace(/\.(ts|js|cjs|mjs)$/, '')
+    if (exempt.has(f)) return false
+    const base = path.basename(f).replace(/\.(ts|js|cjs|mjs|py|sh|bat)$/, '')
+    // basename 未在引用者文本中出现 → 孤儿。路径分隔符统一成正斜杠便于展示。
     return !haystack!.includes(base)
   })
 }
+
+/** 收集「脚本位置」下的候选脚本（相对仓库根的路径，正斜杠）。 */
+function scandScriptFiles(): string[] {
+  const out: string[] = []
+  for (const loc of SCRIPT_LOCATIONS) {
+    const dir = path.join(REPO, loc.dir)
+    if (!fs.existsSync(dir)) continue
+    for (const f of fs.readdirSync(dir)) {
+      if (!loc.exts.test(f)) continue
+      out.push(loc.dir === '.' ? f : `${loc.dir}/${f}`)
+    }
+  }
+  return out.sort()
+}
+
+/**
+ * 「一次性生成器」豁免表 —— 这些脚本**有意**不被任何链路调用：
+ * 产物已入库，只在需要时（改设计 / 换图标）手工重跑一次。
+ *
+ * ⚠️ 加进这张表**必须**写 `why`（说清"为什么不需要被引用"），
+ * 并且**文件被删除时必须同步删掉表项**（⑤c 会拦下悬空表项）。
+ * 这是本仓纪律「失效脚本应由人删文件，而不是登记成已知孤儿」的**窄例外**：
+ * 一次性生成器的产物是入库的，删掉脚本反而丢失"怎么重新生成"的知识。
+ */
+const ONE_SHOT_GENERATORS: Array<{ file: string; why: string }> = [
+  {
+    file: 'generate_icons.py',
+    why:
+      '一次性图标生成器：产物 resources/icon.ico 等已入库，仅在改图标设计时手工重跑。' +
+      '不是构建链一环，故有意不被引用。',
+  },
+]
+
+/**
+ * 脚本位置（相对仓库根 + 该位置认的扩展名）。
+ *
+ * ⚠️ **根目录只认 `.py/.sh/.bat/.cjs/.mjs`**，不含 `.ts/.js` —— 根下的
+ * `vite.config.ts` / `vitest.config.ts` 是**工具配置**（由 vite/vitest 隐式加载，
+ * 没有任何地方按名字引用它们），把它们当"脚本"会产生恒假阳性（实测踩过）。
+ * 子目录（`scripts/`、`.github/scripts/`）才认 `.ts/.js`（那里是真正的脚本）。
+ */
+const SCRIPT_LOCATIONS: Array<{ dir: string; exts: RegExp }> = [
+  { dir: '.', exts: /\.(py|sh|bat|cjs|mjs)$/ },
+  { dir: 'scripts', exts: /\.(ts|js|cjs|mjs|py|sh|bat)$/ },
+  { dir: '.github/scripts', exts: /\.(ts|js|cjs|mjs|py|sh|bat)$/ },
+]
+
 
 /** 递归收集一组目录下所有文本文件的正文（跳过 node_modules / .vitest_cache / dist / 自身）。 */
 function collectSourceText(dirs: string[], excludeSelf?: string): string {
