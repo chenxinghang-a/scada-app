@@ -313,6 +313,60 @@ polling 路径完好，问题在客户端配置。
 
 ---
 
+## Bug 9: 构建窗口内工作区被改动 → 污染产物（**闸门体系盲区**）🔴 严重（信任链）
+
+**现象**: v1083 打包产物里混进了**后端 round 210 的部分改动**——
+`config_manager.py` / `system.yaml` 是新版、`data_collector.py` 却是 HEAD 旧版。
+即同一批改动「一半进了一半没进」，产物处于**源码任意中间态**。
+
+**根因**: `PyInstaller` / `electron-builder` 收的是**工作区快照**、**不是 git HEAD**。
+本机 `npm run electron:build` 期间（约 5 分钟窗口），**另一个 AI 会话往后端仓库落盘了** →
+冻结的就是那个瞬间的工作区。
+
+**为什么七道闸门一道都没拦住**: 它们全部只管「**产物内部**的一致性 / 可用性」——
+`verify:staging`（暂存是不是后端源码的产物）、`verify:dist`（dist 引用完整性）、
+`verify:asar`、`verify:version`（前后端版本一致）、`verify:backend-runtime`（产物能否跑）、
+`verify:packaged-runtime`（打包版能否挂载）。
+**没有一道管「构建过程本身有没有被污染」** —— 这是一个体系级的盲区，
+不是某道门写漏了。
+
+**实测证据**: `.vitest_cache/` 下逐文件 `diff -q` 对账 —— 三个文件里一个旧两个新，
+最终判定「功能安全」（新版那两处是死代码 / 零读取点，行为等价 HEAD），但**结论靠人工**。
+
+**修复（第八道闸门，2026-10-11）**: `tools/verify-workspace-frozen.js` ——
+**双时刻工作区断言**：构建**前**拍基线、构建**后**比对，三条判据各自独立：
+
+| 判据 | 命令 | 抓什么 |
+|---|---|---|
+| ① HEAD 变化 | `git rev-parse HEAD` | 构建窗口内提交 / 切分支 |
+| ② 文件清单变化 | `git status --porcelain` | **未跟踪新文件** / 新增删除 / 重命名 |
+| ③ 正文哈希变化 | `git diff HEAD` 的 sha256 | **porcelain 行不变、只有内容被改**（本次事故的精确形态） |
+
+**⚠️ ②③ 必须同时存在** —— 这是本闸门自测时实锤发现的：
+`git diff HEAD` **只看已跟踪文件**，未跟踪的 `??` 完全不出现，
+只比哈希会**漏掉「构建中新建一个 .py」**（而 PyInstaller 恰恰会收它）；
+只比 porcelain 则漏掉「改一个已修改文件的正文」（行仍是 ` M`）。
+
+**接线**: `npm run electron:build:frozen`（pre → 原链 → post）；
+本机脚本 `tools/run_electron_build.py` 也在构建前后调闸门，污染时**退出码 3**
+（区别于「构建失败 1」）—— 包已产出但**不可信，禁止部署**。
+
+**守卫**: `tests/tools/verify-workspace-frozen.test.ts`（15 例，含 2 例自指污染 +
+候选列表与 `verify-staging.js` 的一致性绑定）。
+变异验证：① 去掉 porcelain 判据 → 未跟踪文件用例精确红；② 去掉自产物剔除 → 自指用例红。
+
+**自指污染（首版缺陷，自测抓出）**: 首版闸门把自己的基线文件
+（`.vitest_cache/workspace-frozen-state.json`）当成了「新出现的污染文件」——
+`--pre` 写基线那一刻才建出该目录，`--post` 就多出一行 `?? .vitest_cache/`。
+真实仓库靠 `.gitignore` 恰好盖住，但**闸门的正确性不该外包给别人的配置文件** →
+已在源头按路径前缀剔除（只剔 `.vitest_cache/`，其它未跟踪文件照抓）。
+
+**已明确的盲区（写在脚本注释里，不假装能防住一切）**:
+`.gitignore` 覆盖的文件被改 → 指纹不变；构建工具自写的中间产物（`dist/` / `release/`）
+不参与指纹（**必须**如此，否则每次必红）；探测不到后端仓库时**显式降级**并留痕。
+
+---
+
 ## 迁移计划
 
 将 `industrial_scada` (Flask + Jinja2) 后端整合到 `scada-app` (Vue 3 + Electron)：
