@@ -37,6 +37,7 @@
 import { describe, it, expect } from 'vitest'
 import fs from 'fs'
 import path from 'path'
+import { stripComments } from '../helpers/source-text'
 
 const REPO = process.cwd()
 const API_DIR = path.join(REPO, 'src', 'api')
@@ -45,13 +46,6 @@ const SRC_DIR = path.join(REPO, 'src')
 const read = (p: string) => fs.readFileSync(p, 'utf8')
 
 /** 剥掉注释（「不得出现」类断言必须先过这一步 —— 见 round 191 M4 / 192 的教训）。 */
-function stripComments(src: string): string {
-  return src
-    .replace(/<!--[\s\S]*?-->/g, '')
-    .replace(/\/\*[\s\S]*?\*\//g, '')
-    .replace(/(^|[^:])\/\/.*$/gm, '$1')
-}
-
 /** 取 `export const xxxApi = { … }` 的顶层方法名。 */
 function apiMethods(): Map<string, string[]> {
   const out = new Map<string, string[]>()
@@ -87,7 +81,7 @@ function consumerText(): string {
         if (entry.name === 'api' && path.dirname(full) === SRC_DIR) continue
         walk(full)
       } else if (/\.(ts|vue)$/.test(entry.name)) {
-        parts.push(stripComments(read(full)))
+        parts.push(stripComments(read(full), { html: true }))
       }
     }
   }
@@ -262,7 +256,7 @@ describe('前端 HTTP API 接线状态（src/api 导出面 ⇄ 视图/组件调�
         if (entry.isDirectory()) { walk(full); continue }
         if (!/\.(ts|vue)$/.test(entry.name)) continue
         // 先剥注释 —— 解释性注释里会引用 `api.post(...)` 这个写法本身
-        stripComments(read(full)).split(/\r?\n/).forEach((line, i) => {
+        stripComments(read(full), { html: true }).split(/\r?\n/).forEach((line, i) => {
           if (/\bapi\s*\.\s*(get|post|put|delete|patch)\s*\(/.test(line)) {
             offenders.push(`${path.relative(REPO, full).replace(/\\/g, '/')}:${i + 1}`)
           }

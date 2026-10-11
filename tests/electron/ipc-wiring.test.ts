@@ -44,6 +44,7 @@
 import { describe, it, expect } from 'vitest'
 import fs from 'fs'
 import path from 'path'
+import { stripComments } from '../helpers/source-text'
 
 const REPO = process.cwd()
 const PRELOAD = path.join(REPO, 'electron', 'preload.js')
@@ -67,13 +68,6 @@ const read = (p: string) => fs.readFileSync(p, 'utf8')
  * 已知局限：字符串字面量里的 `//`（如 URL）也会被剥掉。对本文件的用途无害，
  * 但**不要**拿它做「代码里是否出现过某字符串」的通用判定。
  */
-function stripComments(src: string): string {
-  return src
-    .replace(/<!--[\s\S]*?-->/g, '') // HTML/Vue 模板注释
-    .replace(/\/\*[\s\S]*?\*\//g, '') // 块注释
-    .replace(/(^|[^:])\/\/.*$/gm, '$1') // 行注释（[^:] 避开 http:// 之类）
-}
-
 /** preload 通过 contextBridge 暴露的方法名（与 ipc-contract.test.ts 同一套抠法）。 */
 function exposedMethods(): string[] {
   const src = read(PRELOAD)
@@ -214,13 +208,13 @@ describe('Electron IPC 接线状态（preload 暴露面 ⇄ 渲染层调用）',
 describe('Electron 类型声明必须真的生效（不只是「写了」）', () => {
   it('元守卫：剥注释这步真的在起作用（否则下面的断言可能被注释喂饱）', () => {
     const sample = 'const a = 1 // declare global {\n/* declare global { */\nconst b = 2'
-    expect(stripComments(sample)).not.toMatch(/declare\s+global/)
+    expect(stripComments(sample, { html: true })).not.toMatch(/declare\s+global/)
     expect(sample).toMatch(/declare\s+global/) // 原文里确实有，证明剥掉的是它
   })
 
   it('Window 增强不得包在 declare global 里（本文件是全局脚本，不是模块）', () => {
     // 先剥注释：解释性注释里会引用这个写法本身
-    const src = stripComments(read(ENV_D))
+    const src = stripComments(read(ENV_D), { html: true })
     expect(
       /declare\s+global\s*\{/.test(src),
       'env.d.ts 里出现了 `declare global { … }` —— 本文件没有顶层 import/export，' +
@@ -230,7 +224,7 @@ describe('Electron 类型声明必须真的生效（不只是「写了」）', (
   })
 
   it('确实声明了全局 Window.electronAPI（防止「删掉增强」也算通过）', () => {
-    const src = stripComments(read(ENV_D))
+    const src = stripComments(read(ENV_D), { html: true })
     expect(/^interface Window \{[\s\S]*?electronAPI\?: ElectronAPI/m.test(src)).toBe(true)
   })
 
@@ -238,7 +232,7 @@ describe('Electron 类型声明必须真的生效（不只是「写了」）', (
     const offenders: string[] = []
     for (const f of files) {
       // 先剥注释再扫：解释性注释里会引用 `window as any` 这个写法
-      const lines = stripComments(read(f)).split(/\r?\n/)
+      const lines = stripComments(read(f), { html: true }).split(/\r?\n/)
       if (!lines.some((l) => /electronAPI/.test(l))) continue
       lines.forEach((line, i) => {
         if (/window\s+as\s+any/.test(line)) {
@@ -265,13 +259,13 @@ describe('Electron 类型声明必须真的生效（不只是「写了」）', (
  */
 describe('端口字段不得再用语义相反的 portAvailable', () => {
   it('main.js 的 run-diagnostics 用 portFree', () => {
-    const src = stripComments(read(path.join(REPO, 'electron', 'main.js')))
+    const src = stripComments(read(path.join(REPO, 'electron', 'main.js')), { html: true })
     expect(src).not.toMatch(/\bportAvailable\b/)
     expect(src).toMatch(/\bportFree\b/)
   })
 
   it('env.d.ts 同步声明 portFree（两侧一致）', () => {
-    const src = stripComments(read(ENV_D))
+    const src = stripComments(read(ENV_D), { html: true })
     expect(src).not.toMatch(/\bportAvailable\b/)
     expect(src).toMatch(/\bportFree\b/)
   })

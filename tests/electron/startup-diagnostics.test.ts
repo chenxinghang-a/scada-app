@@ -31,6 +31,7 @@ import fs from 'fs'
 import os from 'os'
 import path from 'path'
 import Module from 'module'
+import { stripComments } from '../helpers/source-text'
 
 const REPO = process.cwd()
 const MAIN = path.join(REPO, 'electron', 'main.js')
@@ -43,14 +44,8 @@ const read = (p: string) => fs.readFileSync(p, 'utf8')
  * 基于文本的判定会匹配到注释里那一次，结论完全反掉。
  * （round 191 M4、round 192 的 `saveConfig` 判据、round 197 的 GPU 开关位置。）
  */
-function stripComments(src: string): string {
-  return src
-    .replace(/\/\*[\s\S]*?\*\//g, '')
-    .replace(/(^|[^:])\/\/.*$/gm, '$1')
-}
-
 const SRC = read(MAIN)
-const CODE = stripComments(SRC)
+const CODE = stripComments(SRC, { html: true })
 
 // ---------------------------------------------------------------------------
 // 静态位置（最容易被人「顺手挪一下」而静默失效的部分）

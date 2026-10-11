@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest'
 import fs from 'node:fs'
 import path from 'node:path'
 import { saveStateOf, levelTag, parseAreas, exportFileName } from '@/utils/config'
+import { stripComments } from '../helpers/source-text'
 
 /**
  * Config 组件层接线守卫。
@@ -26,15 +27,8 @@ const CONFIG_VUE = path.join(REPO, 'src', 'views', 'Config.vue')
  * 「已移至 @/utils/config」的说明注释，其中恰好会引用旧实现的样子。
  * 不去注释的话守卫会被自己的说明文字假红 —— 而假红的守卫早晚被人关掉。
  */
-function stripComments(src: string): string {
-  return src
-    .replace(/<!--[\s\S]*?-->/g, '')      // HTML 注释
-    .replace(/\/\*[\s\S]*?\*\//g, '')     // 块注释
-    .replace(/(^|[^:])\/\/[^\n]*/g, '$1') // 行注释（避开 https:// 这类）
-}
-
 const RAW = fs.readFileSync(CONFIG_VUE, 'utf8')
-const CODE = stripComments(RAW)
+const CODE = stripComments(RAW, { html: true })
 
 describe('Config', () => {
   describe('真实实现可用（组件 import 的就是它）', () => {
@@ -81,13 +75,13 @@ describe('Config', () => {
 
     it('守卫本身有效：把旧实现塞回去必须被抓住（防假绿）', () => {
       const poisoned = `${CODE}\nconst LEVEL_MAP: Record<string, { label: string; tag: string }> = {}\n`
-      expect(stripComments(poisoned)).toMatch(/const\s+LEVEL_MAP\s*[:=]/)
+      expect(stripComments(poisoned, { html: true })).toMatch(/const\s+LEVEL_MAP\s*[:=]/)
       expect(CODE).not.toMatch(/const\s+LEVEL_MAP\s*[:=]/)
     })
 
     it('守卫不会被自己的注释假红：注释里提到旧写法不算违规（防假红）', () => {
       const withComment = `${CODE}\n// 原来这里是 const LEVEL_MAP: Record<string, { label: string }> = {}\n`
-      expect(stripComments(withComment)).not.toMatch(/const\s+LEVEL_MAP\s*[:=]/)
+      expect(stripComments(withComment, { html: true })).not.toMatch(/const\s+LEVEL_MAP\s*[:=]/)
     })
   })
 })

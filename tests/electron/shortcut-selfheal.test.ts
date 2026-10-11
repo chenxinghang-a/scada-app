@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import fs from 'node:fs'
 import path from 'node:path'
+import { stripComments } from '../helpers/source-text'
 
 /**
  * 桌面/开始菜单快捷方式**自愈**守卫（2026-10-09）。
@@ -23,14 +24,8 @@ const REPO = process.cwd()
 const MAIN = path.join(REPO, 'electron', 'main.js')
 const read = (p: string) => fs.readFileSync(p, 'utf8')
 
-function stripComments(src: string): string {
-  return src
-    .replace(/\/\*[\s\S]*?\*\//g, '')
-    .replace(/(^|[^:])\/\/.*$/gm, '$1')
-}
-
 describe('快捷方式自愈（存在但目标不对 → 重写）', () => {
-  const src = stripComments(read(MAIN))
+  const src = stripComments(read(MAIN), { html: true })
   const fnStart = src.indexOf('function createShortcuts')
   // ⚠️ 切片必须真正停在函数结尾。2026-10-10 发现：原实现用 indexOf('\n}\n')
   // 找函数尾，但**工作区文件是 CRLF**（pnpm/git autocrlf），'\n}\n' 永远匹配不到

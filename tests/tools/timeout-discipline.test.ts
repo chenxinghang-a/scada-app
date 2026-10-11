@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import fs from 'node:fs'
 import path from 'node:path'
+import { matchParen, stripCommentsAndStrings } from '../helpers/source-text'
 
 /**
  * 元守卫：**真起子进程的用例必须显式给超时**（2026-10-12）。
@@ -89,90 +90,9 @@ function extractItBlocks(src: string): ItBlock[] {
   return blocks
 }
 
-/** 从左括号位置出发，返回配对右括号的偏移；跳过字符串/模板/注释。找不到返回 -1。 */
-function matchParen(src: string, openIdx: number): number {
-  let depth = 0
-  let i = openIdx
-  while (i < src.length) {
-    const ch = src[i]
-    // 字符串字面量 / 模板：整体跳过
-    if (ch === '"' || ch === "'" || ch === '`') {
-      i = skipString(src, i)
-      continue
-    }
-    // 行注释
-    if (ch === '/' && src[i + 1] === '/') {
-      const nl = src.indexOf('\n', i)
-      i = nl < 0 ? src.length : nl
-      continue
-    }
-    // 块注释
-    if (ch === '/' && src[i + 1] === '*') {
-      const end = src.indexOf('*/', i + 2)
-      i = end < 0 ? src.length : end + 2
-      continue
-    }
-    if (ch === '(') depth++
-    else if (ch === ')') {
-      depth--
-      if (depth === 0) return i
-    }
-    i++
-  }
-  return -1
-}
-
-/** 跳过从 i 开始的字符串/模板字面量，返回结束引号之后的位置。支持 `\` 转义。 */
-function skipString(src: string, i: number): number {
-  const quote = src[i]
-  i++
-  while (i < src.length) {
-    if (src[i] === '\\') { i += 2; continue }
-    if (src[i] === quote) return i + 1
-    i++
-  }
-  return src.length
-}
-
-/**
- * 剥离注释与**字符串字面量**。
- *
- * 为什么要剥字符串：真实代码里 `spawn(process.execPath, ...)` 的 `spawn`
- * 关键字在字符串**外**，剥离不影响判定；而**本守卫自己的自检用例**把
- * 被测源码写成**模板字符串**（`` it('x', () => { await run(d) }) ``），
- * 里面的 `spawn(` / `run(` 是**数据不是代码** —— 不剥就会把守卫自己
- * 扫成违规（自指假阳性，本轮实测过）。
- */
-function stripCodeNoise(src: string): string {
-  let out = ''
-  let i = 0
-  while (i < src.length) {
-    const ch = src[i]
-    if (ch === '"' || ch === "'" || ch === '`') {
-      i = skipString(src, i)
-      // 用一个占位符替代，避免前后 token 粘连
-      out += '""'
-      continue
-    }
-    if (ch === '/' && src[i + 1] === '/') {
-      const nl = src.indexOf('\n', i)
-      i = nl < 0 ? src.length : nl
-      continue
-    }
-    if (ch === '/' && src[i + 1] === '*') {
-      const end = src.indexOf('*/', i + 2)
-      i = end < 0 ? src.length : end + 2
-      continue
-    }
-    out += ch
-    i++
-  }
-  return out
-}
-
 /** 该 it 块是否真起进程。 */
 function spawnsProcess(body: string): boolean {
-  const code = stripCodeNoise(body)
+  const code = stripCommentsAndStrings(body)
   return SPAWNS.some((re) => re.test(code))
 }
 

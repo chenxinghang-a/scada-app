@@ -36,19 +36,13 @@
 import { describe, it, expect } from 'vitest'
 import fs from 'fs'
 import path from 'path'
+import { stripComments } from '../helpers/source-text'
 
 const REPO = process.cwd()
 const SRC = path.join(REPO, 'src')
 const COMPONENTS = path.join(SRC, 'components')
 
 const read = (p: string) => fs.readFileSync(p, 'utf8')
-
-function stripComments(src: string): string {
-  return src
-    .replace(/<!--[\s\S]*?-->/g, '')
-    .replace(/\/\*[\s\S]*?\*\//g, '')
-    .replace(/(^|[^:])\/\/.*$/gm, '$1')
-}
 
 /** `src/components/` 下的组件名。 */
 function componentNames(): string[] {
@@ -66,7 +60,7 @@ function srcText(): string {
     for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
       const full = path.join(dir, entry.name)
       if (entry.isDirectory()) walk(full)
-      else if (/\.(ts|vue)$/.test(entry.name)) parts.push(stripComments(read(full)))
+      else if (/\.(ts|vue)$/.test(entry.name)) parts.push(stripComments(read(full), { html: true }))
     }
   }
   walk(SRC)
@@ -158,8 +152,8 @@ describe('Vue 组件错误必须有人接（useErrorLogger 的前提）', () => 
   // **注释里声称的接线必须有代码兜着。**
 
   it('App.vue 注册了 onErrorCaptured，或 main.ts 设了 app.config.errorHandler', () => {
-    const app = stripComments(read(path.join(SRC, 'App.vue')))
-    const main = stripComments(read(path.join(SRC, 'main.ts')))
+    const app = stripComments(read(path.join(SRC, 'App.vue')), { html: true })
+    const main = stripComments(read(path.join(SRC, 'main.ts')), { html: true })
     const wired =
       /onErrorCaptured\s*\(/.test(app) || /config\s*\.\s*errorHandler/.test(main)
     expect(
@@ -171,8 +165,8 @@ describe('Vue 组件错误必须有人接（useErrorLogger 的前提）', () => 
   })
 
   it('那个错误处理钩子必须真的把错误送进上报链路（不是空实现）', () => {
-    const app = stripComments(read(path.join(SRC, 'App.vue')))
-    const main = stripComments(read(path.join(SRC, 'main.ts')))
+    const app = stripComments(read(path.join(SRC, 'App.vue')), { html: true })
+    const main = stripComments(read(path.join(SRC, 'main.ts')), { html: true })
     const reports =
       /reportVueError\s*\(/.test(app) ||
       /reportVueError\s*\(/.test(main) ||
@@ -184,7 +178,7 @@ describe('Vue 组件错误必须有人接（useErrorLogger 的前提）', () => 
   })
 
   it('main.ts 仍然调用 installErrorLogger()（全局 JS 错误那一半）', () => {
-    const main = stripComments(read(path.join(SRC, 'main.ts')))
+    const main = stripComments(read(path.join(SRC, 'main.ts')), { html: true })
     expect(/installErrorLogger\s*\(/.test(main)).toBe(true)
   })
 })

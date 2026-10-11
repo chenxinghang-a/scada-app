@@ -29,6 +29,7 @@
 import { describe, it, expect } from 'vitest'
 import fs from 'fs'
 import path from 'path'
+import { stripComments, extractFunctionBody } from '../helpers/source-text'
 
 const REPO = process.cwd()
 const UPDATER = path.join(REPO, 'electron', 'updater.js')
@@ -38,10 +39,10 @@ const src = () => fs.readFileSync(UPDATER, 'utf8')
 const pkg = () => JSON.parse(fs.readFileSync(PKG, 'utf8'))
 
 /**
- * 剥掉 JS 源码里的**注释**（`//` 行注释 + 斜杠星号块注释），但保留字符串字面量内容。
+ * 注释剥离与函数体抠取来自**共享原语** `tests/helpers/source-text`。
  *
- * 为什么必须做这件事（本守卫自己踩过的坑）
- * ----------------------------------------
+ * 为什么必须"先剥注释再断言"（本守卫自己踩过的坑）
+ * ------------------------------------------------
  * 变异实验：把 `setupUpdater` 里那段 `if (!hasPublishConfig()) { ... return }` 整块删掉后，
  * 守卫**依然 3/3 绿** —— 因为函数体里还留着一行注释：
  *   `// 防御：即便开关打开，但依赖缺失 / 未配置 publish...`
@@ -51,75 +52,10 @@ const pkg = () => JSON.parse(fs.readFileSync(PKG, 'utf8'))
  * 这正是本项目 Bug 14「自喂陷阱」的近亲：**判据读取了它本不该读的文本**（这里是注释）。
  * 结论：一切"代码里有没有 X"的判据，都必须先剥注释，否则注释能冒充实现。
  *
- * 实现上用一遍状态机扫字符（而非正则），以便正确处理字符串里的 `//`
- * （例如 `'https://...'` 的斜杠不能被当成注释起点）。
+ * ⚠️ 该逻辑曾在本文件里内联一份，2026-10-12 统一迁到共享模块 ——
+ * 因为仓库里当时有 10 个测试各写一份，实现分 5 种，且**都不认识正则字面量**
+ * （`/"/g` 里的引号会被当字符串开头）。共享原语已修掉该盲区并配 17 例单测。
  */
-function stripComments(code: string): string {
-  let out = ''
-  let i = 0
-  const n = code.length
-  let quote: string | null = null
-  while (i < n) {
-    const ch = code[i]
-    const next = code[i + 1]
-    if (quote) {
-      out += ch
-      if (ch === '\\') {
-        // 转义：把下一个字符原样带出，避免被误判为字符串结束
-        if (i + 1 < n) out += code[i + 1]
-        i += 2
-        continue
-      }
-      if (ch === quote) quote = null
-      i++
-      continue
-    }
-    if (ch === '"' || ch === "'" || ch === '`') {
-      quote = ch
-      out += ch
-      i++
-      continue
-    }
-    if (ch === '/' && next === '/') {
-      // 行注释：吞到行尾（保留换行，维持行结构）
-      while (i < n && code[i] !== '\n') i++
-      continue
-    }
-    if (ch === '/' && next === '*') {
-      i += 2
-      while (i < n && !(code[i] === '*' && code[i + 1] === '/')) i++
-      i += 2
-      continue
-    }
-    out += ch
-    i++
-  }
-  return out
-}
-
-/**
- * 抠出一个具名函数的**函数体**（从 `function name(...) {` 到配对 `}`）。
- *
- * 用花括号配平而非正则贪婪匹配 —— 函数体里有多层 `{}`（if / try / 对象字面量），
- * 简单 `{[\s\S]*?}` 会在第一个 `}` 处早停，把断言范围切错。
- */
-function extractFunctionBody(code: string, name: string): string | null {
-  const start = code.search(new RegExp(`function\\s+${name}\\s*\\(`))
-  if (start < 0) return null
-  const braceOpen = code.indexOf('{', start)
-  if (braceOpen < 0) return null
-  let depth = 0
-  for (let i = braceOpen; i < code.length; i++) {
-    const ch = code[i]
-    if (ch === '{') depth++
-    else if (ch === '}') {
-      depth--
-      if (depth === 0) return code.slice(braceOpen + 1, i)
-    }
-  }
-  return null
-}
-
 describe('自动更新「显式关闭」契约（注释承诺 = 代码事实）', () => {
   it('① 开关默认必须是 false（交付口径：一个版本源、一个安装包、运行期不自动更新）', () => {
     const m = src().match(/const\s+AUTO_UPDATE_ENABLED\s*=\s*(true|false)/)

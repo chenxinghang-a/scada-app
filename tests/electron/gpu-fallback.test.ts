@@ -38,6 +38,7 @@
 import { describe, it, expect } from 'vitest'
 import fs from 'fs'
 import path from 'path'
+import { stripComments } from '../helpers/source-text'
 
 const REPO = process.cwd()
 const MAIN = path.join(REPO, 'electron', 'main.js')
@@ -53,12 +54,6 @@ const read = (p: string) => fs.readFileSync(p, 'utf8')
  * 会**匹配到注释里那一次**，结论完全反掉。
  * （前两次：round 191 M4、round 192 的 `saveConfig` 判据。）
  */
-function stripComments(src: string): string {
-  return src
-    .replace(/\/\*[\s\S]*?\*\//g, '')
-    .replace(/(^|[^:])\/\/.*$/gm, '$1')
-}
-
 /**
  * 按**括号配平**取出源码里每个 `setTimeout(...)` 的回调体与延时实参。
  *
@@ -107,7 +102,7 @@ function collectSetTimeouts(src: string): { start: number; end: number; body: st
 }
 
 describe('GPU / 沙箱兜底（GPU 进程崩溃时仍能启动）', () => {
-  const src = stripComments(read(MAIN))
+  const src = stripComments(read(MAIN), { html: true })
 
   it('兜底用的是**实测有效**的开关（disable-gpu-sandbox），不是只靠软渲染', () => {
     // 实测：只调 disableHardwareAcceleration() 仍会 GPU FATAL
@@ -280,7 +275,7 @@ describe('GPU / 沙箱兜底（GPU 进程崩溃时仍能启动）', () => {
 // 升级判据必须把渲染进程算进来；L2（再追加 --no-sandbox）后全链路 0 崩溃。
 
 describe('降级阶梯：L0 → L1 → L2，且成功判据含渲染进程', () => {
-  const src = stripComments(read(MAIN))
+  const src = stripComments(read(MAIN), { html: true })
 
   it('L2 开关 no-sandbox 存在，且**受级别门控**（不能无条件关整个沙箱）', () => {
     expect(src).toContain(`appendSwitch('no-sandbox')`)
