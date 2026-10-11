@@ -415,6 +415,63 @@ function runtimeNewFiles(root, before) {
   return [...after.files].filter((f) => !before.files.has(f)).sort();
 }
 
+/**
+ * 后端产物**注定要接管**的运行期目录（相对产物根）。
+ *
+ * 为什么需要这份名单，而不是「凡是空的就删」：
+ * 冒烟闸门的清理纪律是「只删本次新建的」，这条纪律本身是对的 ——
+ * 哪天发布配置真的开始随包带一个预置 `data/`（预置库 / 授权文件），
+ * 按名字或按「是否为空」硬删会把产物自己的东西删掉。
+ *
+ * 但「本次新建」这个判据有个**自洽循环**漏洞（2026-10-11 实测踩到）：
+ * 第一次冒烟建出 `_internal/data/` 并把文件删干净后，**空壳目录会留下**
+ * （`cleanupCreated` 只 rmdir「本次新建」的目录，而它这一轮成了「既有」）；
+ * 下一轮冒烟时它已在 `before` 里，于是永远不再被清 —— 而
+ * `runtimeNewFiles` **只看文件**，空目录对它是隐形的，闸门照样报 PASS。
+ * 实测：把 `backend/_internal/data/` 删掉再跑一次冒烟，跑完它是干净的；
+ * 但只要空壳存在过一次，往后每轮都会留着它。
+ *
+ * 这个空壳**会被打进安装包**（`extraResources` 的 filter 没排 `data/`）。
+ * 空目录本身无害，但它意味着「这个目录里的垃圾不会再被自动清掉」——
+ * 因为清理只对「本次新建」生效。
+ *
+ * 处置：把后端**已知会自己创建的**运行期目录列入本名单。冒烟跑完后，
+ * 如果它仍存在**且为空**（只剩空壳），就删掉外壳。**非空一律不碰** ——
+ * 那说明里面要么有预置内容，要么有删不掉的残留（后者由 leftover 判据兜）。
+ *
+ * @param {string} root
+ */
+const BACKEND_RUNTIME_DIRS = [
+  path.join('_internal', 'data'),
+];
+
+/**
+ * 删掉空壳运行期目录（只在**确认为空**时）。返回删掉的相对路径。
+ *
+ * @param {string} root
+ * @returns {string[]}
+ */
+function removeEmptyRuntimeDirShells(root) {
+  const removed = [];
+  for (const rel of BACKEND_RUNTIME_DIRS) {
+    const full = path.join(root, rel);
+    let entries;
+    try {
+      entries = fs.readdirSync(full);
+    } catch (e) {
+      continue; // 不存在 → 无事可做（这是干净产物的正常状态）
+    }
+    if (entries.length !== 0) continue; // 非空 → 不动
+    try {
+      fs.rmdirSync(full);
+      removed.push(rel);
+    } catch (e) {
+      // 仍被占用等：留给下一次运行，不当作硬失败
+    }
+  }
+  return removed;
+}
+
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 /**
@@ -686,6 +743,11 @@ async function smoke(opts) {
       console.error(`[WARN] ${failed.length} 个运行期文件删除时抛错: `
         + JSON.stringify(failed.slice(0, 5)));
     }
+    // 空壳目录单独处置：`leftover` 只看文件，看不见空目录（上面的自洽循环漏洞）。
+    const shells = removeEmptyRuntimeDirShells(exeDir);
+    if (shells.length) {
+      console.log(`清理空壳运行期目录: ${JSON.stringify(shells)}`);
+    }
     if (leftover.length) {
       // 这是**发布缺陷**，不是环境噪声：`backend/` 是 extraResources 的源
       // （filter 不排除 `data/`，electron-builder 也不看 `.gitignore`），
@@ -759,7 +821,8 @@ module.exports = {
   DEFAULT_PORTS, DEFAULT_HEALTH_PATH, DEFAULT_TIMEOUT, DEFAULT_CHECKS_TIMEOUT,
   BAD_MODULE_STATUSES, UNHEALTHY, MAX_BODY_BYTES,
   candidatePorts, tail, assessHealth, snapshotTree, cleanupCreated,
-  runtimeNewFiles, cleanupUntilClean, isPortOpen, findOpenPort, waitForPortsClosed,
+  runtimeNewFiles, cleanupUntilClean, removeEmptyRuntimeDirShells, BACKEND_RUNTIME_DIRS,
+  isPortOpen, findOpenPort, waitForPortsClosed,
   httpGet, killTree, smoke, main,
 };
 

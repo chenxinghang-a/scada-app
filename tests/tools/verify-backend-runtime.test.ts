@@ -409,6 +409,44 @@ describe('快照 / 清理（「冒烟不改动产物」）', () => {
     expect(fs.existsSync(path.join(dir, '_internal', 'data'))).toBe(false)
     expect(fs.existsSync(path.join(dir, '_internal'))).toBe(false)
   }, 30000)
+
+  // 空壳目录的自洽循环（2026-10-11 实测踩到）：
+  // 第一次冒烟把文件删干净后会**留下空目录**（它这一轮已算「既有」），
+  // 下一轮它在 before 里 → 永远不再被清；而 runtimeNewFiles 只看文件，
+  // 空目录对 leftover 判据是**隐形**的 → 闸门照样 PASS。空壳会被打进安装包。
+  it('空壳 _internal/data 能被单独清掉（自洽循环的出口）', () => {
+    const dir = path.join(RUN_DIR, 'shell')
+    fs.mkdirSync(path.join(dir, '_internal', 'data'), { recursive: true })
+    // 空壳已在 before 里 —— 模拟「上一轮冒烟留下来的」
+    const before = gate.snapshotTree(dir)
+    expect(before.dirs.has(path.join('_internal', 'data'))).toBe(true)
+
+    // cleanupUntilClean 按「只删本次新建」纪律**不会**碰它……
+    gate.cleanupCreated(dir, before)
+    expect(fs.existsSync(path.join(dir, '_internal', 'data'))).toBe(true)
+
+    // ……所以需要专门的空壳清理由它来兜底
+    const removed = gate.removeEmptyRuntimeDirShells(dir)
+    expect(removed).toEqual([path.join('_internal', 'data')])
+    expect(fs.existsSync(path.join(dir, '_internal', 'data'))).toBe(false)
+  }, 30000)
+
+  it('空壳清理**绝不碰非空目录**（发布配置将来可能随包带预置 data/）', () => {
+    const dir = path.join(RUN_DIR, 'shell-nonempty')
+    fs.mkdirSync(path.join(dir, '_internal', 'data'), { recursive: true })
+    fs.writeFileSync(path.join(dir, '_internal', 'data', 'preset-license.dat'), 'x')
+
+    const removed = gate.removeEmptyRuntimeDirShells(dir)
+
+    expect(removed).toEqual([])
+    expect(fs.existsSync(path.join(dir, '_internal', 'data', 'preset-license.dat'))).toBe(true)
+  }, 30000)
+
+  it('目录不存在时是 no-op（干净产物的正常状态，不得报错）', () => {
+    const dir = path.join(RUN_DIR, 'shell-absent')
+    fs.mkdirSync(dir, { recursive: true })
+    expect(gate.removeEmptyRuntimeDirShells(dir)).toEqual([])
+  }, 30000)
 })
 
 describe('smoke() —— 真起进程的闸门（fail-closed）', () => {
