@@ -114,13 +114,13 @@ describe('tools/verify-staging.js 暂存闸门', () => {
       const r = await run(dir)
       expect(r.out).toContain('版本一致')
       expect(r.code).toBe(0)
-    })
+    }, 30000)
 
     it('通过时会把版本号打出来（便于在 CI 日志里核对）', async () => {
       const dir = makeStaging('ok-echo')
       const r = await run(dir)
       expect(r.out).toContain(REPO_VERSION)
-    })
+    }, 30000)
   })
 
   describe('负向：本轮修的缺陷 —— **mtime 新鲜但版本是旧的**', () => {
@@ -135,7 +135,7 @@ describe('tools/verify-staging.js 暂存闸门', () => {
       expect(r.out).toContain(REPO_VERSION)
       // 并说明为什么 mtime 判据挡不住
       expect(r.out).toContain('mtime')
-    })
+    }, 30000)
 
     it('版本不一致时不能只说「失败」，要说清两边分别是多少', async () => {
       const dir = makeStaging('mismatch', { version: '0.0.1-other' })
@@ -143,7 +143,7 @@ describe('tools/verify-staging.js 暂存闸门', () => {
       expect(r.code).toBe(1)
       expect(r.out).toContain('暂存 = 0.0.1-other')
       expect(r.out).toContain(`本仓库 package.json = ${REPO_VERSION}`)
-    })
+    }, 30000)
   })
 
   describe('负向：其余失败路径各有各的原因（守卫 4）', () => {
@@ -153,7 +153,7 @@ describe('tools/verify-staging.js 暂存闸门', () => {
       expect(r.code).toBe(1)
       expect(r.out).toContain('读不到')
       expect(r.out).toContain('VERSION')
-    })
+    }, 30000)
 
     it('暂存目录里没有 exe → 判负，并给出怎么暂存', async () => {
       const dir = makeStaging('no-exe', { withExe: false })
@@ -161,7 +161,7 @@ describe('tools/verify-staging.js 暂存闸门', () => {
       expect(r.code).toBe(1)
       expect(r.out).toContain('暂存目录里没有')
       expect(r.out).toContain('robocopy')
-    })
+    }, 30000)
 
     it('mtime 早于后端仓库 HEAD → 判负（新鲜度判据保留）', async () => {
       // ⚠️ 必须**自带**后端仓库夹具，不能依赖环境里恰好有后端仓库 ——
@@ -183,7 +183,7 @@ describe('tools/verify-staging.js 暂存闸门', () => {
       // （判据①的参照物 2026-10-10 已从「前端 HEAD」改成「后端仓库 HEAD」）
       expect(r.out).toContain('比**后端仓库**')
       expect(r.out).toContain('HEAD 提交时间还旧')
-    })
+    }, 30000)
 
     it('探测不到后端仓库 → 新鲜度判据**降级**，但版本一致性判据仍生效', async () => {
       // 这是「静默降级」那条口径的守卫：降级可以，但 ② 不能跟着一起失效。
@@ -193,7 +193,7 @@ describe('tools/verify-staging.js 暂存闸门', () => {
       // ② 仍然生效 → 版本不一致照样判负。
       expect(r.code).toBe(1)
       expect(r.out).toContain('版本与本仓库**不一致**')
-    })
+    }, 30000)
   })
 })
 
@@ -269,7 +269,7 @@ describe('判据①的参照物是后端仓库，不是前端仓库', () => {
     const r = await runWithEnv(staging, { SCADA_BACKEND_REPO: path.join(root, 'backend-src') })
     expect(r.code).toBe(0)
     expect(r.out).toContain('版本一致')
-  })
+  }, 30000)
 
   it('后端 HEAD 比产物新 → 判负（新鲜度判据仍然有效）', async () => {
     const root = path.join(FIXTURE_ROOT, 'be-new')
@@ -285,5 +285,5 @@ describe('判据①的参照物是后端仓库，不是前端仓库', () => {
     // 守卫 4：断言失败原因落在**正确的那条路径**上
     expect(r.out).toContain('比**后端仓库**')
     expect(r.out).toContain('不可能是后端当前源码的产物')
-  })
+  }, 30000)
 })

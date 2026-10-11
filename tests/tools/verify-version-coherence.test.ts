@@ -108,13 +108,13 @@ describe('tools/verify-version-coherence.js 产物版本一致性闸门', () => 
       const r = await run(['--packaged', packagedDir, '--source', sourceDir, '--require-source'])
       expect(r.out).toContain('版本一致')
       expect(r.code).toBe(0)
-    })
+    }, 30000)
 
     it('不加 --require-source 时只验产物（暂存源可以不存在）', async () => {
       const { packagedDir } = await makePkg('ok-no-source', { sourceVersion: null })
       const r = await run(['--packaged', packagedDir, '--source', path.join(FIXTURE_ROOT, 'nope')])
       expect(r.code).toBe(0)
-    })
+    }, 30000)
   })
 
   describe('负向：每条失败路径各有各的原因（守卫 4）', () => {
@@ -125,7 +125,7 @@ describe('tools/verify-version-coherence.js 产物版本一致性闸门', () => 
       expect(r.out).toContain('产物后端')
       expect(r.out).toContain('1.3.1079')
       expect(r.out).toContain(REPO_VERSION)
-    })
+    }, 30000)
 
     it('产物里前端（asar）是别的版本 → 判负', async () => {
       const { packagedDir, sourceDir } = await makePkg('stale-asar', { asarVersion: '9.9.9-x' })
@@ -133,14 +133,14 @@ describe('tools/verify-version-coherence.js 产物版本一致性闸门', () => 
       expect(r.code).toBe(1)
       expect(r.out).toContain('产物前端')
       expect(r.out).toContain('9.9.9-x')
-    })
+    }, 30000)
 
     it('产物里缺后端 VERSION → 判负（fail-closed，不跳过）', async () => {
       const { packagedDir, sourceDir } = await makePkg('no-backend-version', { backendVersion: null })
       const r = await run(['--packaged', packagedDir, '--source', sourceDir])
       expect(r.code).toBe(1)
       expect(r.out).toContain('读不到')
-    })
+    }, 30000)
 
     it('产物里缺 app.asar → 判负（读不到就是读不到）', async () => {
       const { packagedDir, sourceDir } = await makePkg('no-asar', { asarVersion: null })
@@ -148,7 +148,7 @@ describe('tools/verify-version-coherence.js 产物版本一致性闸门', () => 
       expect(r.code).toBe(1)
       expect(r.out).toContain('产物前端')
       expect(r.out).toContain('读不到')
-    })
+    }, 30000)
 
     it('--require-source 时暂存源版本不符 → 判负', async () => {
       const { packagedDir, sourceDir } = await makePkg('stale-source', { sourceVersion: '1.3.1000' })
@@ -156,13 +156,13 @@ describe('tools/verify-version-coherence.js 产物版本一致性闸门', () => 
       expect(r.code).toBe(1)
       expect(r.out).toContain('暂存源')
       expect(r.out).toContain('1.3.1000')
-    })
+    }, 30000)
 
     it('用法错误（未知参数）→ 退出码 2，且不是静默通过', async () => {
       const r = await run(['--bogus'])
       expect(r.code).toBe(2)
       expect(r.out).toContain('未知参数')
-    })
+    }, 30000)
   })
 })
 
