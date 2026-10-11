@@ -19,7 +19,7 @@
  * 这条守卫沿用了本仓既有的「接线守卫」家族形态（`api-wiring` / `component-wiring`
  * / `ipc-wiring` 都是这个形状）：**双向** —— 死闸门要红，登记表里的也要在。
  *
- * 判据（三条，各自独立）
+ * 判据（四条，各自独立）
  * ----------------------
  *   ① `tools/` 下每个 `verify-*.js` 必须能从 `electron:build` 链走到
  *      （递归展开 `npm run`，不只看字面）；
@@ -27,6 +27,10 @@
  *      它查的是「CI 的闸门本地有没有」，查不到「本地的闸门 CI 有没有」）；
  *   ③ 判别力自检：一段**合成的死闸门**必须被 ① 的算法判定为"不可达"。
  *      没有 ③，①可能因为"连 readdir 都没读到"而恒绿。
+ *   ④ **反向完整性**：链上引用的每个 `node tools/*.js` 文件都**必须真实存在**。
+ *      ① 查的是「文件→链」（有没有人跑它），④ 查的是「链→文件」（引用有没有落空）。
+ *      两者合起来才是双射；只做 ① 会出现「把 verify-dist.js 改名后忘了改 package.json」
+ *      这种链上悬空引用仍然全绿的情况（实测确认，见 ④b）。
  *
  * ⚠️ 本守卫只回答「有没有人跑它」，**不回答「该不该有这道闸门」**。
  *    失效（作废）的闸门应由人**删除文件**，而不是靠把它登记成"已知死闸门"。
@@ -86,6 +90,45 @@ function allGateFiles(): string[] {
     .filter((f) => /^verify-.*\.js$/.test(f))
     .map((f) => `tools/${f}`)
     .sort()
+}
+
+/**
+ * 递归展开一组 npm script，返回它**引用到的所有 `node tools/*.js` 路径**。
+ *
+ * 与 reachableGates 的区别：这里**不做 `verify-` 前缀过滤** —— 目的是抓
+ * "链上写了 `node tools/xxx.js` 但那个文件根本不在"的悬空引用，无论它叫
+ * 什么名字。两条判据（③④）因此互相独立：① 只看 verify-*，④ 看全部引用。
+ */
+function referencedToolFiles(entrypoints: string[], scripts: Scripts): Set<string> {
+  const refs = new Set<string>()
+  const visited = new Set<string>()
+
+  const walk = (name: string) => {
+    if (visited.has(name)) return
+    visited.add(name)
+    const body = scripts[name]
+    if (!body) return
+    for (const raw of body.split('&&')) {
+      const cmd = raw.trim()
+      const ref = cmd.match(/node\s+(tools\/[\w.-]+\.js)/)
+      if (ref) refs.add(ref[1])
+      const nested = cmd.match(/npm\s+run\s+([\w:-]+)/)
+      if (nested) walk(nested[1])
+    }
+  }
+
+  for (const e of entrypoints) walk(e)
+  return refs
+}
+
+/** 本仓 `tools/` 下实际存在的 `.js` 文件集合。 */
+function existingToolFiles(): Set<string> {
+  return new Set(
+    fs
+      .readdirSync(TOOLS_DIR)
+      .filter((f) => f.endsWith('.js'))
+      .map((f) => `tools/${f}`),
+  )
 }
 
 function scripts(): Scripts {
@@ -197,5 +240,41 @@ describe('闸门接线（死闸门探测）', () => {
     // verify-dist.js（它**不在** CI 里以裸 `node tools/…` 出现，只以 `npm run verify:dist`）。
     const ci = ciReachableGates()
     expect(ci.has('tools/verify-dist.js'), 'CI 解析漏了经 npm run 间接调用的闸门').toBe(true)
+  })
+
+  it('④ 链上引用的每个 node tools/*.js 都必须真实存在（防悬空引用）', () => {
+    const refs = referencedToolFiles(BUILD_ENTRYPOINTS, scripts())
+    expect(refs.size, '本地链一个 tools/*.js 引用都没解析到，守卫本身失效').toBeGreaterThan(0)
+
+    const existing = existingToolFiles()
+    // 只查 tools/ 下的引用（本仓约定：闸门/工具都在 tools/，其它路径不在本判据范围）
+    const missing = [...refs].filter((r) => !existing.has(r)).sort()
+
+    expect(
+      missing,
+      '以下文件被 npm script 引用（`node tools/xxx.js`），但 `tools/` 下**不存在** —— ' +
+        '引用落空。要么文件名写错了，要么文件被改名/删除后忘了同步 package.json：\n' +
+        missing.map((m) => `  ${m}`).join('\n') +
+        '\n（这类悬空引用在 ① 里是盲区：① 只查"存在的 verify-* 有没有人跑"，' +
+        '查不出"链上引用的文件在不在"。）',
+    ).toEqual([])
+  })
+
+  it('④b 判别力自检：链上多串一个不存在的文件，referencedToolFiles 必须能报出来', () => {
+    // 没有这条，④ 可能因为"正则没匹配到任何东西"而恒绿（missing 恒空）。
+    const synthetic: Scripts = {
+      'electron:build': 'npm run verify:dist',
+      'verify:dist':
+        'node tools/verify-dist.js && node tools/verify-typo-does-not-exist.js',
+    }
+    const refs = referencedToolFiles(['electron:build'], synthetic)
+    expect([...refs].sort()).toEqual([
+      'tools/verify-dist.js',
+      'tools/verify-typo-does-not-exist.js',
+    ])
+    // 用真实文件集判定：不存在的那个必须被判为 missing
+    const existing = existingToolFiles()
+    expect(existing.has('tools/verify-typo-does-not-exist.js')).toBe(false)
+    expect(existing.has('tools/verify-dist.js')).toBe(true)
   })
 })
