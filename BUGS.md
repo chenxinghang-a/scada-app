@@ -453,6 +453,38 @@ filter 只排了 `*.log` / `logs` / `exports` / `__pycache__` / `*.pyc`，
 **「函数名出现在源码里」不等于「它会被调用」更不等于「调用是有效的」。**
 凡断言的是「某种行为」，就必须**真建树、真调函数、真断言结果**。
 
+**第四个落点（同日自查发现，提交 `c461f13`）**: 顺着「探针不得在机器上留痕」
+这条线把**所有闸门**做了一遍对称性审计（`spawn` 数 vs `cleanup` 数），发现
+`verify-dist-runtime` 也是「起进程但不清理」——**但性质不同**：
+
+它 `loadFile(dist/index.html)`，**从不启动后端**，所以不会碰 `_internal/data/`
+（产物面是干净的）。真正的问题是另一条：它为做仪表盘导航烟测会往 localStorage
+塞假会话（`auth_token` / `scada_user`），而它**从未定向 userData** ——
+该检查脚本也没有 `app.setName()`，于是 Electron 用默认名，把这些写进
+**共享的** `%APPDATA%/Electron`（实测存在，2.6MB，含 `Local Storage` /
+`Session Storage`）。
+
+危害两条：① 污染开发机（非交付面，但每次跑都往同一个共享 profile 里塞东西）；
+② **运行不孤立** —— 上次残留的 localStorage 会影响下次判定，
+正是本仓库最忌的「跑第一次绿第二次红」。
+
+修法：加 `--user-data-dir`，每次跑用独立的
+`.vitest_cache/dist-runtime/userdata/run-<ts>-<pid>`（与 `packaged-runtime` 对齐）。
+实测：跑一次后 `%APPDATA%/Electron/Local Storage` 的 mtime **完全未变**。
+
+⚠️ **同一个坑又踩了一次**：这里第一版守卫还是 `toContain('--user-data-dir')` ——
+而那个字符串在**注释**里也出现 → 删掉真实用法后**变异存活**（全绿）。
+改为把断言**限定在 `spawnSync` 的实参列表内**（`--user-data-dir=${userDataDir}`）
+后变异精确红。**教训升级版：即便断言的是「用法」，也必须限定在「它真被用的那个位置」，
+不能是「文件里出现过」。**
+
+**审计结论**（三道起进程的闸门全部对齐）：
+| 闸门 | 起进程 | 产物面清理 | userData 隔离 |
+|---|---|---|---|
+| `verify-backend-runtime` | ✅ | ✅（含空壳） | n/a（不起 Electron） |
+| `verify-packaged-runtime` | ✅ | ✅（本次新增） | ✅ |
+| `verify-dist-runtime` | ✅ | n/a（不启后端） | ✅（本次新增） |
+
 ---
 
 ## 迁移计划
