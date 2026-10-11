@@ -983,6 +983,67 @@ M2 白名单塞一条 `why: ''` → 红；M3 还原 → 绿。本文件 **11/11 
 
 ---
 
+## Bug 18: 闸门脚本的 git 调用"能失败但不能挂起"（**catch ≠ timeout**）🟠 中危（闸门体系自身）
+
+**现象**
+`tools/verify-staging.js` 与 `tools/verify-workspace-frozen.js` 共 **4 处** `execFileSync('git', ...)`：
+- `verify-staging.js:139` `git log -1 --format=%ct`
+- `verify-workspace-frozen.js:101` `git rev-parse/status`
+- `verify-workspace-frozen.js:169` `git diff HEAD`
+
+**全部没有 `timeout` 选项**，**全部包在 `try {} catch {}` 里**。
+
+**根因**
+设计者对"git 可能失败"是有意识的（所以有 catch）—— 但：
+> **`catch` 只接得住"抛错"，接不住"永久挂起"。**
+
+git 在 **index.lock 被别的进程占用 / 网络文件系统卡 IO / 杀软实时扫描**
+（本机实测有联想 IndexProtect 驱动拦 IO）等场景下可能长时间不返回。
+无 timeout 时，**整个构建链卡死**，只能等 CI job 级超时（数小时）才被砍 ——
+**"失败可恢复"与"挂起可恢复"是正交的两件事**。
+
+**修法（关键：超时**不得**降级）**
+1. 给 4 处 `execFileSync` 加 `timeout`（默认 30s，可用 `SCADA_GIT_TIMEOUT_MS` 覆盖）。
+2. **超时必须 fail-closed，不能复刻"降级"事故** ——
+   本仓库**已经**因「探测返回 null → 新鲜度判据静默降级 → 本该红变绿」吃过一次事故
+   （见 `verify-staging.js` 头注）。若把超时也吞成 `null`，就是那个事故的**亲手复刻**。
+   故：
+   - `verify-staging.js`：超时**抛出**（带明确文案），`main` 捕获后报"环境卡住"并 exit 1。
+   - `verify-workspace-frozen.js`：引入 `GIT_TIMEOUT` 哨兵 + `timedOut` 标记，
+     `diffSnapshots` **最优先**报 problem（因为一旦某次 git 挂起，
+     后续所有"值相同/不同"的比较都是拿**残缺数据**在比 → "一致"是假绿）。
+
+**加固中实测发现的三件事（都值得记）**
+1. **`EBUSY` 也是超时**：`execFileSync` 在超时杀进程时错误码不总是 `ETIMEDOUT` ——
+   实测 `git rev-parse HEAD` 在 1ms 超时下报 **`EBUSY`**（进程没真正起来就被杀）。
+   只认 `ETIMEDOUT` 会把这种挂起误判成 `unavailable` → 降级 → 复刻事故。
+2. **`GIT_TIMEOUT_MS` 顶层求值让测试注入失效**：模块被 `require` 缓存的时机早于测试设 env
+   → 改成**用时读**（`gitTimeoutMs()`），与同文件 `SCADA_FROZEN_MAX_AGE_MS` 的既有约定一致。
+3. **Windows 下 `.cmd` shim 不可行**：Node（CVE-2024-27980 后）不允许 `execFileSync` 直接跑
+   `.cmd`/`.bat`（实测 `EINVAL`；PATH 前置也无效，报 `EBUSY`）。
+   → 端到端"真触发超时"改用**跨平台方案：把超时压到 1ms**（真实 git 必然来不及，
+     实测 `timeout=1ms` 稳定抛 `ETIMEDOUT/SIGTERM`）。
+
+**★ 自测炸出来的判别力缺口（本轮最有价值的一条）**
+首版测试**只构造假快照**喂给 `diffSnapshots` ——
+实测：把源码里 `timedOut` 拍成恒 `false`（= 把挂起当降级），**29/29 全绿，一点没抓到**。
+**根因：测试只测了"它自己的逻辑"，没测"它与真实输入的联系"** ——
+`timedOut` 是**派生量**，我在假数据里**自己写死了它**，等于绕过了要测的那一步。
+→ 补「**跨平台真触发**」用例（1ms 超时 + 真实 git）+「**反向对照**」（正常超时下不得误报）。
+补后再变异：**精确红**。
+
+**变异三态**：M1 删一处 `timeout:` → 静态守卫红（精确报行号）；
+M2 `timedOut` 恒 false → 真触发用例红；M3 超时降级 → 单元 + 端到端**两例同时红**；还原 → 全绿。
+本文件新增 **10 例**（frozen +6 / staging +4）；全仓 **42 文件 / 723 例全绿**。
+
+### 教训
+**"有 catch" 会制造"已处理"的错觉** —— 失败与挂起是两回事，必须分别问"这条路径挂住了会怎样"。
+**更要紧的是**：写"防降级"的测试时，**不能自己构造那个被防的状态**（本例的 `timedOut: true`）——
+那是**把结论当输入**。必须让**真实机制**跑到那个状态（真超时），否则测试是自证式的。
+这与 Bug 14 的**自喂陷阱**同源：**判据不得把自身假设当依据**。
+
+---
+
 ## 迁移计划
 
 将 `industrial_scada` (Flask + Jinja2) 后端整合到 `scada-app` (Vue 3 + Electron)：

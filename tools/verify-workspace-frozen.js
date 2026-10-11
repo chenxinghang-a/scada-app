@@ -97,19 +97,98 @@ function findBackendRepo() {
   return null
 }
 
+/**
+ * git 单次调用的硬超时（毫秒）。
+ *
+ * 为什么必须有（2026-10-12）：
+ *   这三处 `execFileSync('git', ...)` 都包在 `catch` 里 → **命令失败**能得到处理；
+ *   但 **`catch` 只接得住"抛错"，接不住"永久挂起"**。
+ *   git 在 index.lock 竞争、网络文件系统、杀软实时扫描（本机实测有 IndexProtect
+ *   驱动拦 IO）等场景下可能长时间不返回 → 无 timeout 时**整个构建链卡死**，
+ *   只能等 CI job 级超时（数小时）才被砍。
+ *   **"失败可恢复（有 catch）" ≠ "挂起可恢复（有 timeout）"**，两者正交。
+ *
+ * ⚠️ 超时**不得降级**：本仓库已经因"探测返回 null → 新鲜度判据静默降级 →
+ *   本该红的一条变绿"吃过一次事故（见 verify-staging.js 头注）。若这里把超时
+ *   也吞成 `null`，等于**亲手复刻那个失效模式**。故超时**原样抛出**，
+ *   由调用方 `tryGit` 转成 `TIMEOUT` 标记，最终 fail-closed。
+ */
+const GIT_TIMEOUT_DEFAULT_MS = 30_000
+
+/**
+ * 当前生效的 git 超时（毫秒）。
+ *
+ * ⚠️ **每次调用时读取**（不是模块顶层算好一次）：测试需要注入小值来**真触发**超时，
+ *    而模块被 `require` 缓存的时机早于测试设置 env —— 顶层求值会让注入失效
+ *    （实测：顶层版注入 `SCADA_GIT_TIMEOUT_MS=400` 完全不生效）。
+ *    与同文件既有 `SCADA_FROZEN_MAX_AGE_MS` 的"用时读"约定一致。
+ */
+function gitTimeoutMs() {
+  const n = Number(process.env.SCADA_GIT_TIMEOUT_MS)
+  return Number.isFinite(n) && n > 0 ? n : GIT_TIMEOUT_DEFAULT_MS
+}
+
+/**
+ * git 可执行名（可用 `SCADA_GIT_BIN` 覆盖，默认 `git`）。
+ * 用途：① 极端环境下 git 不在 PATH 时显式指定；② **测试**里指向假的慢 git 以真触发超时
+ * （Windows 上 `execFileSync('git')` 不认 `.cmd`，必须带扩展名显式指到 shim）。
+ */
+function gitBin() {
+  return process.env.SCADA_GIT_BIN || 'git'
+}
+
+/**
+ * 把 `execFileSync` 抛出的错误分类。
+ *
+ * 这是本文件"防挂起"逻辑的**判别核心**，抽成纯函数以便独立单测
+ * （端到端触发超时在 Windows 上曾因 `.cmd` shim 不可行而受限；
+ *   现改用"压到 1ms"的跨平台触发法，见测试）。
+ *
+ * **为什么要把 `EBUSY` 也算超时**（2026-10-12 实测发现）：
+ *   `execFileSync` 在**超时杀进程**时，错误码不总是 `ETIMEDOUT` ——
+ *   实测 `rev-parse HEAD` 在 1ms 超时下报的是 **`EBUSY`**（进程还没真正起来
+ *   就被杀）。若只认 `ETIMEDOUT`，这种"快进程 + 极短超时"的挂起会被误判成
+ *   `unavailable` → **降级** → 正是本文件要防的事故。故把 `EBUSY` 一并纳入。
+ *
+ * ⚠️ `EBUSY` 也可能来自"目标文件被占用"（非超时）。这里**只在调用方确实配了
+ *    timeout 时**才由调用方走 timeout 分支 —— 本函数本身不做此判断，
+ *    因为它只负责"错误形态 → 语义"，配置上下文由调用点保证（三处调用点全部配了 timeout）。
+ *
+ * @returns {'timeout' | 'unavailable'} —— 前者**不得降级**，后者才允许降级。
+ */
+function classifyGitError(e) {
+  if (
+    e &&
+    (e.code === 'ETIMEDOUT' ||
+      e.code === 'EBUSY' ||
+      e.signal === 'SIGTERM' ||
+      e.killed === true)
+  ) {
+    return 'timeout'
+  }
+  return 'unavailable'
+}
+
 function git(repo, args) {
-  return execFileSync('git', args, {
+  return execFileSync(gitBin(), args, {
     cwd: repo,
     encoding: 'utf8',
     stdio: ['ignore', 'pipe', 'ignore'],
     maxBuffer: 64 * 1024 * 1024,
+    timeout: gitTimeoutMs(),
   })
 }
+
+/** 超时哨兵：调用方据此把"挂起"与"命令失败"分开，**不允许**当降级处理。 */
+const GIT_TIMEOUT = Symbol('git-timeout')
 
 function tryGit(repo, args) {
   try {
     return git(repo, args)
-  } catch {
+  } catch (e) {
+    // ⚠️ 超时**不是**"git 不可用"，不能返回 null（那会被上层当降级）。
+    //    返回哨兵，让调用方言明其意 —— 当前语义 = 闸门 fail-closed。
+    if (classifyGitError(e) === 'timeout') return GIT_TIMEOUT
     return null
   }
 }
@@ -160,28 +239,50 @@ function stripGateArtifacts(statusText) {
 function repoFingerprint(repo) {
   const head = tryGit(repo, ['rev-parse', 'HEAD'])
   const rawStatus = tryGit(repo, ['status', '--porcelain'])
-  // ⚠️ 先剔除闸门自产物，否则 --pre 刚写的基线文件会在 --post 时被当成污染（自指）。
-  const status = stripGateArtifacts(rawStatus == null ? null : rawStatus.replace(/\r\n/g, '\n'))
   // 已跟踪文件的**精确内容**指纹：`git diff HEAD` 的二进制输出再哈希。
   // 比逐个文件算 sha 快得多，且天然覆盖「改了几行又改回来」→ 输出相同 → 判为未污染（正确）。
+  // ⚠️ 与 `git()` 同源：也走 gitTimeoutMs()，且超时同样**不降级**（见上）。
   const diff = (() => {
     try {
-      return execFileSync('git', ['diff', 'HEAD'], {
+      return execFileSync(gitBin(), ['diff', 'HEAD'], {
         cwd: repo,
         stdio: ['ignore', 'pipe', 'ignore'],
         maxBuffer: 256 * 1024 * 1024,
+        timeout: gitTimeoutMs(),
       })
-    } catch {
+    } catch (e) {
+      if (classifyGitError(e) === 'timeout') return GIT_TIMEOUT
       return null
     }
   })()
 
+  // ---- 超时哨兵：任一 git 调用挂起 → 该仓库指纹**不可信** ----
+  //
+  // ⚠️ 必须与"git 不可用"（error 字段、走降级）**分开**。
+  //    把挂起当降级 = 复刻 verify-staging 那次「静默降级 → 本该红变绿」的事故。
+  //    这里给一个**独立的 timedOut 标记**，由 diffSnapshots 判成 problem（fail-closed）。
+  const timedOut = head === GIT_TIMEOUT || rawStatus === GIT_TIMEOUT || diff === GIT_TIMEOUT
+
+  // ⚠️ 先剔除闸门自产物，否则 --pre 刚写的基线文件会在 --post 时被当成污染（自指）。
+  const status =
+    rawStatus === GIT_TIMEOUT || rawStatus == null
+      ? null
+      : stripGateArtifacts(rawStatus.replace(/\r\n/g, '\n'))
+
   return {
     repo,
-    head: head == null ? null : head.trim(),
+    head: head === GIT_TIMEOUT || head == null ? null : head.trim(),
     status: status == null ? null : status.replace(/\r\n/g, '\n'),
-    trackedDiffSha: diff == null ? null : crypto.createHash('sha256').update(diff).digest('hex'),
-    error: head == null ? '不是 git 仓库或 git 不可用' : null,
+    trackedDiffSha:
+      diff === GIT_TIMEOUT || diff == null
+        ? null
+        : crypto.createHash('sha256').update(diff).digest('hex'),
+    timedOut,
+    error: timedOut
+      ? `git 调用超过 ${gitTimeoutMs()}ms 未返回（挂起）`
+      : head == null
+        ? '不是 git 仓库或 git 不可用'
+        : null,
   }
 }
 
@@ -202,6 +303,28 @@ function workspaceSnapshot() {
 /** 人类可读的差异报告（空数组 = 一致）。 */
 function diffSnapshots(pre, post) {
   const problems = []
+
+  // ---- git 调用挂起（超时）→ 指纹不可信，**fail-closed** ----
+  //
+  // ⚠️ 必须放在最前：一旦某次 git 挂起，那一次的 head/status/diff 都拿不到，
+  //    后续所有"值相同/值不同"的比较都是拿**残缺数据**在比 —— 得出"一致"是假绿。
+  //    故先报出来、让闸门直接 fail，而不是继续比。
+  for (const [side, snap] of [
+    ['构建前', pre],
+    ['构建后', post],
+  ]) {
+    for (const r of snap.repos || []) {
+      if (r.timedOut) {
+        problems.push(
+          `${side}的 git 调用挂起（超过 ${gitTimeoutMs()}ms 未返回）：${r.repo}\n` +
+            '      **这不是"git 不可用"**（那种情况会走降级）——是命令真的卡住了。\n' +
+            '      常见原因：index.lock 被别的 git 进程占用 / 网络文件系统卡 IO /\n' +
+            '      杀软实时扫描拦截（本机实测有 IndexProtect 驱动拦 IO）。\n' +
+            '      处理：排查占用后**重跑一对 --pre/--post**；本次快照不可信，不得当"一致"。',
+        )
+      }
+    }
+  }
 
   // ---- 后端仓库「是哪个」变了 ----
   //
@@ -425,6 +548,10 @@ module.exports = {
   diffSnapshots,
   isGateOwnArtifact,
   stripGateArtifacts,
+  classifyGitError,
+  gitTimeoutMs,
+  gitBin,
+  GIT_TIMEOUT_DEFAULT_MS,
   REPO_ROOT,
   STATE_FILE,
 }

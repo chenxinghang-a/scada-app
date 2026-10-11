@@ -132,20 +132,51 @@ function stagedVersion(dir = DEFAULT_DIR) {
 }
 
 /**
+ * git 调用的硬超时（毫秒）。理由同 `verify-workspace-frozen.js`：
+ * **"失败可恢复（有 catch）" ≠ "挂起可恢复（有 timeout）"** ——
+ * git 在 index.lock 竞争 / 网络盘 / 杀软实时扫描下可能长时间不返回，
+ * 无 timeout 时构建链会卡到 CI job 级超时才被砍。
+ */
+const GIT_TIMEOUT_DEFAULT_MS = 30_000
+
+/**
+ * 当前生效的 git 超时（毫秒）。
+ * ⚠️ **每次调用时读环境变量**（不是模块顶层算一次）：测试需要注入小值来真触发超时，
+ *    而模块被 require 缓存的时机早于测试设置 env —— 顶层求值会让注入失效。
+ */
+function gitTimeoutMs() {
+  const n = Number(process.env.SCADA_GIT_TIMEOUT_MS)
+  return Number.isFinite(n) && n > 0 ? n : GIT_TIMEOUT_DEFAULT_MS
+}
+
+/**
  * 指定仓库的 HEAD 提交时间（epoch 秒）。非 git 仓库返回 null（调用方据此降级）。
+ *
+ * ⚠️ **超时不得降级**：本文件头注记录过一次事故 ——「探测返回 null → 新鲜度判据
+ *   静默降级 → 一条本该红的用例变绿」。若把"git 挂起"也吞成 null，就是这个事故的复刻。
+ *   故超时时**抛出**（不会被下面的 `catch` 吞成 null），让 main 走 fail-closed。
  */
 function headCommitTime(repoDir = process.cwd()) {
+  let out
   try {
-    const out = execFileSync('git', ['log', '-1', '--format=%ct'], {
+    out = execFileSync('git', ['log', '-1', '--format=%ct'], {
       cwd: repoDir,
       encoding: 'utf8',
       stdio: ['ignore', 'pipe', 'ignore'],
+      timeout: gitTimeoutMs(),
     })
-    const n = Number(String(out).trim())
-    return Number.isFinite(n) && n > 0 ? n : null
-  } catch {
+  } catch (e) {
+    if (e && (e.code === 'ETIMEDOUT' || e.signal === 'SIGTERM')) {
+      throw new Error(
+        `git 调用挂起（超过 ${gitTimeoutMs()}ms 未返回）于仓库：${repoDir}\n` +
+          '  这不是"git 不可用"（那种情况才降级），是命令真的卡住了 —— ' +
+          '常见原因：index.lock 占用 / 网络盘卡 IO / 杀软实时扫描。',
+      )
+    }
     return null
   }
+  const n = Number(String(out).trim())
+  return Number.isFinite(n) && n > 0 ? n : null
 }
 
 /**
@@ -250,7 +281,15 @@ function main(argv = process.argv.slice(2)) {
     }
   }
 
-  const r = assessStaging(dir)
+  // ⚠️ 单独接住 git 挂起（超时）—— 它与"git 不可用"不同，**不允许**降级为"跳过判据"。
+  //    若不接，未捕获异常虽也非零退出（fail-closed），但报错不可读、难排查。
+  let r
+  try {
+    r = assessStaging(dir)
+  } catch (e) {
+    console.error(`[staging] 闸门无法完成（非"暂存目录有问题"，而是环境卡住）：\n  ${e.message}`)
+    return 1
+  }
   if (!r.ok) {
     console.error(`[staging] 暂存目录不可用于打包：\n  ${r.reason}`)
     return 1

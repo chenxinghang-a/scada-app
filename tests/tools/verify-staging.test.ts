@@ -287,3 +287,44 @@ describe('判据①的参照物是后端仓库，不是前端仓库', () => {
     expect(r.out).toContain('不可能是后端当前源码的产物')
   }, 30000)
 })
+
+describe('git 调用挂起（超时）→ fail-closed，**不得**降级（2026-10-12 加固）', () => {
+  const req = createRequire(import.meta.url)
+  const m = req(TOOL) as {
+    headCommitTime: (dir?: string) => number | null
+    assessStaging: (dir: string, headTime?: number | null) => Record<string, unknown>
+  }
+
+  // ★ 跨平台"真触发超时"：把超时压到 1ms —— 真实 git 必然来不及。
+  //   实测：1ms 下 execFileSync('git', ...) 稳定抛 ETIMEDOUT/SIGTERM（或 EBUSY）。
+  it('★ 真触发超时：headCommitTime 在 git 挂起时**必须抛**（而不是返回 null 走降级）', () => {
+    // ⚠️ 为什么是"必须抛"而不是"返回 null"：
+    //    本文件头注记录过事故 ——「探测返回 null → 新鲜度判据静默降级 → 本该红的变绿」。
+    //    若把 git 挂起也吞成 null，就是那个事故的复刻。
+    const prev = process.env.SCADA_GIT_TIMEOUT_MS
+    try {
+      process.env.SCADA_GIT_TIMEOUT_MS = '1'
+      expect(() => m.headCommitTime(REPO)).toThrow(/挂起|超时/)
+    } finally {
+      if (prev === undefined) delete process.env.SCADA_GIT_TIMEOUT_MS
+      else process.env.SCADA_GIT_TIMEOUT_MS = prev
+    }
+  })
+
+  it('★ 反向对照：正常超时下 headCommitTime 返回数字（防"恒抛"）', () => {
+    const t = m.headCommitTime(REPO)
+    expect(typeof t).toBe('number')
+    expect(Number(t)).toBeGreaterThan(0)
+  })
+
+  it('★ 端到端：注入极短超时跑闸门 → 退出码 1，且报因是"环境卡住"而非"暂存目录有问题"', async () => {
+    const root = path.join(FIXTURE_ROOT, 'timeout-case')
+    const staging = path.join(root, 'staging')
+    makeStagingAt(staging, REPO_VERSION, new Date())
+
+    const r = await runWithEnv(staging, { SCADA_GIT_TIMEOUT_MS: '1' })
+    expect(r.code).toBe(1)
+    // 报因必须指向"环境卡住"（让排查方向正确），不能混成"暂存目录不可用于打包"
+    expect(r.out).toMatch(/闸门无法完成|挂起/)
+  }, 30000)
+})

@@ -1,7 +1,9 @@
 import { describe, it, expect, beforeAll } from 'vitest'
 import { spawn, execFileSync } from 'node:child_process'
 import { createRequire } from 'node:module'
+import { stripComments } from '../helpers/source-text'
 import fs from 'node:fs'
+import os from 'node:os'
 import path from 'node:path'
 
 /**
@@ -653,5 +655,147 @@ describe('与构建链的接线（防止闸门被摘掉）', () => {
     // 但我们这里刻意不加（它会掩盖「前面的步骤崩了」这一事实），
     // 所以直接断言没有 if 条件 —— 若将来看清理由要加，改这条测试即可。
     expect(block).not.toMatch(/^\s+if:/m)
+  })
+})
+
+describe('git 调用挂起（超时）→ fail-closed，**不得**降级（2026-10-12 加固）', () => {
+  const req = createRequire(import.meta.url)
+  const mod = req(path.join(REPO, 'tools', 'verify-workspace-frozen.js')) as {
+    repoFingerprint: (repo: string) => {
+      repo: string
+      head: string | null
+      timedOut: boolean
+      error: string | null
+    }
+    diffSnapshots: (pre: unknown, post: unknown) => string[]
+  }
+
+  it('repoFingerprint 必须带 timedOut 字段（供上层区分"挂起"与"不可用"）', () => {
+    const fp = mod.repoFingerprint(REPO)
+    // 正常仓库：不应 timedOut
+    expect(fp.timedOut).toBe(false)
+    expect(typeof fp.error === 'string' || fp.error === null).toBe(true)
+  })
+
+  // ★ 跨平台"真触发超时"：**不靠 shim**，而是把超时压到 1ms —— 真实 git 必然来不及。
+  //   实测：timeout=1ms 时 `execFileSync('git', ['log', ...])` 稳定抛 ETIMEDOUT/SIGTERM。
+  //   （Windows 下无法用 .cmd shim：Node 安全限制使其抛 EINVAL，故早先的 shim 方案作废。）
+  it('★ 真触发超时（跨平台）：把 git 超时压到 1ms → repoFingerprint.timedOut === true', () => {
+    // ⚠️ 为什么必须"真跑"而不是只构造假快照（2026-10-12 自测炸出的教训）：
+    //    只喂构造数据的测试**测不到**"repoFingerprint 与真实超时的联系" ——
+    //    实测：把源码里 `timedOut` 拍成恒 false（= 把挂起当降级、复刻事故），
+    //    纯构造版测试**29/29 全绿**（Windows 上 shim 版被 skip），一点没抓到。
+    const prevTimeout = process.env.SCADA_GIT_TIMEOUT_MS
+    try {
+      process.env.SCADA_GIT_TIMEOUT_MS = '1'
+      const fp = mod.repoFingerprint(REPO)
+      expect(fp.timedOut).toBe(true)
+      expect(fp.head).toBe(null)
+      expect(String(fp.error)).toMatch(/挂起/)
+    } finally {
+      if (prevTimeout === undefined) delete process.env.SCADA_GIT_TIMEOUT_MS
+      else process.env.SCADA_GIT_TIMEOUT_MS = prevTimeout
+    }
+  }, 30000)
+
+  it('★ 反向对照：正常超时下 repoFingerprint 不得误报 timedOut（防"恒真"）', () => {
+    // 没有这条，上面那条可能因为"永远为真"而假绿。
+    const fp = mod.repoFingerprint(REPO)
+    expect(fp.timedOut).toBe(false)
+    expect(fp.head).not.toBe(null)
+  })
+
+
+  it('★ 判别核心：classifyGitError 把"超时"与"不可用"分开（纯函数，跨平台）', () => {
+    const c = (mod as unknown as { classifyGitError: (e: unknown) => string }).classifyGitError
+    expect(c({ code: 'ETIMEDOUT' })).toBe('timeout')
+    expect(c({ signal: 'SIGTERM' })).toBe('timeout')
+    expect(c({ killed: true })).toBe('timeout')
+    // ★ EBUSY：实测"快进程 + 极短超时"下超时杀进程报的是 EBUSY（不是 ETIMEDOUT）。
+    //   漏掉它 → 该种挂起被误判成"不可用" → 降级 → 复刻事故。
+    expect(c({ code: 'EBUSY' })).toBe('timeout')
+    // 反向：普通失败必须判成"不可用"（允许降级），否则所有 git 错误都会 fail-closed
+    expect(c({ code: 'ENOENT' })).toBe('unavailable')
+    expect(c(new Error('boom'))).toBe('unavailable')
+    expect(c(null)).toBe('unavailable')
+  })
+
+  it('★ 静态守卫：本文件每处 execFileSync 都必须显式传 timeout（防新调用漏加）', () => {
+    // 端到端触发受平台限制，这条做**兜底**：机械保证"再有人新写 git 调用"时不会漏超时。
+    // ⚠️ 必须先剥注释：本文件头注里**用文字提到了** `execFileSync('git', ...)`，
+    //    不剥就会把注释里的提及当成真调用（实测：假阳性报 104/134 两处）。
+    //    用共享原语 stripComments（Bug 16 的真源）—— 别在这里手写正则剥注释。
+    const src = stripComments(
+      fs.readFileSync(path.join(REPO, 'tools', 'verify-workspace-frozen.js'), 'utf8'),
+    )
+    // 抠每个 execFileSync( ... ) 调用（配对括号），看不含 timeout:
+    const missing: number[] = []
+    const re = /execFileSync\s*\(/g
+    let m: RegExpExecArray | null
+    while ((m = re.exec(src)) !== null) {
+      const open = src.indexOf('(', m.index)
+      let depth = 0
+      let end = -1
+      for (let k = open; k < src.length; k += 1) {
+        const ch = src[k]
+        if (ch === '(') depth += 1
+        else if (ch === ')') {
+          depth -= 1
+          if (depth === 0) { end = k; break }
+        }
+      }
+      if (end === -1) continue
+      const call = src.slice(m.index, end + 1)
+      if (!/timeout\s*:/.test(call)) {
+        missing.push(src.slice(0, m.index).split('\n').length)
+      }
+    }
+    expect(missing, `以下 execFileSync 调用没有显式 timeout（行号）：${missing.join(', ')}`).toEqual([])
+  })
+
+
+  it('★ 判别核心：classifyGitError 把"超时"与"不可用"分开（纯函数，跨平台）', () => {
+    // 端到端在 Windows 上依赖 shim，判据强度受平台影响；
+    // 这条直接钉住"分类"这一步 —— 它是"挂起不得降级"的全部依据。
+    const c = (mod as unknown as { classifyGitError: (e: unknown) => string }).classifyGitError
+    expect(c({ code: 'ETIMEDOUT' })).toBe('timeout')
+    expect(c({ signal: 'SIGTERM' })).toBe('timeout')
+    expect(c({ killed: true })).toBe('timeout')
+    // ★ EBUSY：实测"快进程 + 极短超时"下超时杀进程报的是 EBUSY（不是 ETIMEDOUT）。
+    //   漏掉它 → 该种挂起被误判成"不可用" → 降级 → 复刻事故。
+    expect(c({ code: 'EBUSY' })).toBe('timeout')
+    // 反向：普通失败必须判成"不可用"（允许降级），否则所有 git 错误都会 fail-closed
+    expect(c({ code: 'ENOENT' })).toBe('unavailable')
+    expect(c(new Error('boom'))).toBe('unavailable')
+    expect(c(null)).toBe('unavailable')
+  })
+
+
+  it('diffSnapshots：任一侧 timedOut → 报 problem（fail-closed），即使两侧"值完全相同"', () => {
+    const mk = (timedOut: boolean) => ({
+      capturedAt: new Date().toISOString(),
+      backendFound: true,
+      backendRepo: REPO,
+      repos: [
+        {
+          repo: REPO,
+          head: 'abc123',
+          status: '',
+          trackedDiffSha: 'deadbeef',
+          timedOut,
+          error: timedOut ? 'git 调用挂起' : null,
+        },
+      ],
+    })
+
+    // ⚠️ 关键：两侧数据**一模一样**（head/status/diff 全相同）。
+    //    若把挂起当降级，diffSnapshots 会认为"一致" → 假绿。
+    //    正确行为 = 报出挂起。
+    const problems = mod.diffSnapshots(mk(true), mk(true))
+    expect(problems.length).toBeGreaterThan(0)
+    expect(problems.join('\n')).toMatch(/挂起|超时/)
+
+    // 反向对照：都未挂起 → 一致（不报），证明上面那条不是"总会报"
+    expect(mod.diffSnapshots(mk(false), mk(false))).toEqual([])
   })
 })
