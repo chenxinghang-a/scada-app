@@ -64,6 +64,21 @@ function reportDisabled(reason) {
 let updateAvailable = false
 let updateDownloaded = false
 
+// 头注硬约束 2 的**代码实现**：build 段是否配置了 publish（= 有更新服务器）。
+// 读的是**打包进 app 的 package.json**（app.getAppPath() 下），与"用户是否配了服务器"一致。
+// 任一环节读不到，都按"未配置"处理（fail-closed：宁可认为没有更新服务器）。
+function hasPublishConfig() {
+  try {
+    const pkgPath = path.join(app.getAppPath(), 'package.json')
+    const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf8'))
+    const publish = pkg && pkg.build && pkg.build.publish
+    if (Array.isArray(publish)) return publish.length > 0
+    return !!publish
+  } catch (e) {
+    return false
+  }
+}
+
 function sendToRenderer(getWindow, channel, data) {
   const win = typeof getWindow === 'function' ? getWindow() : getWindow
   if (win && !win.isDestroyed()) win.webContents.send(channel, data)
@@ -79,12 +94,22 @@ function setupUpdater(getWindow) {
     return
   }
 
-  // 防御：即便开关打开，但依赖缺失/未配置 publish，也应明确退出而非静默 no-op。
+  // 防御：即便开关打开，但依赖缺失 / 未配置 publish，也应明确退出而非静默 no-op。
   if (!autoUpdater) {
     reportDisabled(
       loadError
         ? `electron-updater 加载失败 (${loadError.message}) —— package.json 未声明该依赖`
         : 'electron-updater 不可用'
+    )
+    return
+  }
+
+  // 防御：头注把「build 段未配置 publish（无更新服务器）」列为硬约束 ——
+  // 这里必须**真的检查**，否则就成了一条"只写在注释里"的假保证：
+  // 一旦开关被翻开而 publish 没配，checkForUpdates() 会打向一个不存在的服务器。
+  if (!hasPublishConfig()) {
+    reportDisabled(
+      'package.json 的 build 段未配置 publish（无更新服务器）—— 即便开关打开，更新也保持关闭。'
     )
     return
   }
@@ -159,10 +184,15 @@ function checkForUpdates() {
     reportDisabled('electron-updater 未安装，跳过更新检查')
     return
   }
+  // 与 setupUpdater 同一条硬约束：未配置 publish 就不该去 check（会打向空服务器）
+  if (!hasPublishConfig()) {
+    reportDisabled('build 段未配置 publish，跳过更新检查')
+    return
+  }
   if (updateDownloaded) return
   autoUpdater.checkForUpdates().catch(err => {
     console.error('检查更新失败:', err.message)
   })
 }
 
-module.exports = { setupUpdater, checkForUpdates, AUTO_UPDATE_ENABLED }
+module.exports = { setupUpdater, checkForUpdates, AUTO_UPDATE_ENABLED, hasPublishConfig }
