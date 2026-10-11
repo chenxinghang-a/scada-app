@@ -389,6 +389,72 @@ polling 路径完好，问题在客户端配置。
 
 ---
 
+## Bug 10: 闸门自己把产物弄脏 —— 打包探针从不清理、冒烟留空壳自洽循环 🔴 严重（发布面）
+
+**现象**: `release/win-unpacked/resources/backend/_internal/data/` 里出现
+`scada_simulated.db`(180KB) + `.db-shm` + `.db-wal`(873KB) + `runtime.json`
++ `diagnostics/` + `queue/`，其中还有一个 `scada_simulated.db.navtest-copy-20261010`。
+**这些是探针跑出来的运行期垃圾，不是构建产物。**
+
+**为什么危险**: 该目录**会被 electron-builder 打进安装包** ——
+`package.json` 的 `extraResources` 是 `from: backend/ → to: backend/`，
+filter 只排了 `*.log` / `logs` / `exports` / `__pycache__` / `*.pyc`，
+**没有排除 `data/`**，而 electron-builder **不看 `.gitignore`**。
+所以「模拟数据库 + WAL + 上一次的端口文件」会**装到用户机器上**。
+
+**根因（两条同族缺陷，都属「闸门报 PASS 但产物被弄脏」）**:
+
+1. **打包探针 `verify-packaged-runtime` 完全没有清理机制**（对照：冒烟闸门有
+   `snapshotTree` / `cleanupCreated` / `cleanupUntilClean` 一整套）。
+   它真启动 `release/win-unpacked/SmartSCADA.exe`，而后端把自己的运行期状态
+   写在 **exe 旁边**（`electron/main.js` 用 `spawn(exe, [], {cwd: dirname(exe)})`，
+   后端 `paths.py` 取 `_BASE = exe_dir/_internal`）。
+   构建链顺序是「electron-builder → verify:packaged-runtime」→
+   **下一次打包会带上上一次探针跑出来的垃圾**。
+
+   ⚠️ **`--user-data-dir` 隔离救不了这条**：那是 **Electron 的口径**，管的是
+   应用的 userData；后端是**独立进程**，它比的是 `exe_dir/_internal`。二者的
+   隔离边界根本不是同一个东西 —— 这一条是最容易误判的地方。
+
+2. **冒烟闸门自己留空壳，形成自洽循环**。清理纪律「只删本次新建的」本身**正确**
+   （哪天发布配置真的随包带预置 `data/`，按名字硬删会误伤产物）。但它有个循环洞：
+   第一次冒烟把文件删干净后会**留下空目录**（这一轮它已算「既有」），
+   下一轮它在 `before` 快照里 → **永远不再被清除**。
+   而 `runtimeNewFiles` **只统计文件**，空目录对 `leftover` 判据是**隐形**的
+   → 闸门照样报 `[PASS]`，空壳随着安装包发出去。
+
+**实测复现**:
+- 删掉 `release/win-unpacked/.../data/` 后跑一次打包探针 →
+  它带着 `scada_simulated.db`(4096B) + WAL + `runtime.json` **原地重建**。
+- 冒烟闸门：**从干净基线**跑一次 → 跑完目录不存在（干净）；
+  但只要 `backend/_internal/data/` 空壳**存在过一次**，往后每轮都留着它。
+- 反向核对：用 7-Zip 拆开已发布的 `smartscada-Setup-1.3.1083.exe`，
+  内层 `app-64.7z` 里 `resources/backend/_internal/data` **条目数为 0** ——
+  说明 1083 那一次是**人工清理过**的，不是链路保证的。**这就是缺陷的本质：靠人。**
+
+**修复（2026-10-11）**:
+- 打包探针接入冒烟闸门那套「快照求差 → 只删本次新建 → 独立复核」，
+  在 `finally` 里执行；**清理不干净 → `process.exitCode = 1`（fail-closed）**。
+  跑前不存在的目录，跑完必须**整个消失**（连空壳都不留）；
+  跑前存在的内容（预置文件）**原样保留**。
+  新增 `--keep-artifacts`（仅供排查，默认永不保留）。
+- 冒烟闸门新增 `removeEmptyRuntimeDirShells()`：对**已知会被后端接管**的
+  运行期目录（`_internal/data`）在**确认为空**时删壳。
+  **非空一律不碰** —— 那要么是预置内容，要么是删不掉的残留（后者交给 `leftover` 判据）。
+
+**守卫**: `verify-packaged-runtime.test.ts` 14 → **18 例**；
+`verify-backend-runtime.test.ts` 39 → **42 例**。
+变异验证三态齐全（绿 → 红 → 绿，两处各一轮）。
+
+**⚠️ 一条方法论教训（本轮实锤）**: 打包探针的第一版守卫**只做「源码里有这几个字」的
+文本断言**（`expect(CMD).toContain('cleanupUntilClean')`）——
+把 `cleanupUntilClean(...)` 调用换成常量 `{leftover: []}` 后**变异存活**：
+文本断言照样全绿，而缺陷一点没被拦住。
+**「函数名出现在源码里」不等于「它会被调用」更不等于「调用是有效的」。**
+凡断言的是「某种行为」，就必须**真建树、真调函数、真断言结果**。
+
+---
+
 ## 迁移计划
 
 将 `industrial_scada` (Flask + Jinja2) 后端整合到 `scada-app` (Vue 3 + Electron)：
