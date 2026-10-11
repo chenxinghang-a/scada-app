@@ -40,6 +40,12 @@ const REPO = process.cwd()
 // 检查脚本写到 .vitest_cache/（已 gitignore；环境对删除有批量保护，本工具不做删除）
 const SCRIPTS_DIR = path.join(REPO, '.vitest_cache', 'dist-runtime')
 const CHECK_SCRIPT = path.join(SCRIPTS_DIR, 'check-main.js')
+// 一次性 userData：本探针会 `localStorage.setItem('auth_token', ...)` 塞假会话
+// （进仪表盘的导航烟测需要），若不定向，Electron 会把它写进**共享的默认 profile**
+// `%APPDATA%/Electron`，污染开发机、且让每次运行不孤立。
+// 其它两道运行时闸门（dist-runtime 的同族：packaged-runtime）都已用 `--user-data-dir`
+// 隔离，这里对齐 —— 探针不得在机器上留痕。
+const USER_DATA_DIR = path.join(SCRIPTS_DIR, 'userdata')
 
 function parseArgs(argv) {
   let dist = path.join(REPO, 'dist')
@@ -164,6 +170,11 @@ function main(argv) {
 
   fs.mkdirSync(SCRIPTS_DIR, { recursive: true })
   fs.writeFileSync(CHECK_SCRIPT, ELECTRON_CHECK, 'utf-8')
+  // 每次跑用**独立**的 userData 子目录：假会话（auth_token / scada_user）只落在
+  // 这里，跑完就丢 —— 既不碰 `%APPDATA%/Electron` 的共享 profile，也不受上次
+  // 运行残留的 localStorage 影响（否则「跑第一次绿、第二次红」这种 flaky 迟早找上门）。
+  const userDataDir = path.join(USER_DATA_DIR, `run-${Date.now()}-${process.pid}`)
+  fs.mkdirSync(userDataDir, { recursive: true })
 
   console.log(`[dist-runtime] 用 Electron 真跑 ${indexPath}（等待 ${waitSec}s）…`)
   // 兼容开关走**命令行**（进程启动即生效）——受限环境里在 JS 里 appendSwitch
@@ -183,6 +194,7 @@ function main(argv) {
   const fd = fs.openSync(runLog, 'w')
   const r = spawnSync(electronPath, [
     '--no-sandbox', '--disable-gpu-sandbox', '--disable-gpu',
+    `--user-data-dir=${userDataDir}`,
     CHECK_SCRIPT,
   ], {
     stdio: ['ignore', fd, fd],

@@ -65,4 +65,22 @@ describe('verify-dist-runtime：判据形状', () => {
     expect(CMD).toContain('auth_token')
     expect(CMD).toMatch(/dash\.ok/)
   })
+
+  // 隔离纪律：本探针会往 localStorage 塞假会话（auth_token / scada_user）。
+  // 不定向 userData 的话，Electron 会把它写进**共享的默认 profile**
+  // `%APPDATA%/Electron` —— 污染开发机，且两次运行互相影响（本仓库最忌的
+  // 「跑第一次绿第二次红」）。packaged-runtime 早已用 --user-data-dir，这里对齐。
+  //
+  // ⚠️ 断言必须落在 **spawn 的参数数组里**，不能只 `toContain('--user-data-dir')`：
+  // 那个字符串在注释/变量名里也出现，删掉真实用法后文本断言**照样绿**（实测变异存活）。
+  it('用一次性 --user-data-dir 隔离（不得污染 %APPDATA%/Electron 共享 profile）', () => {
+    // 必须出现在 spawnSync 的实参列表内（`--user-data-dir=${userDataDir}` 形态）
+    const spawnCall = CMD.slice(CMD.lastIndexOf('spawnSync(electronPath'))
+    expect(spawnCall).toMatch(/`--user-data-dir=\$\{userDataDir\}`/)
+    // 隔离目录必须落在仓库内的 .vitest_cache/，不得指向 %APPDATA%
+    expect(CMD).toMatch(/USER_DATA_DIR\s*=\s*path\.join\(SCRIPTS_DIR/)
+    expect(CMD).not.toMatch(/APPDATA[\\/].*Electron/i)
+    // 每次跑独立子目录（含 pid/时间戳），避免跨次污染
+    expect(CMD).toMatch(/userDataDir\s*=\s*path\.join\(USER_DATA_DIR,\s*`run-\$\{Date\.now\(\)\}/)
+  })
 })
