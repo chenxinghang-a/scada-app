@@ -885,6 +885,75 @@ const esc = (s) => String(s || '').replace(/&/g,'&amp;').replace(/"/g,'&quot;')
 
 ---
 
+## Bug 17: `timeout-discipline` 只认**硬编码的包装名**，新包装即盲区 🟠 中危（守卫体系自身）
+
+**现象**
+`tests/tools/timeout-discipline.test.ts` 的判据是一组**硬编码正则**（`SPAWNS`），
+其中"本地包装函数"那几条写死了名字：
+```js
+/\bawait\s+run\s*\(/,  /\bawait\s+runWithEnv\s*\(/,  /\bawait\s+runCmd\s*\(/,
+```
+实测：在测试里加一行 **`await runNode(REPO)`（不带超时）** 后，守卫 **8/8 全绿**。
+原因：`runNode` 不在名单里，且它内部才 `spawn(...)`（调用点看不到 `spawn(`）→ **完全漏检**。
+
+**根因（与 Bug 14 / Bug 16 同族）**
+**枚举式覆盖 ≠ 完备性**。守卫"认识"的是**作者想起来的名字**，而不是"所有真起进程的函数"。
+新写一个 `runNode` / `spawnAndWait` / `execGit`，守卫就瞎一次。这与：
+- Bug 14：`tools/` 脚本的可达性靠"记得列进清单"（漏了就是死闸门）
+- Bug 16：解析原语靠"记得同步"（漂移了就是 5 份语义）
+
+是**同一个病**：把"完备性"寄托在**一份手写的枚举**上。
+
+**修法（折中：动态发现 + 登记核对）**
+不直接把"全仓所有含 `spawn` 的函数名"都当信号 —— 实测会**引入假阳性**
+（`run` 这种通用名散落各处，一次跑出 6 个误报：`norm`/`walk`/`git`/`actualSites`/`exportsOf`/`inlineCommentStrip`）。
+改用两步：
+
+1. **发现**：`discoverSpawnWrapperNames(files, excludeSelf)` 扫描全仓，
+   用共享的 `extractFunctionBody` 抠出每个具名函数体，在**函数体内**找直接起进程调用，
+   得"所有真包装函数名"集合。（识别仍走**保守**的 `SPAWNS`，不动。）
+2. **核对**：新用例把发现结果与 `REGISTERED_SPAWN_WRAPPERS`（登记表）比对，
+   **有未登记的就报红**，并给出修法提示（加进登记表 + 在 `SPAWNS` 补一条，或明确列为"无需监护"并注明原因）。
+
+新增 `SPAWNS` 条目：`runPy(` / `runRaw(` / `git(` / `initRepo(`。
+登记表扩充为 `['run','runWithEnv','runCmd','runPy','runRaw','git','initRepo']`。
+
+**加固过程中踩的两个坑（都已修）**
+- **坑 1（假阳性）**：初版手写 `braceEnd` 扫描花括号，**跨过了函数边界**，把"函数体内嵌套的其它函数"
+  算成"本函数起进程" → 误报一堆无关名字。
+  修：改用共享 `extractFunctionBody` —— 这不是风格问题，而是**同一份花括号配平逻辑必须只有一份**
+  （正是 Bug 16 的教训在守卫自己身上的重演）。
+- **坑 2（误伤）**：把 `exec(` / `fork(` 放宽成 `\bexec\s*\(` 后会匹配 **`re.exec(`**
+  （RegExp.prototype.exec，不是 child_process）→ 把用 `re.exec` 的辅助函数误报成包装。
+  修：收紧为 `(?<![.\w$])exec\s*\(`（前面不是 `.` 或标识符字符），`fork(` 同理。
+
+**实测发现三个真实未登记包装**（登记表因此从 4 项扩到 7 项）：
+| 名字 | 位置 | 机制 | 当前调用点超时 |
+|---|---|---|---|
+| `runPy` | `tools/gate-parity.test.ts:43` | `spawn('python', …)` | 30000 ✅ |
+| `runRaw` | `tools/verify-workspace-frozen.test.ts:99` | spawn 系列 | 30000 ✅ |
+| `git` | `tools/verify-workspace-frozen.test.ts:51` | `execFileSync('git', …)` | 30000 ✅ |
+
+三者当前调用点**都带超时**（所以本次不产生新红；真正价值是**未来**新包装会被立刻发现）。
+
+**变异三态**：
+- M1 `runPy` 调用去掉超时 → 红（精确报出该 it 块缺超时）
+- M2 `initRepo` / `git` 调用去掉超时 → 红
+- 还原 → 绿
+（另有守卫判别力自检：合成夹具中的漏检必须被抓）
+
+**结尾断言**：本文件本地 9/9 绿；全仓 **42 文件 / 711 例全绿**。
+
+### 教训
+**"我认识的" ≠ "现有的"**。任何"列表式"守卫都必须配一条**反向守卫**：
+> 定期扫描"现实里存在的东西"，与"列表里登记的东西"做差集，非空则报红。
+
+否则列表会**随时间腐化**（新代码不断加，列表无人更新），
+守卫从"完备"退化成"只保护它出生那天存在的那些"。
+**收紧过度匹配时，先想"这个 pattern 会不会匹配到同名但不同域的东西"**（`exec(` vs `re.exec(`）。
+
+---
+
 ## 迁移计划
 
 将 `industrial_scada` (Flask + Jinja2) 后端整合到 `scada-app` (Vue 3 + Electron)：

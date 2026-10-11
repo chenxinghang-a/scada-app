@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import fs from 'node:fs'
 import path from 'node:path'
-import { matchParen, stripCommentsAndStrings } from '../helpers/source-text'
+import { matchParen, stripCommentsAndStrings, extractFunctionBody } from '../helpers/source-text'
 
 /**
  * 元守卫：**真起子进程的用例必须显式给超时**（2026-10-12）。
@@ -46,11 +46,38 @@ const SPAWNS = [
   /\bexecFile\s*\(/,
   /\bexecFileSync\s*\(/,
   /\bexecSync\s*\(/,
+  // ⚠️ `exec(` / `fork(` 必须排除"方法调用"形态：`re.exec(` 是 RegExp.prototype.exec，
+  //    不是 child_process。实测：放宽成 `\bexec\s*\(` 会把 `inlineCommentStrip`（用 re.exec）
+  //    误报成"起进程包装"。故要求前面不是 `.` 或标识符字符。
+  /(?<![.\w$])exec\s*\(/,
+  /(?<![.\w$])fork\s*\(/,
   /\bchild_process\b/,
   /\bawait\s+run\s*\(/,
   /\bawait\s+runWithEnv\s*\(/,
   /\bawait\s+runCmd\s*\(/,
+  /\bawait\s+runPy\s*\(/,
+  /\bawait\s+runRaw\s*\(/,
+  /\bgit\s*\(/,
+  /\binitRepo\s*\(/,
 ]
+
+/**
+ * **已登记**的"起进程包装函数"名字（与 SPAWNS 里的本地包装一一对应）。
+ *
+ * 为什么要有这个登记表 + 配套守卫（2026-10-12 加固）：
+ *   SPAWNS 里的本地包装名是**硬编码**的。实测：在测试里加一个 `await runNode(REPO)`
+ *   （无超时）后，守卫**8/8 全绿** —— 因为 `/\bawait\s+run\s*\(/` 不匹配 `runNode(`，
+ *   调用处也没有 `spawn(`。**新包装 = 新盲区**（枚举式覆盖 ≠ 完备，同 Bug 14/16）。
+ *
+ * 但"自动把全仓所有含 spawn 的函数名都纳入信号"会**误伤**：
+ *   像 `run` 这种通用名在很多无关位置出现，会造出一批假阳性（实测过）。
+ *
+ * 折中方案（本表 + "未登记则报红"守卫）：
+ *   守卫**扫描**全仓找出所有"内部调用了 spawn 的函数名"，与登记表核对；
+ *   有**未登记**的就报红，要求作者**手工登记**并决定该名字要不要进 SPAWNS。
+ *   这样既不引入假阳性（识别走保守的 SPAWNS），又能**发现**新包装而不是漏掉。
+ */
+const REGISTERED_SPAWN_WRAPPERS = ['run', 'runWithEnv', 'runCmd', 'runPy', 'runRaw', 'git', 'initRepo']
 
 /**
  * 从一个测试文件源码里提取所有 `it(...)` 块。
@@ -105,6 +132,51 @@ function findViolations(src: string): { title: string }[] {
 
 // ---------------------------------------------------------------------------
 
+/**
+ * 扫描一批文件，找出所有"**内部真实调用了起进程 API** 的函数名"。
+ *
+ * 用途：发现**未登记**的包装（新写的 `runNode` / `spawnAndWait` 等），
+ * 提醒作者登记（见 REGISTERED_SPAWN_WRAPPERS 的说明）。
+ *
+ * 实现要点：先用共享的 `extractFunctionBody`（花括号配平，跳过字符串/注释）
+ * 精确抠出每个具名函数体，再在**函数体内部**找直接的起进程调用。
+ * ⚠️ 必须用共享原语 —— 手写花括号扫描会把"函数体内嵌套的其它函数"算进来
+ *    （实测：会误报 `norm` / `walk` / `git` 等）。这不是"实现风格"问题，
+ *    而是**同一个花括号配平逻辑**必须只有一份。
+ */
+function discoverSpawnWrapperNames(files: string[], excludeSelf: string): Set<string> {
+  const names = new Set<string>()
+  const DIRECT = [
+    /\bspawn\s*\(/,
+    /\bspawnSync\s*\(/,
+    /\bexecFile\s*\(/,
+    /\bexecFileSync\s*\(/,
+    /\bexecSync\s*\(/,
+    /(?<![.\w$])exec\s*\(/,
+    /(?<![.\w$])fork\s*\(/,
+    /\bchild_process\b/,
+  ]
+  for (const f of files) {
+    if (f === excludeSelf) continue
+    const raw = fs.readFileSync(f, 'utf8')
+    // 收集本文件里所有 `function X(` / `const X = (…) =>` 的名字
+    const defRe =
+      /(?:function\s+([A-Za-z_$][\w$]*)\s*\(|(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*(?:async\s*)?\()/g
+    const seen = new Set<string>()
+    let m: RegExpExecArray | null
+    while ((m = defRe.exec(raw)) !== null) {
+      const name = m[1] ?? m[2]
+      if (!name || seen.has(name)) continue
+      seen.add(name)
+      const body = extractFunctionBody(raw, name)
+      if (!body) continue
+      const code = stripCommentsAndStrings(body)
+      if (DIRECT.some((re) => re.test(code))) names.add(name)
+    }
+  }
+  return names
+}
+
 describe('元守卫：真起子进程的用例必须带显式超时', () => {
   const SELF = path.join(REPO, 'tests', 'tools', 'timeout-discipline.test.ts')
   // ⚠️ 排除自身：本文件用**合成夹具**测试守卫的判别力，夹具把被测源码写成
@@ -114,6 +186,20 @@ describe('元守卫：真起子进程的用例必须带显式超时', () => {
 
   it('至少扫到一批测试文件（否则守卫形同虚设）', () => {
     expect(files.length).toBeGreaterThan(20)
+  })
+
+  it('新出现的"起进程包装函数"必须登记进 REGISTERED_SPAWN_WRAPPERS（防新包装成为盲区）', () => {
+    const found = discoverSpawnWrapperNames(files, SELF)
+    const unregistered = [...found].filter((n) => !REGISTERED_SPAWN_WRAPPERS.includes(n))
+    expect(
+      unregistered,
+      '以下函数**内部真调用了起进程 API，但没有登记**：\n' +
+        unregistered.map((n) => `  ${n}`).join('\n') +
+        '\n不登记 = SPAWNS 认不出它的调用 → 用它起的进程用例会被漏检（无超时也不报）。\n' +
+        '修法二选一：(a) 把名字加进 REGISTERED_SPAWN_WRAPPERS 并在 SPAWNS 里补一条 ' +
+        '`/\\bawait\\s+<name>\\s*\\(/`；(b) 若它只是内部工具、不会出现在 it 块里，' +
+        '请加进 REGISTERED_SPAWN_WRAPPERS 的"已知但无需监护"白名单并注明原因。',
+    ).toEqual([])
   })
 
   it('全仓所有「真起进程」用例都有显式超时（默认 5s 在 2 核 CI 上不够）', () => {
