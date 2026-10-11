@@ -39,8 +39,57 @@ function collectTestFiles(dir: string): string[] {
   return out
 }
 
-/** 真起进程的信号（在 it 块体内出现即算）。 */
-const SPAWNS = [
+/**
+ * **已登记**的"起进程包装函数"：名字 → **它在用例里的调用形态正则**。
+ *
+ * 为什么要有这个登记表 + 配套守卫（2026-10-12 加固）：
+ *   SPAWNS 里的本地包装名是**硬编码**的。实测：在测试里加一个 `await runNode(REPO)`
+ *   （无超时）后，守卫**8/8 全绿** —— 因为 `/\bawait\s+run\s*\(/` 不匹配 `runNode(`，
+ *   调用处也没有 `spawn(`。**新包装 = 新盲区**（枚举式覆盖 ≠ 完备，同 Bug 14/16）。
+ *
+ * 但"自动把全仓所有含 spawn 的函数名都纳入信号"会**误伤**：
+ *   像 `run` 这种通用名在很多无关位置出现，会造出一批假阳性（实测过）。
+ *
+ * 折中方案（本表 + 两条守卫）：
+ *   守卫**扫描**全仓找出所有"内部调用了 spawn 的函数名"，与本表核对：
+ *     · **反向**（表 ← 现实）：有**未登记**的 → 报红（发现新包装，不让它成为盲区）；
+ *     · **正向**（表 → SPAWNS）：本表每条 `matcher` 必须**真的出现在 SPAWNS 里** → 否则报红。
+ *   这样既不引入假阳性（识别走保守的 SPAWNS），又能**发现**新包装而不是漏掉。
+ *
+ * ⚠️ **为什么必须存 `matcher` 而不是只存名字**（2026-10-12 二次加固）：
+ *   首版提示写"(a) 加进登记表 **+** 在 SPAWNS 补一条" —— **两个合取项**，但守卫**只校验了第一项**。
+ *   实测：把 `runNode` 加进登记表但**不在 SPAWNS 补正则**，再放一个无超时的 `runNode` 调用 →
+ *   守卫 **9/9 全绿**，漏检照旧。**"提示里的合取条件"必须每项都有机械校验**，
+ *   否则作者做一半（看到绿）就收手。故把"名字"和"它在 SPAWNS 里的形态"**绑成一个不可分的条目**：
+ *   登记 = 同时提供两者，校验 = 两者互证。
+ */
+const SPAWN_WRAPPERS: { name: string; matcher: RegExp; note?: string }[] = [
+  { name: 'run', matcher: /\bawait\s+run\s*\(/ },
+  { name: 'runWithEnv', matcher: /\bawait\s+runWithEnv\s*\(/ },
+  { name: 'runCmd', matcher: /\bawait\s+runCmd\s*\(/ },
+  { name: 'runPy', matcher: /\bawait\s+runPy\s*\(/ },
+  { name: 'runRaw', matcher: /\bawait\s+runRaw\s*\(/ },
+  // git / initRepo 的调用点不带 await（同步 execFileSync），故形态与上面不同 ——
+  // 这正是"必须存 matcher 而非按 `await <name>(` 统一推"的原因。
+  { name: 'git', matcher: /\bgit\s*\(/ },
+  { name: 'initRepo', matcher: /\binitRepo\s*\(/ },
+]
+
+/**
+ * "已知但**无需**在 SPAWNS 里监护"的包装名（**白名单**，为空是理想态）。
+ * 入此表 = 接受"用它起的进程不会被超时守卫发现"，**必须写明原因**。
+ * 用途：当某包装只在测试的**非 `it` 块**（如 describe 级 setup）里出现，
+ * 为该名字往 SPAWNS 塞正则只会制造噪音时，走这里登记并说明。
+ */
+const WRAPPERS_WITHOUT_GUARD: { name: string; why: string }[] = []
+
+/**
+ * 真起进程的信号（在 it 块体内出现即算）。
+ * ⚠️ 本地包装那几条**直接引用 SPAWN_WRAPPERS 的 matcher 对象**（不是另写一份等价正则）：
+ *    这样"表 → 信号"的一致性由**引用同一性**保证，而非靠人眼看两条正则长得一样
+ *    （两个字形相同但内容有细微出入的正则，`includes` 判别不出来，会让"正向守卫"假绿）。
+ */
+const SPAWNS: RegExp[] = [
   /\bspawn\s*\(/,
   /\bspawnSync\s*\(/,
   /\bexecFile\s*\(/,
@@ -52,32 +101,9 @@ const SPAWNS = [
   /(?<![.\w$])exec\s*\(/,
   /(?<![.\w$])fork\s*\(/,
   /\bchild_process\b/,
-  /\bawait\s+run\s*\(/,
-  /\bawait\s+runWithEnv\s*\(/,
-  /\bawait\s+runCmd\s*\(/,
-  /\bawait\s+runPy\s*\(/,
-  /\bawait\s+runRaw\s*\(/,
-  /\bgit\s*\(/,
-  /\binitRepo\s*\(/,
+  // —— 本地包装：从 SPAWN_WRAPPERS 取 matcher ——
+  ...SPAWN_WRAPPERS.map((w) => w.matcher),
 ]
-
-/**
- * **已登记**的"起进程包装函数"名字（与 SPAWNS 里的本地包装一一对应）。
- *
- * 为什么要有这个登记表 + 配套守卫（2026-10-12 加固）：
- *   SPAWNS 里的本地包装名是**硬编码**的。实测：在测试里加一个 `await runNode(REPO)`
- *   （无超时）后，守卫**8/8 全绿** —— 因为 `/\bawait\s+run\s*\(/` 不匹配 `runNode(`，
- *   调用处也没有 `spawn(`。**新包装 = 新盲区**（枚举式覆盖 ≠ 完备，同 Bug 14/16）。
- *
- * 但"自动把全仓所有含 spawn 的函数名都纳入信号"会**误伤**：
- *   像 `run` 这种通用名在很多无关位置出现，会造出一批假阳性（实测过）。
- *
- * 折中方案（本表 + "未登记则报红"守卫）：
- *   守卫**扫描**全仓找出所有"内部调用了 spawn 的函数名"，与登记表核对；
- *   有**未登记**的就报红，要求作者**手工登记**并决定该名字要不要进 SPAWNS。
- *   这样既不引入假阳性（识别走保守的 SPAWNS），又能**发现**新包装而不是漏掉。
- */
-const REGISTERED_SPAWN_WRAPPERS = ['run', 'runWithEnv', 'runCmd', 'runPy', 'runRaw', 'git', 'initRepo']
 
 /**
  * 从一个测试文件源码里提取所有 `it(...)` 块。
@@ -188,17 +214,41 @@ describe('元守卫：真起子进程的用例必须带显式超时', () => {
     expect(files.length).toBeGreaterThan(20)
   })
 
-  it('新出现的"起进程包装函数"必须登记进 REGISTERED_SPAWN_WRAPPERS（防新包装成为盲区）', () => {
+  it('反向：新出现的"起进程包装函数"必须登记进 SPAWN_WRAPPERS（防新包装成为盲区）', () => {
     const found = discoverSpawnWrapperNames(files, SELF)
-    const unregistered = [...found].filter((n) => !REGISTERED_SPAWN_WRAPPERS.includes(n))
+    const known = new Set([...SPAWN_WRAPPERS.map((w) => w.name), ...WRAPPERS_WITHOUT_GUARD.map((w) => w.name)])
+    const unregistered = [...found].filter((n) => !known.has(n))
     expect(
       unregistered,
       '以下函数**内部真调用了起进程 API，但没有登记**：\n' +
         unregistered.map((n) => `  ${n}`).join('\n') +
         '\n不登记 = SPAWNS 认不出它的调用 → 用它起的进程用例会被漏检（无超时也不报）。\n' +
-        '修法二选一：(a) 把名字加进 REGISTERED_SPAWN_WRAPPERS 并在 SPAWNS 里补一条 ' +
-        '`/\\bawait\\s+<name>\\s*\\(/`；(b) 若它只是内部工具、不会出现在 it 块里，' +
-        '请加进 REGISTERED_SPAWN_WRAPPERS 的"已知但无需监护"白名单并注明原因。',
+        '修法二选一：(a) 把 `{ name, matcher: /\\bawait\\s+<name>\\s*\\(/ }` 加进 SPAWN_WRAPPERS ' +
+        '**并在 SPAWNS 里补同一条 matcher**（两条会由下一条用例机械互证）；' +
+        '(b) 若它只出现在非 it 块、无需监护，加进 WRAPPERS_WITHOUT_GUARD 并注明原因。',
+    ).toEqual([])
+  })
+
+  it('正向：SPAWN_WRAPPERS 每条 matcher 必须真的出现在 SPAWNS 里（防"登记了却没进信号"）', () => {
+    // 若只登记不补 SPAWNS：发现守卫会放行（名字在表里），但识别守卫认不出 →
+    // 漏检照旧复活。这条把"提示里的合取第二项"变成机械校验。
+    const missing = SPAWN_WRAPPERS.filter((w) => !SPAWNS.includes(w.matcher))
+    expect(
+      missing,
+      '以下包装在 SPAWN_WRAPPERS 里登记了 matcher，但 **SPAWNS 里没有同一条**：\n' +
+        missing.map((w) => `  ${w.name}  ${w.matcher}`).join('\n') +
+        '\n后果：它的调用不会被识别 → 无超时也不报（登记形同虚设）。\n' +
+        '修法：把上列 matcher **原样**加进 SPAWNS 数组（必须是同一个 RegExp 对象引用）。',
+    ).toEqual([])
+  })
+
+  it('白名单 WRAPPERS_WITHOUT_GUARD 不得空口登记（每条必须写明原因）', () => {
+    const bad = WRAPPERS_WITHOUT_GUARD.filter((w) => !w.why || w.why.trim().length < 10)
+    expect(
+      bad,
+      'WRAPPERS_WITHOUT_GUARD 里以下条目没有写明原因（或太短）：\n' +
+        bad.map((w) => `  ${w.name}`).join('\n') +
+        '\n白名单 = 主动放弃对该包装的超时监护，必须留下"为什么可以放弃"的记录。',
     ).toEqual([])
   })
 
