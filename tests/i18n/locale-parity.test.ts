@@ -29,6 +29,7 @@ import fs from 'fs'
 import path from 'path'
 import zhCN from '../../src/locales/zh-CN'
 import enUS from '../../src/locales/en-US'
+import { stripComments } from '../helpers/source-text'
 
 const REPO = process.cwd()
 const SRC = path.join(REPO, 'src')
@@ -58,10 +59,7 @@ function usedKeys(): Set<string> {
       if (e.isDirectory()) { walk(full); continue }
       if (!/\.(ts|vue)$/.test(e.name)) continue
       if (full.includes(`${path.sep}locales${path.sep}`)) continue
-      const text = fs
-        .readFileSync(full, 'utf8')
-        .replace(/\/\*[\s\S]*?\*\//g, '')
-        .replace(/(^|[^:])\/\/.*$/gm, '$1')
+      const text = stripComments(fs.readFileSync(full, 'utf8'), { html: true })
       for (const m of text.matchAll(/\bt\(\s*['"]([A-Za-z][\w.]*)['"]/g)) {
         out.add(m[1])
       }
