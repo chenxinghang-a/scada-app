@@ -512,12 +512,48 @@ describe('测试自身不得污染真实仓库（首版就是这样被自己污�
     expect(src).toContain("path.join(root, 'tools', 'verify-workspace-frozen.js')")
   })
 
-  it('真实仓库的 .vitest_cache 下不该留基线文件（测试跑完必须干净）', () => {
-    // 这条是本测试文件**自己**的副作用检查：跑完后真实仓库的 STATE_FILE 不该存在。
-    // （正常构建时它存在是**对的** —— pre 写了、post 读；但测试跑完不该留。）
-    const realState = path.join(REPO, '.vitest_cache', 'workspace-frozen-state.json')
-    // 注意：本断言依赖「测试全程只碰副本」。若它挂了，说明又有人在碰真实仓库。
-    expect(fs.existsSync(realState), `测试污染了真实仓库：${realState} 应不存在`).toBe(false)
+  // 基线文件的真实路径（闸门 REPO_ROOT 是编译期常量 → 恒落在真实仓库里）。
+  const REAL_STATE = path.join(REPO, '.vitest_cache', 'workspace-frozen-state.json')
+
+  /**
+   * 本文件**导入期**记录的真实基线状态 —— 必须早于任何 beforeAll。
+   *
+   * ⚠️ 这里不能再写成「断言文件不存在」。CI 的 `electron-build` job 里，
+   *    步骤 3（`verify-workspace-frozen.js --pre`）**合法地**创建了这个文件，
+   *    步骤 12 才跑测试 —— 此时它存在是**正确**的，不是污染。
+   *    （2026-10-11 实测：该断言把 CI 假红了一整轮，日志：
+   *      `测试污染了真实仓库：D:\a\scada-app\scada-app\.vitest_cache\workspace-frozen-state.json 应不存在`）
+   *
+   * 正确的判据是「**测试**有没有让它从无到有 / 有没有改过它」，
+   * 而不是「它此刻在不在」—— 后者把「构建链路的合法产物」误判成「测试污染」。
+   */
+  const realStateExistedBefore = fs.existsSync(REAL_STATE)
+  const realStateMtimeBefore = realStateExistedBefore ? fs.statSync(REAL_STATE).mtimeMs : -1
+
+  it('测试自身不得让真实仓库的基线文件「从无到有」或改动它', () => {
+    // 本条是本测试文件**自己**的副作用检查。
+    // 判据（两条，取**已存在**时更严的那条）：
+    //   ① 测试开始前不存在 → 跑完必须仍不存在（真·新增 = 污染）；
+    //   ② 测试开始前已存在 → 跑完内容/mtime 必须没变（动了它 = 污染）。
+    // 为什么不断言「不存在」：CI 的 --pre 步骤会合法留下它，那是构建链路的产物。
+    const nowExists = fs.existsSync(REAL_STATE)
+
+    if (!realStateExistedBefore) {
+      expect(
+        nowExists,
+        `测试污染了真实仓库：${REAL_STATE} 被从无到有创建了（测试全程只该碰副本）`,
+      ).toBe(false)
+      return
+    }
+
+    // 已存在分支：本体不能消失（那说明测试删了构建产物，同样是破坏），
+    // 更不能被改（mtime 变化 = 测试写过真实仓库）。
+    expect(nowExists, `测试删掉了真实仓库的既有基线文件：${REAL_STATE}（这是构建链路的产物）`).toBe(true)
+    const mtimeNow = fs.statSync(REAL_STATE).mtimeMs
+    expect(
+      mtimeNow,
+      `测试改写了真实仓库的基线文件：${REAL_STATE}（mtime 由 ${realStateMtimeBefore} 变为 ${mtimeNow}）`,
+    ).toBe(realStateMtimeBefore)
   })
 })
 

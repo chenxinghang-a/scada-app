@@ -487,6 +487,56 @@ filter 只排了 `*.log` / `logs` / `exports` / `__pycache__` / `*.pyc`，
 
 ---
 
+## Bug 11: 守卫把「构建链路的合法产物」误判成「测试污染」🔴 严重（CI 发布链阻断）
+
+**现象**（2026-10-11）: `electron-build`（windows-latest）**连续 5 笔红**，
+而 `build-and-test`（ubuntu-latest）**恒绿**；失败恒在第 12 步 `Unit tests`（exit 1），
+导致后面 13–20 步（含版本一致性闸门、asar 校验、打包探针）**全部 skipped**
+→ **v1087 打不了包**。
+
+**排查（关键突破 = 不再靠猜）**: 匿名拿 job log 是 403，改用
+`git credential fill` 取 40 字符 token → GitHub REST API 拉 run/job/log，一次拿到确切用例名：
+
+```
+× 测试自身不得污染真实仓库（首版就是这样被自己污染的）
+  > 真实仓库的 .vitest_cache 下不该留基线文件（测试跑完必须干净）
+  → 测试污染了真实仓库：D:\a\scada-app\scada-app\.vitest_cache\workspace-frozen-state.json 应不存在
+```
+
+**根因**: `tests/tools/verify-workspace-frozen.test.ts:515` 的守卫断言
+「真实仓库 `.vitest_cache/workspace-frozen-state.json` **必须不存在**」。
+但 CI 的 `electron-build` **步骤 3** 就跑 `verify-workspace-frozen.js --pre`
+（`ci.yml:93`）—— 它**合法地**创建了这个基线文件；测试在**步骤 12** 才跑。
+**此时文件存在是对的。我的断言把「文件在不在」等同于「测试污不污染」，等式不成立。**
+
+同一套件两个 job 结果不同 → 差异**只可能在 job 前置步骤**（这个线索是对的），
+但「ubuntu vs windows 差异」「裸 require 在 ESM 下失效」两条假设**实测被证伪**。
+真正的差异是：**只有 `electron-build` 在测试之前跑过 `--pre`**。
+
+**修法**: 把判据从「文件此刻在不在」改为「**测试**有没有让它从无到有 / 有没有改过它」——
+导入期记录 `realStateExistedBefore` + `realStateMtimeBefore`，守卫分两支：
+① 之前不存在 → 跑完必须仍不存在；② 之前已存在 → 跑完不得消失、**mtime 必须未变**。
+
+**变异验证三态齐全**（两轮，都精确红到对应分支的报错文本）：
+* 变异 ①（测试真往真实仓库写基线文件）→ 红：`被从无到有创建了`
+* 变异 ②（测试改写既有基线文件）→ 红：`mtime 由 ... 变为 ...`
+* 还原后 → 绿。另单独模拟「CI 场景：state 文件预先存在」→ **24/24 全绿**。
+
+⚠️ **踩坑**：变异 ② 第一版用 `appendFileSync(..., "")`（空内容）——
+Node 在 Windows 上写空内容**不更新 mtime** → 变异**存活**（假绿）。
+换成 `writeFileSync` 真内容才红。**教训：变异本身也要确认它真的改变了被测的行为**。
+
+**方法论教训（本族第 3 次）**：判据与意图之间隔一层，是**已经成型的缺陷类别**——
+* Bug 10：判「有文件残留」，真意图是「产物目录干净」→ 空壳目录隐形
+* Bug 10 支线：判「函数名在源码里出现」，真意图是「函数真被调用」→ 文本断言变异存活
+* **Bug 11（本条）**：判「文件不存在」，真意图是「测试没制造污染」→ 合法产物被误判
+
+**守卫**: 用例从「断言状态」升级为「断言**因果**」：
+不再问「现在存在吗」，而是问「**是测试让它变的吗**」。
+CI 侧可再加 `--reporter=verbose`（二号机建议）以便下次一眼看到用例名 —— 待定。
+
+---
+
 ## 迁移计划
 
 将 `industrial_scada` (Flask + Jinja2) 后端整合到 `scada-app` (Vue 3 + Electron)：

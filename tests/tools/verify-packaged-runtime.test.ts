@@ -16,10 +16,21 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import fs from 'fs'
 import os from 'os'
 import path from 'path'
+import { createRequire } from 'node:module'
 
 const REPO = process.cwd()
 const TOOL = path.join(REPO, 'tools', 'verify-packaged-runtime.js')
 const CMD = fs.readFileSync(TOOL, 'utf8')
+
+// ⚠️ 本文件是 **ESM**（用的是 `import`），ESM 里**没有**裸 `require`。
+// 本机 vitest/Vite 会顺手 shim 掉，于是「本地全绿」；**CI runner 上不会** ——
+// 这就是 `electron-build` job（windows-latest）在 `Unit tests` 步失败、
+// 而 `build-and-test`（ubuntu-latest）全绿的那类差异。
+// 与 `verify-backend-runtime.test.ts` 保持一致：用 createRequire 显式取。
+const require_ = createRequire(import.meta.url)
+// 需要 CommonJS 形态（工具本身是 CJS）—— 这里只用于行为级用例，故 any。
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const gate: any = require_(TOOL)
 
 describe('verify-packaged-runtime：判据与安全形状', () => {
   it('测的对象是**打包产物 exe**（不是 dist）', () => {
@@ -98,8 +109,7 @@ describe('verify-packaged-runtime：产物目录不得留运行期垃圾', () =>
   })
 
   it('判据路径 = exe 旁的 resources/backend/_internal/data（不是 %APPDATA%，也不是 app 根）', () => {
-    const mod = require(TOOL)
-    const got = String(mod.runtimeDataDir('C:/app/release/win-unpacked/SmartSCADA.exe'))
+    const got = String(gate.runtimeDataDir('C:/app/release/win-unpacked/SmartSCADA.exe'))
     expect(got.replace(/\\/g, '/')).toBe(
       'C:/app/release/win-unpacked/resources/backend/_internal/data'
     )
@@ -140,8 +150,7 @@ describe('verify-packaged-runtime：产物目录不得留运行期垃圾', () =>
  * 所以这一组必须**真调函数**。
  */
 describe('verify-packaged-runtime：清理函数的行为（真建树真调）', () => {
-  const mod = require(TOOL)
-  const { snapshotTree, cleanupCreated, runtimeNewFiles, cleanupUntilClean } = mod as {
+  const { snapshotTree, cleanupCreated, runtimeNewFiles, cleanupUntilClean } = gate as {
     snapshotTree: (r: string) => { files: Set<string>; dirs: Set<string> }
     cleanupCreated: (r: string, b: { files: Set<string>; dirs: Set<string> }) => string[]
     runtimeNewFiles: (r: string, b: { files: Set<string>; dirs: Set<string> }) => string[]
