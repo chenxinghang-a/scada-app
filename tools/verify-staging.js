@@ -306,6 +306,9 @@ function main(argv = process.argv.slice(2)) {
 module.exports = {
   assessStaging, headCommitTime, repoVersion, stagedVersion, backendHeadTime,
   backendRepoCandidates, DEFAULT_DIR, ENTRY, VERSION_REL,
+  // git 超时语义 —— 导出以便与 verify-workspace-frozen.js 做**一致性守卫**
+  // （两份实现必须给出相同结果，见 tests/tools/verify-workspace-frozen.test.ts）。
+  gitTimeoutMs, GIT_TIMEOUT_DEFAULT_MS,
 }
 
 if (require.main === module) {

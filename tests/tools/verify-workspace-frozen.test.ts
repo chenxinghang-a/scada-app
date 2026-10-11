@@ -799,3 +799,59 @@ describe('git 调用挂起（超时）→ fail-closed，**不得**降级（2026-
     expect(mod.diffSnapshots(mk(false), mk(false))).toEqual([])
   })
 })
+
+describe('git 超时语义与 verify-staging.js 保持一致（防两处漂移，2026-10-12）', () => {
+  // ⚠️ 为什么需要（本轮自省发现）：
+  //    `gitTimeoutMs()` / `GIT_TIMEOUT_DEFAULT_MS` 在**两个文件里各写了一份** ——
+  //    这正是 `backendRepoCandidates()` 的同款情况（那边已有一致性守卫），
+  //    但我本轮新引入 git 超时时**只写了实现、没配守卫** ——
+  //    在我自己刚立的"多份实现必须有守卫"纪律上立刻违反了。
+  //    若一边改成 30s、另一边忘改，同一个 `SCADA_GIT_TIMEOUT_MS` 在两个闸门里行为就不同。
+  const req = createRequire(import.meta.url)
+  const frozen = req(TOOL) as {
+    gitTimeoutMs: () => number
+    GIT_TIMEOUT_DEFAULT_MS: number
+  }
+  const staging = req(path.join(REPO, 'tools', 'verify-staging.js')) as {
+    gitTimeoutMs: () => number
+    GIT_TIMEOUT_DEFAULT_MS: number
+  }
+
+  it('两侧默认超时值相同', () => {
+    expect(frozen.GIT_TIMEOUT_DEFAULT_MS).toBe(staging.GIT_TIMEOUT_DEFAULT_MS)
+  })
+
+  it('两侧 gitTimeoutMs() 对同一 env 给出相同结果（含非法值回退）', () => {
+    const probes: (string | undefined)[] = [undefined, '1', '12345', '0', '-5', 'abc', '']
+    const prev = process.env.SCADA_GIT_TIMEOUT_MS
+    try {
+      for (const v of probes) {
+        if (v === undefined) delete process.env.SCADA_GIT_TIMEOUT_MS
+        else process.env.SCADA_GIT_TIMEOUT_MS = v
+        expect(
+          frozen.gitTimeoutMs(),
+          `env=${JSON.stringify(v)}：两侧对"非法/合法值"的回退必须一致`,
+        ).toBe(staging.gitTimeoutMs())
+      }
+    } finally {
+      if (prev === undefined) delete process.env.SCADA_GIT_TIMEOUT_MS
+      else process.env.SCADA_GIT_TIMEOUT_MS = prev
+    }
+  })
+
+  it('非法值（0 / 负数 / 非数字 / 空串）必须回退到默认值，而不是当成 0', () => {
+    // ⚠️ 若把 "0" 当成合法超时=0ms，所有 git 调用会**立刻超时** → 闸门全红（假红）。
+    const prev = process.env.SCADA_GIT_TIMEOUT_MS
+    try {
+      for (const bad of ['0', '-5', 'abc', '']) {
+        process.env.SCADA_GIT_TIMEOUT_MS = bad
+        expect(frozen.gitTimeoutMs(), `env=${JSON.stringify(bad)} 应回退默认`).toBe(
+          frozen.GIT_TIMEOUT_DEFAULT_MS,
+        )
+      }
+    } finally {
+      if (prev === undefined) delete process.env.SCADA_GIT_TIMEOUT_MS
+      else process.env.SCADA_GIT_TIMEOUT_MS = prev
+    }
+  })
+})
