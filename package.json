@@ -75,7 +75,9 @@
           "!logs/**",
           "!exports/**",
           "!**/__pycache__/**",
-          "!**/*.pyc"
+          "!**/*.pyc",
+          "!_internal/data/**",
+          "!_internal/backups/**"
         ]
       }
     ],

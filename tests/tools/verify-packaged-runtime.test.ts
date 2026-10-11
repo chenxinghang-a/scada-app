@@ -87,13 +87,19 @@ describe('verify-packaged-runtime：判据与安全形状', () => {
  * ----------------------------------------
  * 本探针真启动打包版，而后端把自己的模拟库 / WAL / `runtime.json` 写在 **exe 旁边**：
  * `release/win-unpacked/resources/backend/_internal/data/`。
- * 该目录**会被 electron-builder 打进安装包**（`extraResources` 的 filter 只排了
+ * 该目录**会被 electron-builder 打进安装包**（`extraResources` 的 filter 原先只排了
  * `*.log`/`logs`/`exports`/`__pycache__`/`*.pyc`，没排 `data/`），而构建链的顺序是
  * 「electron-builder → verify:packaged-runtime」—— 于是**下一次打包会带上上一次
  * 探针跑出来的垃圾**。实测：删掉该目录后跑一次探针，它会带着 4096 字节的
  * `scada_simulated.db` + WAL + `runtime.json` 原地重建。
  *
- * 注意 `--user-data-dir` 隔离**救不了**这一条：那是 Electron 的口径，管的是
+ * 现在有**两道防线**（Bug 10 修复）：
+ *   ① 本探针跑完把 `_internal/data/` 恢复到跑前状态（本文件的用例）；
+ *   ② `package.json` 的 `extraResources.filter` 直接排掉 `!_internal/data/**`
+ *      与 `!_internal/backups/**`（后者是二号机扫出的 `auto_backup` 落点，
+ *      同一个 filter 缺口 —— 见「extraResources 过滤口径」那组用例）。
+ *
+ * ⚠️ 注意 `--user-data-dir` 隔离**救不了**这一条：那是 Electron 的口径，管的是
  * 应用的 userData；后端是独立进程，`main.js` 用 `spawn(exe, [], {cwd: exeDir})`
  * 起它，后端 `paths.py` 取 `_BASE = exe_dir/_internal`。
  */
@@ -217,4 +223,47 @@ describe('verify-packaged-runtime：清理函数的行为（真建树真调）',
     expect(fs.existsSync(path.join(tmp, 'preset-empty-dir'))).toBe(true)
     expect(fs.existsSync(path.join(tmp, 'new.db'))).toBe(false)
   }, 30000)
+})
+
+/**
+ * `extraResources` 过滤口径（第二道防线，2026-10-11 补）
+ * --------------------------------------------------
+ * Bug 10 的**根本原因**不是探针不清理，而是 filter **压根没排**运行期目录。
+ * 探针清理（第一道防线）只在「闸门真被跑到」时生效；而 filter 是**打包器**的口径 ——
+ * 哪怕有人在没跑闸门的情况下手工 `electron-builder`，这两条也拦得住。
+ *
+ * 为什么必须静态断言而不是只靠集成测试：
+ * 真实的「带垃圾打包」要跑完整 electron-builder 才看得见（分钟级 + 需要 python 产物），
+ * 在单测里跑不动；而 filter 的形状是**编译期常量**，静态断言足够且是 fail-fast。
+ */
+describe('extraResources 过滤口径（不得把运行期目录打进安装包）', () => {
+  const PKG = JSON.parse(fs.readFileSync(path.join(REPO, 'package.json'), 'utf8'))
+  const filter: string[] = PKG.build.extraResources[0].filter
+
+  it('必须排掉 _internal/data（后端运行期库/WAL/runtime.json 的落点）', () => {
+    // 判据要点：用**排除条目**判定，不能只看 `**/*` 里有没有这个词（那样恒真）。
+    expect(
+      filter.some((f) => f === '!_internal/data/**'),
+      `extraResources.filter 没排 _internal/data/ —— 闸门跑出的运行期库会被打进安装包：\n${filter.join('\n')}`,
+    ).toBe(true)
+  })
+
+  it('必须排掉 _internal/backups（auto_backup 的落点，同一个缺口）', () => {
+    // 二号机扫出：AutoBackup 用 project_root=Path(__file__).parent.parent，
+    // 冻结产物里就是 _internal/ → _internal/backups/ 正好落进 extraResources。
+    expect(
+      filter.some((f) => f === '!_internal/backups/**'),
+      `extraResources.filter 没排 _internal/backups/：\n${filter.join('\n')}`,
+    ).toBe(true)
+  })
+
+  it('保留 `**/*` 兜底（别为了排除把整个 backend 排空）', () => {
+    expect(filter[0]).toBe('**/*')
+  })
+
+  it('先前的排除项不得被这次改动弄丢（回归守卫）', () => {
+    for (const must of ['!**/*.log', '!logs/**', '!exports/**', '!**/__pycache__/**', '!**/*.pyc']) {
+      expect(filter, `filter 丢了原有排除项 ${must}`).toContain(must)
+    }
+  })
 })
