@@ -533,7 +533,21 @@ Node 在 Windows 上写空内容**不更新 mtime** → 变异**存活**（假�
 
 **守卫**: 用例从「断言状态」升级为「断言**因果**」：
 不再问「现在存在吗」，而是问「**是测试让它变的吗**」。
-CI 侧可再加 `--reporter=verbose`（二号机建议）以便下次一眼看到用例名 —— 待定。
+
+**后续（同日，可观测性补强）**: 本轮排查的最大摩擦是「**CI 红了看不到是哪条**」——
+匿名拿 job log 是 403、vitest 默认 reporter 又把失败用例名折进汇总，只能靠猜。
+两处补强（提交与 Bug 11 同批）：
+1. `Unit tests` 改 `npm test -- --reporter=verbose 2>&1 | tee unit-tests.log`
+   （`set -o pipefail` 保留 fail-closed，`tee` 不吞退出码）；
+2. 新增 `.github/scripts/emit_unit_test_failure.py` + `if: failure()` 步骤，
+   把失败用例名 / 断言消息发成 **annotation**（与 electron-builder 那步同款，
+   公开可读、无需 admin）。
+
+**⚠️ 补强里又踩了同一个坑（第 4 次）**：`gate-parity.test.ts` 的守卫首版写
+`expect(text).toContain('--reporter=verbose')` —— 而该字符串**在上方注释里也出现**，
+删掉真实用法后**文本断言照样绿**（变异实测）。改为把断言**限定在 `run:` 命令行**后精确红。
+四条变异全部精确捕获（去 verbose / 去 pipefail / 去 `if: failure()` / 破坏换行转义）。
+**本族已 4 次**：凡文本断言，都要问「这串字符会不会在**别处**也出现导致假绿」。
 
 ---
 

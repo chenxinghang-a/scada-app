@@ -185,7 +185,27 @@ jobs:
         run: npm run build
 
       - name: Unit tests
-        run: npm test
+        # ★ 2026-10-11 补：输出默认会**把失败用例名折在汇总里**，
+        #   而 CI 卡红时拿不到 job log（匿名 GET 403），只能看到"步骤 12 失败"。
+        #   本轮实测代价：`electron-build` 连红 5 笔、排查靠猜（最后是用带
+        #   token 的 REST API 才捞到确切用例名）。为此做两件事：
+        #     ① `--reporter=verbose` 让每个用例名逐行可见；
+        #     ② 失败时把失败行发成 annotation（公开可读通道，与
+        #        electron-builder 那步同款），远端一眼看清是"哪条 + 为什么"。
+        #
+        #   ⚠️ 保留 `npm test`（= `vitest run`）的 fail-closed 语义：
+        #      `tee` + `pipefail` 保证 vitest 的非 0 退出码仍让本步红。
+        shell: bash
+        run: |
+          set -o pipefail
+          npm test -- --reporter=verbose 2>&1 | tee unit-tests.log
+
+      - name: Report unit test failure as annotation
+        # 与「Report build failure as annotation」同款：只在失败时执行，
+        # 把失败用例名 / 断言消息发成 annotation（公开可读，无需 admin）。
+        if: failure()
+        shell: bash
+        run: python .github/scripts/emit_unit_test_failure.py
 
       - name: Verify dist integrity (fail-closed gate)
         # 与 npm run electron:build 保持一致：那道闸门会拒绝「index.html 引用了
