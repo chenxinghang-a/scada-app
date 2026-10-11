@@ -203,11 +203,38 @@ function workspaceSnapshot() {
 function diffSnapshots(pre, post) {
   const problems = []
 
-  if (pre.backendFound !== post.backendFound) {
+  // ---- 后端仓库「是哪个」变了 ----
+  //
+  // ⚠️ 两种情况都要覆盖，别只看布尔值：
+  //   (a) 一边探测到、另一边没探测到（`backendFound` 翻转）
+  //   (b) 两边都探测到，但**指向了不同的仓库**（换了落点）
+  //
+  // 实测（自测阶段）：旧版只判 (a)，于是 (b) 走到了下面「仓库在构建后消失了」
+  // 那条分支，报因变成"仓库消失了"——而真相是"**换成了另一个**"。
+  // 另外 (a) 的旧措辞是「构建窗口内仓库被移走/新建了？」，
+  // 它把最常见的真实原因（环境变量没设 / CI 没 checkout 到 backend-src）
+  // 说成了"有人动了仓库"—— 又是"错误报因比没有报因更贵"那类毛病。
+  if (!pre.backendFound || !post.backendFound) {
+    if (pre.backendFound !== post.backendFound) {
+      const was = pre.backendFound ? pre.backendRepo : '未探测到'
+      const now = post.backendFound ? post.backendRepo : '未探测到'
+      problems.push(
+        `后端仓库探测结果变了：构建前=${was}，构建后=${now}。\n` +
+        '      常见原因是**环境问题**（不是"有人动了仓库"）：\n' +
+        '        · 某一侧没设 SCADA_BACKEND_REPO（或设成了不存在的路径）\n' +
+        '        · CI 里 backend-src 没 checkout 出来 / checkout 到了别处\n' +
+        '        · 本机候选列表里的目录被改名/移动\n' +
+        '      若确实是环境问题：修好环境后**重新跑一对 --pre/--post**，\n' +
+        '      并注意"只校验了前端"的那一次**没有覆盖后端仓库**——防护是打折的。',
+      )
+    }
+  } else if (pre.backendRepo !== post.backendRepo) {
+    // 两边都探测到，但不是同一个仓库 —— 比"消失"更隐蔽：两次指纹都算得出，
+    // 只是各算各的，于是任何真实改动都会被"换了仓库"这件事掩盖。
     problems.push(
-      `后端仓库探测结果变了：构建前=${pre.backendFound ? pre.backendRepo : '未探测到'}，` +
-      `构建后=${post.backendFound ? post.backendRepo : '未探测到'} —— ` +
-      '构建窗口内仓库被移走/新建了？',
+      `后端仓库**换了落点**：构建前=${pre.backendRepo}，构建后=${post.backendRepo}。\n` +
+      '      这意味着两次指纹根本不是同一个仓库的 —— 比对结果无意义。\n' +
+      '      常见原因：SCADA_BACKEND_REPO 前后不一致，或候选列表顺序因目录存在性变化而改选。',
     )
   }
 
@@ -219,7 +246,8 @@ function diffSnapshots(pre, post) {
   for (const [repo, p] of preMap) {
     const q = postMap.get(repo)
     if (!q) {
-      problems.push(`仓库在构建后消失了：${repo}`)
+      // 走到这里说明「同一次运行里这个仓库没了」（不是换仓库 —— 那已被上面拦下）
+      problems.push(`仓库在构建后不见了：${repo} —— 被删除/改名/挂载点丢了？`)
       continue
     }
     const label = repo === REPO_ROOT ? '前端' : '后端'

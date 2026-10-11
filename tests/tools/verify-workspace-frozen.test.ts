@@ -441,6 +441,52 @@ describe('基线时效（防「过期参照物给出误导性判词」）', () =
   }, 30000)
 })
 
+describe('后端仓库「是哪个」变了（探测不对称 / 换落点）', () => {
+  it('pre 探测不到后端、post 探测到了 → 判负，且报因指向**环境问题**而非「有人动了仓库」', async () => {
+    const pre = await runIn(WORK_ROOT, '--pre', undefined)
+    expect(pre.code).toBe(0)
+    expect(pre.out).toContain('未探测到后端仓库')
+
+    const be = freshRepo('asym-be')
+    initRepo(be)
+    fs.writeFileSync(path.join(be, 'app.py'), 'print(1)\n')
+    commitAll(be, 'init')
+
+    const post = await runIn(WORK_ROOT, '--post', be)
+    expect(post.code).toBe(1)
+    expect(post.out).toContain('后端仓库探测结果变了')
+    // ★ 核心：报因要指向最可能的真实原因（环境没配对），不是含糊的"有人动了仓库"
+    expect(post.out).toContain('环境问题')
+    expect(post.out).toContain('SCADA_BACKEND_REPO')
+    // 且要提醒"只校验了前端那一次防护是打折的"
+    expect(post.out).toContain('防护是打折的')
+  }, 30000)
+
+  it('pre 指向仓库 A、post 指向仓库 B → 判负，报「换了落点」（不是「消失了」）', async () => {
+    // 这个场景比"消失"更隐蔽：两次指纹都算得出来，只是各算各的，
+    // 于是任何真实改动都会被"换了仓库"这件事掩盖。
+    const a = freshRepo('swap-a')
+    const b = freshRepo('swap-b')
+    for (const [d, f] of [[a, 'a.py'], [b, 'b.py']] as [string, string][]) {
+      initRepo(d)
+      fs.writeFileSync(path.join(d, f), 'x\n')
+      commitAll(d, 'init')
+    }
+
+    const pre = await runIn(WORK_ROOT, '--pre', a)
+    expect(pre.code).toBe(0)
+
+    const post = await runIn(WORK_ROOT, '--post', b)
+    expect(post.code).toBe(1)
+    // 必须点出本质：**换了落点**、两次指纹不可比
+    expect(post.out).toContain('换了落点')
+    expect(post.out).toContain('比对结果无意义')
+    // 注意：同时报「原仓库不见了」是**正确**的（pre 里有、post 里没有），
+    // 不禁止它 —— 两条信息各有价值：前者说"换了谁"，后者说"旧的那个没了"。
+    // （首版这里写了 not.toContain，是断言过窄，已放宽。）
+  }, 30000)
+})
+
 describe('测试自身不得污染真实仓库（首版就是这样被自己污染的）', () => {
   it('本测试文件里不得出现对真实 TOOL 的直接 spawn', () => {
     // 为什么要有这条：
