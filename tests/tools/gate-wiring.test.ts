@@ -31,6 +31,10 @@
  *      ① 查的是「文件→链」（有没有人跑它），④ 查的是「链→文件」（引用有没有落空）。
  *      两者合起来才是双射；只做 ① 会出现「把 verify-dist.js 改名后忘了改 package.json」
  *      这种链上悬空引用仍然全绿的情况（实测确认，见 ④b）。
+ *   ⑤ **孤儿脚本**：`scripts/` 下的每个脚本都必须**被某处引用**（npm script / CI /
+ *      测试 / 源码）。①~④ 只覆盖 `tools/`，`scripts/` 是同一盲区的另一半 ——
+ *      一个跟踪在册、看着像"工具"、却没人调用的脚本，不但是死代码，
+ *      还会误导后人以为它在生效（本仓实测发现 `scripts/generate-api.ts`，见 ⑤）。
  *
  * ⚠️ 本守卫只回答「有没有人跑它」，**不回答「该不该有这道闸门」**。
  *    失效（作废）的闸门应由人**删除文件**，而不是靠把它登记成"已知死闸门"。
@@ -39,6 +43,7 @@
 import { describe, it, expect } from 'vitest'
 import fs from 'fs'
 import path from 'path'
+import { fileURLToPath } from 'url'
 
 const REPO = process.cwd()
 const TOOLS_DIR = path.join(REPO, 'tools')
@@ -277,4 +282,115 @@ describe('闸门接线（死闸门探测）', () => {
     expect(existing.has('tools/verify-typo-does-not-exist.js')).toBe(false)
     expect(existing.has('tools/verify-dist.js')).toBe(true)
   })
+
+  it('⑤ scripts/ 下的脚本必须被人引用（防「孤儿脚本」）', () => {
+    const orphans = findOrphanScripts()
+    expect(
+      orphans,
+      '以下 `scripts/` 下的脚本**没有任何引用者**（不在任何 npm script、CI 步骤、' +
+        '测试或其它源码里被调用）—— 写了等于没写，且容易误导后人以为它在生效：\n' +
+        orphans.map((o) => `  ${o}`).join('\n') +
+        '\n修法：把它接进正确的链路（npm script / CI / 测试），或删掉它（若已作废）。' +
+        '\n（本仓纪律：失效脚本应由人删除文件，而不是登记成"已知孤儿"。）',
+    ).toEqual([])
+  })
+
+  it('⑤b 判别力自检：findOrphanScripts 能区分「被引用」与「没人引用」', () => {
+    // 用真实仓库的 scripts/ 目录，但喂一份合成的"引用者文本"：
+    // 不包含任何脚本名 → 所有脚本都应被判为孤儿（证明识别非恒空）；
+    // 含某个脚本名 → 那个必须落榜（证明匹配真的生效）。
+    const real = (() => {
+      const dir = path.join(REPO, 'scripts')
+      return fs.existsSync(dir)
+        ? fs.readdirSync(dir).filter((f) => /\.(ts|js|cjs|mjs)$/.test(f)).sort()
+        : []
+    })()
+    if (real.length === 0) return // 无 scripts/ 时本判据不适用（不假装通过）
+
+    const none = findOrphanScripts({ referrers: '' })
+    expect(none.length, '空引用者文本下所有脚本都该判孤儿（识别失效则恒空）').toBe(real.length)
+
+    const one = findOrphanScripts({ referrers: `npx ts-node scripts/${real[0]}` })
+    expect(one.includes(real[0]), '引用者文本里出现了却仍被判孤儿 —— 匹配失效').toBe(false)
+  })
 })
+
+/**
+ * 找出 `scripts/` 下**没有任何引用者**的脚本。
+ *
+ * 判据：「引用者文本」= 全部 npm script 命令 + package.json + ci.yml +
+ * 全仓测试/源码正文（`.ts/.js/.vue/.json/.yml/.md`）拼接。某脚本文件名
+ * （不含扩展名的 basename）在其中**一次都没出现**，即为孤儿。
+ *
+ * ⚠️ **必须排除本守卫文件自身**（实测踩过）：本守卫的注释里会点名被检查的脚本
+ * （例如"本仓实测发现 `scripts/generate-api.ts`"），若把自身计入引用者，
+ * 就会**自己把自己的点名当成"有人引用"** → 真孤儿被静默放过（假绿）。
+ * 这是一类通用陷阱：**审计工具的输出/说明不得回喂给它自己的判据**。
+ *
+ * 为什么用 basename 而非全路径：调用姿势五花八门（`ts-node scripts/x.ts`、
+ * `node ./scripts/x.js`、`import '../scripts/x'`），路径前缀不可靠；
+ * basename 命中即算被引用 —— 宁可**漏报**（把真孤儿看成被引用，如某文档顺带
+ * 提过一嘴）也不**误报**（把在用的脚本判成孤儿）。⑤ 的价值是抓"完全没人提"的脚本。
+ *
+ * `opts.referrers` 仅用于判别力自检（⑤b）注入合成的引用者文本。
+ */
+function findOrphanScripts(opts?: { referrers?: string; dir?: string }): string[] {
+  const dir = path.join(REPO, 'scripts')
+  if (!fs.existsSync(dir)) return []
+  const files = fs
+    .readdirSync(dir)
+    .filter((f) => /\.(ts|js|cjs|mjs)$/.test(f))
+    .sort()
+  if (files.length === 0) return []
+
+  let haystack = opts?.referrers
+  if (haystack === undefined) {
+    const s = scripts()
+    const pkgText = read(PKG)
+    const ciText = fs.existsSync(CI) ? read(CI) : ''
+    const selfPath = fileURLToPath(import.meta.url)
+    const srcText = collectSourceText(
+      [
+        path.join(REPO, 'tests'),
+        path.join(REPO, 'src'),
+        path.join(REPO, 'electron'),
+        path.join(REPO, 'tools'),
+      ],
+      selfPath,
+    )
+    haystack =
+      Object.values(s).join('\n') + '\n' + pkgText + '\n' + ciText + '\n' + srcText
+  }
+
+  return files.filter((f) => {
+    const base = f.replace(/\.(ts|js|cjs|mjs)$/, '')
+    return !haystack!.includes(base)
+  })
+}
+
+/** 递归收集一组目录下所有文本文件的正文（跳过 node_modules / .vitest_cache / dist / 自身）。 */
+function collectSourceText(dirs: string[], excludeSelf?: string): string {
+  const SKIP = new Set(['node_modules', '.vitest_cache', 'dist', 'dist-iso', 'release', '.git'])
+  const EXTS = /\.(ts|js|cjs|mjs|vue|json|yml|yaml|md)$/
+  const self = excludeSelf ? path.resolve(excludeSelf) : null
+  const out: string[] = []
+  const walk = (d: string) => {
+    if (!fs.existsSync(d)) return
+    for (const e of fs.readdirSync(d, { withFileTypes: true })) {
+      if (SKIP.has(e.name)) continue
+      const p = path.join(d, e.name)
+      if (e.isDirectory()) walk(p)
+      else if (EXTS.test(e.name)) {
+        // ⚠️ 排除本守卫文件自身：它的说明性文字会被误当成"引用者"（见函数头注）
+        if (self && path.resolve(p) === self) continue
+        try {
+          out.push(fs.readFileSync(p, 'utf8'))
+        } catch {
+          /* 二进制/不可读：忽略 */
+        }
+      }
+    }
+  }
+  for (const d of dirs) walk(d)
+  return out.join('\n')
+}
