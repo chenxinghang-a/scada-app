@@ -1071,6 +1071,64 @@ M2 `timedOut` 恒 false → 真触发用例红；M3 超时降级 → 单元 + �
 
 ---
 
+## Bug 19: 端到端超时用例 CI 首跑即红 —— **平台限定 = 从未验证** 🟠 中危（守卫体系自身）
+
+**症状**
+`b5885bc` 之前，CI `build-and-test` **三连红**，唯一失败用例：
+```
+× ★ 端到端（POSIX）：git 指向"永挂起"shim → 退出码 1
+  → expected +0 to be 1
+```
+而**本地（Windows）永远绿** —— 因为该用例 `process.platform === 'win32' ? it.skip : it`，
+**本地从未执行过它**。
+
+**根因（两层，各有独立教训）**
+
+**第一层：夹具缺"会走到 git"的前提（技术根因）**
+`verify-staging.js::backendHeadTime()` 的第一步是：
+```js
+if (!fs.existsSync(path.join(cand, '.git'))) continue
+```
+—— 候选目录没有 `.git` 就**根本不调用 git**。
+旧夹具没设 `SCADA_BACKEND_REPO`，CI 上所有候选都没有 `.git`
+→ 闸门走「探测不到后端仓库」的**正常降级** → **exit 0**。
+**shim 从头到尾没被用上**——用例测的路径与实际执行路径根本不是同一条。
+
+**第二层：`it.skip` 掩盖了"从未验证"（方法论根因）**
+> **平台限定的测试 = 从未验证的测试。**
+Windows skip + Linux 首跑 = 这个用例**在绿灯状态下一次都没跑过**。
+它绿，不是因为它对，是因为**没跑**。
+与本项目已抓过的"平台相关脆弱断言"（Bug 18 补记的"1ms 必然超时"）是**同一家族的第二个形态**：
+- 形态 A：断言在另一平台不成立 → CI 红（Bug 18 补记）
+- 形态 B：**断言在另一平台从不执行** → CI 首跑才暴露（本条）
+
+**修法**
+1. `tools/verify-staging.js` 与 `verify-workspace-frozen.js` **对齐**（两处实现漂移已有一致性守卫，但守卫没覆盖新函数）：
+   - 抽 `classifyGitError` 并补 **`EBUSY`**（实测「快进程+极短超时」被杀报 EBUSY 而非 ETIMEDOUT；
+     frozen 有、staging 漏了 → 归类不一致 → 一种挂起形态在 staging 退化成降级）
+   - 加 `gitBin()`（`SCADA_GIT_BIN` 可注入，frozen 已有）
+2. 端到端用例**改跨平台**（去掉 skip）：
+   - 前提夹具：`SCADA_BACKEND_REPO` 指向**含 `.git`** 的目录（保证走到 git 调用）
+   - Windows：**真 git + 1ms 超时**（git 仅启动就 ~8ms，必超时；EBUSY/ETIMEDOUT 均归 timeout）
+   - POSIX：`sleep 60` shim（与机器快慢无关）
+   → **本地现在真跑该用例**，不再有"只活在 CI 里的测试"
+3. 新增 2 例一致性守卫：两侧 `classifyGitError` 对同一批样本分类一致（EBUSY 钉死）、
+   两侧 `gitBin` 均支持 `SCADA_GIT_BIN` 覆盖
+
+**变异三态**：破坏 `classifyGitError`（timeout→unavailable）→ 端到端**精确红**（exit 0）；还原 → 绿。
+本地全量 **42 文件 / 728 例全绿**。
+
+### 教训
+1. **"测试绿"有三种：跑了且对 / 没跑 / 测了别的路径** —— 平台 skip 产生第 2 种，
+   夹具前提错位产生第 3 种（本例两层同时命中）。
+2. **平台限定的用例必须回答："它在哪个平台被验证过？"** 若答案是"只在 CI"，
+   那它至少要有**一个本地可执行的同构分支**（本例 Windows 分支从"没有"变成"真 git + 1ms"）。
+3. **一致性守卫要覆盖"全部同类实现"，不是"已知的那几个"** ——
+   git 超时语义的守卫只覆盖了 `gitTimeoutMs`，没覆盖 `classifyGitError`/`gitBin`，
+   于是 staging 的 EBUSY 缺口在守卫眼皮底下活了下来（同 Bug 17「列表式守卫」家族）。
+
+---
+
 ## 迁移计划
 
 将 `industrial_scada` (Flask + Jinja2) 后端整合到 `scada-app` (Vue 3 + Electron)：
