@@ -150,6 +150,36 @@ function gitTimeoutMs() {
 }
 
 /**
+ * git 可执行名（`SCADA_GIT_BIN` 可覆盖，默认 `git`）—— 与 verify-workspace-frozen.js 对齐。
+ * 两类用途：① 极端环境 git 不在 PATH；② 测试指向慢 shim 以真触发超时。
+ */
+function gitBin() {
+  return process.env.SCADA_GIT_BIN || 'git'
+}
+
+/**
+ * 把 `execFileSync` 抛出的错误分类 —— 与 verify-workspace-frozen.js::classifyGitError 同形。
+ *
+ * ⚠️ **必须与 frozen 保持一致**（两处实现已有一致性守卫）：尤其 `EBUSY` ——
+ * 实测「快进程 + 极短超时」被杀时报的是 `EBUSY` 而非 `ETIMEDOUT`；
+ * 漏掉它 → 该种挂起被误判成「不可用」→ 降级 → 复刻本文件头注记录的那次事故。
+ *
+ * @returns {'timeout' | 'unavailable'} —— 前者**不得降级**，后者才允许。
+ */
+function classifyGitError(e) {
+  if (
+    e &&
+    (e.code === 'ETIMEDOUT' ||
+      e.code === 'EBUSY' ||
+      e.signal === 'SIGTERM' ||
+      e.killed === true)
+  ) {
+    return 'timeout'
+  }
+  return 'unavailable'
+}
+
+/**
  * 指定仓库的 HEAD 提交时间（epoch 秒）。非 git 仓库返回 null（调用方据此降级）。
  *
  * ⚠️ **超时不得降级**：本文件头注记录过一次事故 ——「探测返回 null → 新鲜度判据
@@ -159,14 +189,14 @@ function gitTimeoutMs() {
 function headCommitTime(repoDir = process.cwd()) {
   let out
   try {
-    out = execFileSync('git', ['log', '-1', '--format=%ct'], {
+    out = execFileSync(gitBin(), ['log', '-1', '--format=%ct'], {
       cwd: repoDir,
       encoding: 'utf8',
       stdio: ['ignore', 'pipe', 'ignore'],
       timeout: gitTimeoutMs(),
     })
   } catch (e) {
-    if (e && (e.code === 'ETIMEDOUT' || e.signal === 'SIGTERM')) {
+    if (classifyGitError(e) === 'timeout') {
       throw new Error(
         `git 调用挂起（超过 ${gitTimeoutMs()}ms 未返回）于仓库：${repoDir}\n` +
           '  这不是"git 不可用"（那种情况才降级），是命令真的卡住了 —— ' +
@@ -309,6 +339,8 @@ module.exports = {
   // git 超时语义 —— 导出以便与 verify-workspace-frozen.js 做**一致性守卫**
   // （两份实现必须给出相同结果，见 tests/tools/verify-workspace-frozen.test.ts）。
   gitTimeoutMs, GIT_TIMEOUT_DEFAULT_MS,
+  // 与 verify-workspace-frozen.js 的一致性守卫需要它们（见 tests）。
+  gitBin, classifyGitError,
 }
 
 if (require.main === module) {

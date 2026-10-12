@@ -858,6 +858,50 @@ describe('git 超时语义与 verify-staging.js 保持一致（防两处漂移�
     }
   })
 
+  it('★ 两侧 classifyGitError 对同一错误样本分类一致（含 EBUSY 钉死）', () => {
+    // ⚠️ EBUSY：实测「快进程 + 极短超时」被杀时报的是 EBUSY 而非 ETIMEDOUT；
+    //    两处实现若有一边漏掉它，那条路径上的"挂起"就退化成"不可用"→ 降级 → 复刻事故。
+    //    （2026-10-13：staging 侧曾经漏掉 EBUSY —— 本守卫正是防这种漂移。）
+    const f = (frozen as unknown as { classifyGitError: (e: unknown) => string }).classifyGitError
+    const g = (staging as unknown as { classifyGitError: (e: unknown) => string }).classifyGitError
+    const probes: unknown[] = [
+      { code: 'ETIMEDOUT' },
+      { code: 'EBUSY' },
+      { code: 'EBUSY', message: 'spawn EBUSY' },
+      { signal: 'SIGTERM' },
+      { killed: true },
+      { code: 'ENOENT' },
+      { code: 'EINVAL' },
+      new Error('boom'),
+      null,
+      undefined,
+    ]
+    for (const p of probes) {
+      expect(g(p), `样本 ${JSON.stringify(p)}`).toBe(f(p))
+    }
+    // 并显式钉住：三种"挂起形态"都必须是 timeout
+    for (const p of [{ code: 'ETIMEDOUT' }, { code: 'EBUSY' }, { signal: 'SIGTERM' }]) {
+      expect(g(p)).toBe('timeout')
+    }
+  })
+
+  it('★ 两侧 gitBin 都支持 SCADA_GIT_BIN 覆盖（默认 git）', () => {
+    const f = (frozen as unknown as { gitBin: () => string }).gitBin
+    const g = (staging as unknown as { gitBin: () => string }).gitBin
+    const prev = process.env.SCADA_GIT_BIN
+    try {
+      process.env.SCADA_GIT_BIN = '/tmp/probe-bin'
+      expect(f()).toBe('/tmp/probe-bin')
+      expect(g()).toBe('/tmp/probe-bin')
+      delete process.env.SCADA_GIT_BIN
+      expect(f()).toBe('git')
+      expect(g()).toBe('git')
+    } finally {
+      if (prev === undefined) delete process.env.SCADA_GIT_BIN
+      else process.env.SCADA_GIT_BIN = prev
+    }
+  })
+
   it('非法值（0 / 负数 / 非数字 / 空串）必须回退到默认值，而不是当成 0', () => {
     // ⚠️ 若把 "0" 当成合法超时=0ms，所有 git 调用会**立刻超时** → 闸门全红（假红）。
     const prev = process.env.SCADA_GIT_TIMEOUT_MS

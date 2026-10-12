@@ -318,33 +318,53 @@ describe('git 调用挂起（超时）→ fail-closed，**不得**降级（2026-
     expect(Number(t)).toBeGreaterThan(0)
   })
 
-  // ⚠️ 端到端只在 POSIX 跑，且**不靠"1ms 必然超时"**这一脆弱假设：
-  //    实测 CI（Linux）上 git 快得在 1ms 内就跑完了 → 闸门正常 exit 0 → **假红**
-  //    （本地 Windows 慢，1ms 必然超时，所以本地是全绿的 —— 典型的平台相关脆弱断言）。
-  //    改法：用 SCADA_GIT_BIN 指向一个**必然挂起**的 shim（`sleep 60`），跨平台语义明确。
-  //    Windows 上无法用 .cmd shim（Node 安全限制报 EINVAL）→ 该平台 skip；
-  //    其判别力由上面的**单元级真触发（1ms + 真实 git）**承担。
-  const itE2E = process.platform === 'win32' ? it.skip : it
-  itE2E('★ 端到端（POSIX）：git 指向"永挂起"shim → 退出码 1，且报因是"环境卡住"而非"暂存目录有问题"', async () => {
+  // ★ 端到端（跨平台）：任意一侧 git 调用挂起 → 闸门必须 exit 1 且报「环境卡住」。
+  //
+  // ⚠️ **2026-10-13 修（CI 首跑即红的根因）**：
+  //    旧版夹具**没有 `.git` 目录**，而 `backendHeadTime()` **先检查 `<候选>/.git` 存在**
+  //    ——没有它根本不调 git → 闸门走「探测不到后端仓库」的正常降级 → **exit 0**。
+  //    且旧版 Windows 上 skip → 本地从未执行过 → CI 首跑才暴露（典型的"跨平台假红"）。
+  //    两条修：(a) 夹具显式给出 `SCADA_BACKEND_REPO=<含 .git 的目录>` 保证走到 git 调用；
+  //           (b) Windows 分支改为真 git + 1ms 超时（实测 git 启动 ~8ms，必超时），不再 skip。
+  it('★ 端到端：git 挂起 → exit 1 且报「环境卡住」（跨平台）', async () => {
     const root = path.join(FIXTURE_ROOT, 'timeout-case')
     const staging = path.join(root, 'staging')
     makeStagingAt(staging, REPO_VERSION, new Date())
 
-    // 造一个必然挂起的假 git（sleep 60 ≫ 注入的 500ms 超时）
-    const shimDir = fs.mkdtempSync(path.join(os.tmpdir(), 'hang-git-'))
-    const shim = path.join(shimDir, 'git-hang')
-    fs.writeFileSync(shim, '#!/bin/sh\nsleep 60\n')
-    fs.chmodSync(shim, 0o755)
+    // —— 前提夹具：一个"会被 backendHeadTime() 选中"的后端仓库候选 ——
+    // backendHeadTime() 只认「存在 <cand>/.git 目录」的候选；这是本用例的**必要前提**。
+    const fakeRepo = path.join(root, 'backend-src')
+    fs.mkdirSync(path.join(fakeRepo, '.git'), { recursive: true })
+
+    const env: Record<string, string> = {
+      SCADA_BACKEND_REPO: fakeRepo,
+      SCADA_GIT_TIMEOUT_MS: '500',
+    }
+    const isWin = process.platform === 'win32'
+    let cleanup: (() => void) | null = null
+    if (isWin) {
+      // Windows：`.cmd` shim 不可行（Node 安全限制，execFileSync 报 EINVAL）→
+      // 用**真 git + 1ms 超时**：git 仅进程启动就 ~8ms，必然来不及 → 稳定触发挂起。
+      // （EBUSY / ETIMEDOUT 两种形态都被 classifyGitError 归为 timeout —— 见 tools/verify-staging.js）
+      env.SCADA_GIT_TIMEOUT_MS = '1'
+    } else {
+      // POSIX：shim（sleep 60 ≫ 500ms 超时）—— 与机器快慢无关，不依赖时序巧合。
+      const shimDir = fs.mkdtempSync(path.join(os.tmpdir(), 'hang-git-'))
+      const shim = path.join(shimDir, 'git-hang')
+      fs.writeFileSync(shim, '#!/bin/sh\nsleep 60\n')
+      fs.chmodSync(shim, 0o755)
+      env.SCADA_GIT_BIN = shim
+      cleanup = () => {
+        try { fs.rmSync(shimDir, { recursive: true, force: true }) } catch { /* 清理失败不影响结论 */ }
+      }
+    }
     try {
-      const r = await runWithEnv(staging, {
-        SCADA_GIT_BIN: shim,
-        SCADA_GIT_TIMEOUT_MS: '500',
-      })
+      const r = await runWithEnv(staging, env)
       expect(r.code).toBe(1)
       // 报因必须指向"环境卡住"（让排查方向正确），不能混成"暂存目录不可用于打包"
       expect(r.out).toMatch(/闸门无法完成|挂起/)
     } finally {
-      try { fs.rmSync(shimDir, { recursive: true, force: true }) } catch { /* 清理失败不影响结论 */ }
+      if (cleanup) cleanup()
     }
   }, 30000)
 })
