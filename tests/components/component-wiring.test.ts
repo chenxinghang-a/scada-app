@@ -182,3 +182,66 @@ describe('Vue 组件错误必须有人接（useErrorLogger 的前提）', () => 
     expect(/installErrorLogger\s*\(/.test(main)).toBe(true)
   })
 })
+
+
+describe('控制类调用必须检查 {success:false}（防假成功，2026-10-13）', () => {
+  /**
+   * 背景：后端控制端点（写寄存器/写线圈/批量控制/复位急停/联锁旁路…）在**被拒绝**时
+   * 返回的是 **HTTP 200** + `{success:false, message:'…'}` —— **不是错误码**，
+   * axios 不抛异常。调用处若只 `await` 不看返回值、直接 `ElMessage.success('写入成功')`，
+   * 就会出现「**显示成功、实际被拒**」的假成功。
+   *
+   * 为什么是现在（联锁 fail-closed 整改暴露的端到端问题）：
+   * 整改后「无联锁配置 → 拒绝一切写」是**常规路径**（devices*.yaml 默认未声明 control
+   * 段即命中），若前端仍显示"指令已发送"，操作员会**误判设备已动作**。
+   *
+   * 本守卫把「调用后必须紧跟 ensureControlOk(res)」这条纪律变成断言 ——
+   * 新增控制调用时忘检查会被拦下（同类：Bug 17 的"列表式守卫"教训：
+   * 已知的两处（bypass/restore）曾手工检查过，但其余五处没有 —— 点状修复不推广）。
+   */
+  const CONTROL_VUE = path.join(SRC, 'views', 'Control.vue')
+  // 只匹配「写/控制动作」类调用；`get*`/`list*`/`fetch*`/`query*` 是读取类
+  // （返回数据而非 {success} 信封），不需要（也不应该）检查 —— 首版没排除时
+  // 把 getStatus/getLogs 误报成违规（守卫自己先真跑了一轮才发现）。
+  const CALL_LINE = /await\s+controlApi\.(?!get|list|fetch|query)(\w+)\s*\(/
+
+  function scan(src: string): { total: number; missing: string[] } {
+    // 先剥注释：注释里的调用示例不算实现（Bug 15 家族：注释不得点亮判据）
+    const code = stripComments(src)
+    const lines = code.split('\n')
+    const missing: string[] = []
+    let total = 0
+    for (let i = 0; i < lines.length; i++) {
+      const m = CALL_LINE.exec(lines[i])
+      if (!m) continue
+      total++
+      // 行窗口：调用行 + 后 3 行内必须出现 ensureControlOk(
+      const window = lines.slice(i, i + 4).join('\n')
+      if (!/ensureControlOk\s*\(/.test(window)) missing.push(m[1])
+    }
+    return { total, missing }
+  }
+
+  it('元守卫：必须扫到全部控制调用（否则本判据形同虚设）', () => {
+    const { total } = scan(read(CONTROL_VUE))
+    // 现状：writeRegister / writeCoil / eStop / eStopReset / batchControl /
+    //       bypassInterlock / restoreInterlock = 7 个
+    expect(total, `只扫到 ${total} 个 controlApi 调用，低于预期`).toBeGreaterThanOrEqual(7)
+  })
+
+  it('每个控制调用后必须检查 ensureControlOk（被拒时抛错，不得假成功）', () => {
+    const { missing } = scan(read(CONTROL_VUE))
+    expect(
+      missing,
+      '以下控制调用没有检查 {success:false} —— 后端拒绝时会显示"成功"的假提示：\n  ' +
+        missing.join('\n  ') +
+        '\n修法：const res = await controlApi.xxx(...); ensureControlOk(res)',
+    ).toEqual([])
+  })
+
+  it('判别力自检：删掉全部 ensureControlOk 调用后，必须报出全部调用点', () => {
+    const tampered = read(CONTROL_VUE).replace(/^\s*ensureControlOk\(res\).*$/gm, '')
+    const { missing } = scan(tampered)
+    expect(missing.length, '删掉检查后一个都没报出 —— 本判据无判别力').toBeGreaterThanOrEqual(5)
+  })
+})

@@ -17,7 +17,7 @@ vi.mock('element-plus', () => ({
   ElMessage: { error: H.elError, success: vi.fn(), warning: vi.fn(), info: vi.fn() },
 }))
 
-import { errorMessage, showActionError, logLoadError } from '@/utils/error'
+import { errorMessage, showActionError, logLoadError, ensureControlOk } from '@/utils/error'
 
 function axiosError(status: number, data: unknown) {
   const e: any = new Error('Request failed with status code ' + status)
@@ -116,5 +116,50 @@ describe('logLoadError', () => {
     expect(String(warnSpy.mock.calls[0][0])).toContain('设备列表')
     expect(String(warnSpy.mock.calls[0][0])).toContain('查询超时')
     expect(H.elError).not.toHaveBeenCalled()
+  })
+})
+
+describe('ensureControlOk —— 控制类响应的 {success:false} 必须抛错（防假成功）', () => {
+  // 背景：后端控制端点被拒时返回 **HTTP 200** + {success:false}（不是错误码），
+  // axios 不抛异常 —— 调用处若不检查就会 `ElMessage.success('写入成功')` 显示假成功。
+  // 联锁 fail-closed 整改后，"被拒"是常规路径（典型：联锁缺失/未解除、写白名单外）。
+
+  it('success:false + message → 抛错且文案透传', () => {
+    expect(() => ensureControlOk({ success: false, message: '联锁未解除，拒绝复位' }))
+      .toThrow('联锁未解除，拒绝复位')
+  })
+
+  it('success:false + 仅 reason → 用 reason 兜底（部分端点用 reason 字段）', () => {
+    expect(() => ensureControlOk({ success: false, reason: '未加载到任何安全联锁规则' }))
+      .toThrow('未加载到任何安全联锁规则')
+  })
+
+  it('success:false 且无任何文案 → 抛默认文案（不得抛空）', () => {
+    expect(() => ensureControlOk({ success: false })).toThrow('操作被服务端拒绝')
+  })
+
+  it('message 是对象（{code,message}）→ 取内层 message，不出现 [object Object]', () => {
+    let thrown: unknown = null
+    try { ensureControlOk({ success: false, message: { code: 4001, message: '量程校验不通过' } }) }
+    catch (e) { thrown = e }
+    expect(String((thrown as Error).message)).toBe('量程校验不通过')
+    expect(String((thrown as Error).message)).not.toContain('[object Object]')
+  })
+
+  it('success:true → 放行（不抛）', () => {
+    expect(() => ensureControlOk({ success: true, message: 'ok' })).not.toThrow()
+  })
+
+  it('无 success 字段 / 非对象 / null → 一律放行（防误伤不用该信封的端点）', () => {
+    expect(() => ensureControlOk({ device_id: 'dev1' })).not.toThrow()
+    expect(() => ensureControlOk(undefined)).not.toThrow()
+    expect(() => ensureControlOk(null)).not.toThrow()
+    expect(() => ensureControlOk('ok')).not.toThrow()
+    expect(() => ensureControlOk(42)).not.toThrow()
+  })
+
+  it('success 为假值但非布尔 false（如 0 / ""）→ 放行（只认显式 false，避免误伤）', () => {
+    expect(() => ensureControlOk({ success: 0 })).not.toThrow()
+    expect(() => ensureControlOk({ success: '' })).not.toThrow()
   })
 })

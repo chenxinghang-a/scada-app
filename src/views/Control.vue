@@ -256,7 +256,7 @@ import { ref, onMounted, onUnmounted, reactive, computed, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { devicesApi, controlApi, type Device, type Register } from '@/api'
 import { useAuthStore } from '@/stores/auth'
-import { showActionError } from '@/utils/error'
+import { showActionError, ensureControlOk } from '@/utils/error'
 
 const authStore = useAuthStore()
 
@@ -421,7 +421,8 @@ async function writeRegister() {
       '确认写入',
       { type: 'warning', confirmButtonText: '确认写入', cancelButtonText: '取消', customClass: 'write-confirm' }
     )
-    await controlApi.writeRegister(regForm.device_id, address, regForm.value)
+    const res = await controlApi.writeRegister(regForm.device_id, address, regForm.value)
+    ensureControlOk(res)   // 后端被拒时返回 200 + {success:false}，必须检查（否则假成功）
     ElMessage.success('写入成功')
     loadLogs()
   } catch (e: any) { if (e !== 'cancel') showActionError('写入寄存器', e) }
@@ -440,7 +441,8 @@ async function writeCoil() {
       '确认写入',
       { type: 'warning', confirmButtonText: '确认写入', cancelButtonText: '取消', customClass: 'write-confirm' }
     )
-    await controlApi.writeCoil(coilForm.device_id, address, coilForm.value)
+    const res = await controlApi.writeCoil(coilForm.device_id, address, coilForm.value)
+    ensureControlOk(res)   // 同上：被拒时 200 + {success:false}
     ElMessage.success('写入成功')
     loadLogs()
   } catch (e: any) { if (e !== 'cancel') showActionError('写入线圈', e) }
@@ -461,7 +463,8 @@ async function triggerEStop() {
         customClass: 'estop-confirm',
       }
     )
-    await controlApi.eStop()
+    const res = await controlApi.eStop()
+    ensureControlOk(res)   // 防御性：当前后端总返回 success:true，但绝不显示假成功
     ElMessage.success('急停已执行')
     loadSafetyStatus()
   } catch (e: any) { if (e !== 'cancel') showActionError('紧急停止', e) }
@@ -475,7 +478,8 @@ async function resetEStop() {
     await ElMessageBox.confirm('确定复位急停？确认现场人员已安全后再操作！', '复位急停', {
       type: 'warning', confirmButtonText: '确认复位', cancelButtonText: '取消', customClass: 'estop-confirm',
     })
-    await controlApi.eStopReset()
+    const res = await controlApi.eStopReset()
+    ensureControlOk(res)   // 联锁未解除时后端拒绝复位（200 + success:false）——不检查会显示假成功
     ElMessage.success('急停已重置')
     loadSafetyStatus()
   } catch (e: any) { if (e !== 'cancel') showActionError('复位急停', e) }
@@ -491,8 +495,8 @@ async function bypassInterlock(id: string) {
   try {
     const res: any = await controlApi.bypassInterlock(id)
     // 后端失败时返回 200 + {success:false}，必须显式判断，否则会假成功
-    if (res?.success === false) ElMessage.error(res?.message || '联锁旁路失败')
-    else ElMessage.success('联锁已旁路')
+    ensureControlOk(res)
+    ElMessage.success('联锁已旁路')
   } catch (e: any) { showActionError('旁路联锁', e) }
   finally { pendingInterlocks.delete(id); loadSafetyStatus() }
 }
@@ -502,8 +506,8 @@ async function restoreInterlock(id: string) {
   pendingInterlocks.add(id)
   try {
     const res: any = await controlApi.restoreInterlock(id)
-    if (res?.success === false) ElMessage.error(res?.message || '联锁恢复失败')
-    else ElMessage.success('联锁已恢复')
+    ensureControlOk(res)
+    ElMessage.success('联锁已恢复')
   } catch (e: any) { showActionError('恢复联锁', e) }
   finally { pendingInterlocks.delete(id); loadSafetyStatus() }
 }
@@ -517,7 +521,8 @@ async function batchControl(action: string) {
       '批量控制',
       { type: 'warning', confirmButtonText: '确认执行', cancelButtonText: '取消', customClass: action === 'stop' ? 'estop-confirm' : 'write-confirm' }
     )
-    await controlApi.batchControl(action)
+    const res = await controlApi.batchControl(action)
+    ensureControlOk(res)   // 联锁缺失/急停中时后端拒绝（200 + success:false）
     ElMessage.success('指令已发送')
     loadLogs()
   } catch (e: any) { if (e !== 'cancel') showActionError('批量控制', e) }
