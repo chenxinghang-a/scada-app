@@ -144,6 +144,8 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/cleanup-smartscada.ps1
   `-ArchiveOldVersions`（归档 `%LOCALAPPDATA%\Programs\SmartSCADA.v*` 历史版本，保留 1 份 + 1 个 7z）、
   `-WhatIf`（仅预览）；
 - 回收站：C:/D: 两个桶永久清空（不用 Clear-RecycleBin —— 桶内条目多 / 并发写入时它会挂起）；
+- 诊断辅助：`tools/recycle-forensics.ps1` —— 解析回收站 `$I` 元数据定位「写入源」（60 秒；
+  ⚠️ Git Bash 读不了 `$Recycle.Bin`——`ls | wc -l` 会假报 0，必须用本工具 / PS 检查）；
 - 日志：`C:\Users\cxx\.scada-cleanup\logs\`（每次运行一条，可审计）。
 
 > 设计要点：本机删除受 safe-delete 守卫约束（循环批量删除被拒；单目标偶发被拒）。
