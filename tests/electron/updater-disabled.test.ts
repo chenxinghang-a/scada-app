@@ -1,29 +1,22 @@
 /**
- * 自动更新「显式关闭」契约守卫 —— 注释**承诺的三条硬约束必须真的在代码里成立**。
+ * 自动更新契约守卫 —— 开关状态与「发布渠道是否真的配好」必须一致。
  *
  * 为什么需要这条
  * --------------
- * `electron/updater.js` 头注写着：
- *   > 关闭的硬约束（任一条不满足，更新都应保持关闭）：
- *   >   1. AUTO_UPDATE_ENABLED = false；
- *   >   2. package.json build 段**未配置 publish**（无更新服务器）；
- *   >   3. package.json **未声明 electron-updater 依赖**。
+ * 2026-10-19 起自动更新**已启用**（决策 A：走 GitHub Releases）。
+ * 但"启用"不是一个布尔值的事：开关翻成 true 而依赖没装 / publish 没配，
+ * 运行时会走到 `reportDisabled()` 打出"未启用"——**用户以为有自动更新，
+ * 实际永远不会更新**，这正是本项目反复在修的"静默失效"。
  *
- * 但**注释不是判据**。本项目反复栽在「**判据与意图隔一层**」上
- * （BUGS.md Bug 10/11/13/14、MEMORY 硬规则 21）：一段注释声称的保证，
- * 如果代码里没有对应的检查，等有人在未来把开关 `AUTO_UPDATE_ENABLED` 翻成 true，
- * 那两条被"注释担保"的约束就会**静默失效** —— 更新会打向一个不存在的服务器，
- * 而构建期 / 类型检查 / 现有测试**全绿**。
+ * 所以本守卫不再断言"开关必须是 false"（那是旧口径，改一次决策就要改测试，
+ * 属于把判据写死成结论），而是断言**一致性**：
  *
- * 本守卫把"注释承诺"与"代码实际检查"对齐，三条各自独立：
+ *   ① 开关为 true ⇒ 必须已声明 electron-updater 依赖 + build.publish 指向 GitHub；
+ *      开关为 false ⇒ 允许依赖/publish 存在，但必须显式写 false（不能删掉开关）；
+ *   ② 注释把「未配置 publish」列为硬约束 → 每个入口函数体内必须真的检查并 return；
+ *   ③ 依赖缺失必须由 `!autoUpdater` 分支兜住（不得静默吞错）。
  *
- *   ① 开关默认必须是 `false`（否则等于交付口径被悄悄改了）；
- *   ② **若**注释把 publish 配置列为硬约束，则代码里必须有读取 publish 的检查
- *      （不能只写在注释里）；
- *   ③ 依赖未声明这条（注释约束 3）必须由 `!autoUpdater` 分支真的兜住。
- *
- * ⚠️ 期望值来源：从**注释本身**抠出"承诺了几条约束"，再逐条到**代码里**找对应实现 ——
- *    不写死"应该有 3 条"这种字面量，否则改了注释守卫就瞎了。
+ * ⚠️ 期望值来源：从**代码与 package.json 的实际状态**推导，不写死字面量。
  */
 
 import { describe, it, expect } from 'vitest'
@@ -56,16 +49,39 @@ const pkg = () => JSON.parse(fs.readFileSync(PKG, 'utf8'))
  * 因为仓库里当时有 10 个测试各写一份，实现分 5 种，且**都不认识正则字面量**
  * （`/"/g` 里的引号会被当字符串开头）。共享原语已修掉该盲区并配 17 例单测。
  */
-describe('自动更新「显式关闭」契约（注释承诺 = 代码事实）', () => {
-  it('① 开关默认必须是 false（交付口径：一个版本源、一个安装包、运行期不自动更新）', () => {
+describe('自动更新契约（开关 ⇔ 发布渠道）', () => {
+  it('① 开关为 true ⇒ 依赖与 publish 必须真的配好（否则是"假启用"）', () => {
     const m = src().match(/const\s+AUTO_UPDATE_ENABLED\s*=\s*(true|false)/)
     expect(m, '找不到 AUTO_UPDATE_ENABLED 声明 —— 守卫失效').toBeTruthy()
-    expect(
-      m![1],
-      'AUTO_UPDATE_ENABLED 被改成了 true —— 这会启用运行期自动更新，' +
-        '而交付口径明确要求关闭。若确要启用，必须同时完成：装 electron-updater、' +
-        '配 build.publish、修 latest.yml 一致性（见 updater.js 头注 a~d）。',
-    ).toBe('false')
+    const enabled = m![1] === 'true'
+
+    const p = pkg()
+    const hasDep =
+      'electron-updater' in (p.dependencies ?? {}) ||
+      'electron-updater' in (p.devDependencies ?? {})
+    const publish = p.build?.publish
+    const publishList = Array.isArray(publish) ? publish : publish ? [publish] : []
+    const hasPublish = publishList.length > 0
+
+    if (enabled) {
+      expect(
+        hasDep,
+        'AUTO_UPDATE_ENABLED=true 但 package.json 未声明 electron-updater —— ' +
+          '运行时会走 reportDisabled 打出"未启用"，用户以为有更新但永远不更新。',
+      ).toBe(true)
+      expect(
+        hasPublish,
+        'AUTO_UPDATE_ENABLED=true 但 build 段未配置 publish —— 会打向一个不存在的服务器。',
+      ).toBe(true)
+      // publish 必须真的指向一个仓库，而不是占位
+      const gh = publishList.find((x: any) => x && x.provider === 'github')
+      expect(gh, 'publish 里没有 provider=github 的条目').toBeTruthy()
+      expect(gh.owner, 'publish.owner 缺失 —— 更新会 404').toBeTruthy()
+      expect(gh.repo, 'publish.repo 缺失 —— 更新会 404').toBeTruthy()
+    } else {
+      // 关闭状态：允许依赖/publish 残留，但开关必须显式写 false（不得删掉这行）
+      expect(enabled, 'AUTO_UPDATE_ENABLED 既不是 true 也不是 false —— 守卫失效').toBe(false)
+    }
   })
 
   it('② 注释把「未配置 publish」列为硬约束 → 代码必须真的读 publish（且每个入口都查）', () => {

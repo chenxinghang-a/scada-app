@@ -3,8 +3,16 @@ name: SmartSCADA Frontend CI
 on:
   push:
     branches: [main]
+    # 推 v* tag 时走「发布」路径：同一个 electron-build job，只是把
+    # electron-builder 的 --publish never 换成 --publish always（见最后一步）。
+    # 这样发布产物与 CI 验证产物**必然同源**，不会出现"CI 绿但发出去的包是另一次构建"。
+    tags: ['v*']
   pull_request:
     branches: [main]
+
+# 发布需要写 Release；普通 CI 用不到，但同一个 token 统一给。
+permissions:
+  contents: write
 
 jobs:
   build-and-test:
@@ -237,19 +245,28 @@ jobs:
         # 而这是唯一公开可读的通道。本机复现不了本步骤失败
         # （本机可成功产出安装包），所以远端日志是唯一线索。
         #
-        # --publish never 是必须的：electron-builder 检测到自己运行在
-        # GitHub Actions（GITHUB_ACTIONS=true）时会自动进入发布流程，
-        # 即使 package.json 里没有 publish 配置。缺 GH_TOKEN 时报
-        #   ⨯ GitHub Personal Access Token is not set, neither programmatically,
-        #     nor using env "GH_TOKEN"
-        # 并 exit 1 —— 注意此时 NSIS 安装包**已经构建完成**，纯粹是随后的
-        # 发布阶段把 job 拖红。本机没有 GITHUB_ACTIONS 环境变量，所以不触发
-        # 该路径，这就是"本机绿、CI 红"的全部原因。
-        # 本仓库的发布是手动 upload-artifact，不需要在此自动发 release。
+        # ★ 2026-10-19 起发布策略变更（决策 A：启用自动更新，走 GitHub Releases）：
+        #   - push 到 main（含 PR）→ `--publish never`，只出 artifact，不发 Release；
+        #   - push v* tag        → `--publish always`，把安装包 + latest.yml 发到 Release，
+        #                          已安装的旧版启动后即可检查到更新。
+        #   两条路径共用本 job 的全部闸门，保证「发的包」与「验过的包」是同一份。
+        #
+        # 历史坑（仍然有效）：electron-builder 检测到 GITHUB_ACTIONS=true 会自动进入
+        # 发布流程，缺 GH_TOKEN 时报 "GitHub Personal Access Token is not set" 并 exit 1
+        # —— 此时 NSIS 安装包已经构建完成，纯粹是发布阶段把 job 拖红。
+        # 所以 --publish never 显式写死；要发布时才在 tag 路径下切到 always。
         shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -o pipefail
-          npx electron-builder --win --publish never 2>&1 | tee electron-build.log
+          if [[ "${GITHUB_REF}" == refs/tags/v* ]]; then
+            echo "tag build -> publish to GitHub Releases"
+            npx electron-builder --win --publish always 2>&1 | tee electron-build.log
+          else
+            echo "branch build -> artifact only"
+            npx electron-builder --win --publish never 2>&1 | tee electron-build.log
+          fi
 
       - name: Assert workspace unchanged since checkout (gate 8 · post)
         # 第八道闸门的后半程：与上面 `gate 8 · pre` 拍的基线比对。

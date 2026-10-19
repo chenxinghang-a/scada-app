@@ -3,33 +3,25 @@ const path = require('path')
 const fs = require('fs')
 
 // ===========================================================================
-// 自动更新：明确【关闭】
+// 自动更新：已启用（2026-10-19 决策 A —— 走 GitHub Releases）
 // ===========================================================================
-// 本项目交付口径（审计 Phase 5）："一个版本源、一个 commit、一个安装包"。
-//   - 后端 VERSION 文件是唯一版本真源，前后端 lockstep；
-//   - 安装包由 electron-builder 产出（nsis），通过发布流程一次性分发；
-//   - 运行期【不启用】自动更新。
+// 变更原因：原口径是"运行期不自动更新"（一个版本源、一个安装包）。审计后决定
+// 启用自动更新，发布渠道选 GitHub Releases（项目已在 GitHub，零额外成本）。
 //
-// 为什么要"显式关闭"而不是留 no-op：
-//   旧实现依赖 `require('electron-updater')` 失败来"碰巧"不更新——
-//   package.json 从未声明该依赖，catch 后只 console.log 再 return，
-//   等于一个静默失效的 no-op，用户以为在用最新版、开发者以为链路通。
-//   这正是后端反复在修的"静默失效"。审计明确要求"不得保留 no-op"，
-//   所以这里把"自动更新未启用"做成【显式、可读、可诊断】的状态。
+// 启用后必须同时满足的四件事（缺一条这里就会显式报"未启用"并退出，不会假装工作）：
+//   1. AUTO_UPDATE_ENABLED = true（本文件开关）；
+//   2. package.json build 段配置 publish（指向 GitHub 仓库）；
+//   3. package.json 声明 electron-updater 依赖；
+//   4. latest.yml 与产物文件名一致（由 nsis.artifactName 保证，已统一）。
 //
-// 关闭的硬约束（任一条不满足，更新都应保持关闭）：
-//   1. AUTO_UPDATE_ENABLED = false（本文件显式开关）；
-//   2. package.json build 段未配置 publish（无更新服务器）；
-//   3. package.json 未声明 electron-updater 依赖。
+// 发布流程：推 `v*` tag → .github/workflows/release.yml 构建并发布到 GitHub Releases
+// → 已安装的旧版启动 15 秒后检查更新 → 有新版弹窗询问是否下载。
 //
-// 若要真正启用自动更新，必须同时完成：
-//   a) AUTO_UPDATE_ENABLED = true；
-//   b) npm i electron-updater；
-//   c) package.json 的 build 段配置 publish；
-//   d) 修复 latest.yml 文件名一致性（见交付链缺口文档 P3-b）。
-// 上面任何一步没做，这里都会以"未启用"状态明确退出，而不是假装在工作。
+// 保留的 fail-closed 行为（不要删）：
+//   - 依赖缺失 / 未配置 publish → 明确落盘"未启用"，绝不静默 no-op；
+//   - 开发模式（!isDev 才调用）不检查更新，避免打向发布服务器。
 // ===========================================================================
-const AUTO_UPDATE_ENABLED = false
+const AUTO_UPDATE_ENABLED = true
 
 let autoUpdater = null
 let loadError = null
@@ -88,8 +80,8 @@ function setupUpdater(getWindow) {
   // —— 显式关闭：自动更新未启用，给出可读原因后退出，不做任何更新检查 ——
   if (!AUTO_UPDATE_ENABLED) {
     reportDisabled(
-      'AUTO_UPDATE_ENABLED=false（交付口径：一个版本源/一个安装包，运行期不自动更新）。' +
-      (loadError ? ` electron-updater 也未安装 (${loadError.message})` : ' electron-updater 依赖未声明')
+      'AUTO_UPDATE_ENABLED=false（自动更新被显式关闭）。' +
+      (loadError ? ` electron-updater 也未安装 (${loadError.message})` : '')
     )
     return
   }
