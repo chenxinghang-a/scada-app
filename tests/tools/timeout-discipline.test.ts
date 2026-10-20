@@ -69,6 +69,8 @@ const SPAWN_WRAPPERS: { name: string; matcher: RegExp; note?: string }[] = [
   { name: 'runCmd', matcher: /\bawait\s+runCmd\s*\(/ },
   { name: 'runPy', matcher: /\bawait\s+runPy\s*\(/ },
   { name: 'runRaw', matcher: /\bawait\s+runRaw\s*\(/ },
+  // emit-electron-failure.test.ts：起 python 跑注解脚本（2026-10-20 新增）
+  { name: 'runReporter', matcher: /\bawait\s+runReporter\s*\(/ },
   // git / initRepo 的调用点不带 await（同步 execFileSync），故形态与上面不同 ——
   // 这正是"必须存 matcher 而非按 `await <name>(` 统一推"的原因。
   { name: 'git', matcher: /\bgit\s*\(/ },

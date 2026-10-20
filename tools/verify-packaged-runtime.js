@@ -485,7 +485,41 @@ function readTail(file, bytes) {
   }
 }
 
+/**
+ * 把本脚本的全部输出**同时**写一份到 `.vitest_cache/packaged-runtime.log`。
+ *
+ * 为什么（2026-10-20）：这道闸门在 CI 上偶发失败（重跑即绿），而 CI 的 job log
+ * 拿不到（`/actions/jobs/{id}/logs` 需要管理员权限，只读 403），唯一公开可读的
+ * 通道是 annotation —— 由 `.github/scripts/emit_electron_failure.py` 读这个文件。
+ * 没有它，失败注解里只有 electron-builder 的进度行，**红了但不知道为什么红**。
+ *
+ * 落盘位置选 `.vitest_cache/`（已在 .gitignore）：不污染工作区，
+ * 也就不会踩到「workspace 自 checkout 以来未变化」那道闸门。
+ * 只在**直接执行**时安装（`require.main === module`），被单测 require 时不写文件。
+ */
+function installLogTee() {
+  // 注意：不是 BASE_DIR（`.vitest_cache/packaged-runtime/`），而是它的**上一级** ——
+  // 注解脚本按 `.vitest_cache/packaged-runtime.log` 读，两处必须一致。
+  const cacheDir = path.join(REPO, '.vitest_cache')
+  const logPath = path.join(cacheDir, 'packaged-runtime.log')
+  try {
+    fs.mkdirSync(cacheDir, { recursive: true })
+    fs.writeFileSync(logPath, '', 'utf8')
+  } catch (e) {
+    return   // 写不了日志不该让闸门本身失败
+  }
+  const util = require('util')
+  for (const method of ['log', 'error', 'warn']) {
+    const original = console[method].bind(console)
+    console[method] = (...args) => {
+      original(...args)
+      try { fs.appendFileSync(logPath, util.format(...args) + '\n') } catch (e) { /* 忽略 */ }
+    }
+  }
+}
+
 if (require.main === module) {
+  installLogTee()
   main(process.argv.slice(2)).then((code) => process.exit(code)).catch((e) => {
     console.error('[packaged-runtime] 工具自身异常（fail-closed）：', e && e.message)
     process.exit(1)

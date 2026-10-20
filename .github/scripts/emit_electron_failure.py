@@ -1,5 +1,11 @@
 """把 electron-builder 构建失败详情发成 GitHub Actions annotation。
 
+补充（2026-10-20）：`electron-build` 作业里还有一道**运行时闸门**
+（`verify-packaged-runtime.js`：启动要发出去的那只 exe、CDP 探针断言 #app 挂载）。
+它失败时 `electron-build.log` 是**成功的**，只发构建日志会把人带偏 ——
+所以本脚本还会读 `packaged-runtime.log` 单独发一条 annotation，
+两条分开，因为「装不出包」和「包装出来但打不开」是完全不同的故障。
+
 为什么需要它
 ------------
 与前端的 `build-and-test` 不同，`electron-build` 只在 **windows-latest** 上跑，
@@ -32,8 +38,17 @@ import sys
 
 LOG = pathlib.Path('electron-build.log')
 
+#: 打包版运行时探针（第七道闸门）的输出。它失败时 electron-build.log 是**成功的**，
+#: 只发构建日志会把人带偏 —— 2026-10-20 实测：该步骤偶发失败、重跑即绿，
+#: 而注解里只有 electron-builder 的进度行，看不出探针卡在哪一步。
+#: 该文件由 `tools/verify-packaged-runtime.js` 自己写（`.vitest_cache/` 已在 gitignore）。
+RUNTIME_LOG = pathlib.Path('.vitest_cache') / 'packaged-runtime.log'
+
 #: 单条 annotation 的字符上限（GitHub 侧还有更严格的总量限制，这里留足余量）
 MAX_CHARS = 8000
+
+#: 运行时探针的 annotation 上限（它按行输出结构化日志，尾部最有信息量）
+RUNTIME_MAX_CHARS = 6000
 
 #: 值得保留的行：错误信息 + electron-builder 的阶段行（用于定位卡在哪一步）
 _PATTERNS = (
@@ -84,8 +99,44 @@ def extract(text: str) -> list[str]:
     return result
 
 
+def _escape(text: str) -> str:
+    """GitHub annotation 转义：% → %25，换行 → %0A。"""
+    return text.replace('%', '%25').replace('\r', '').replace('\n', '%0A')
+
+
+def emit_runtime_annotation() -> bool:
+    """把打包版运行时探针的输出发成独立 annotation（若该步骤跑过）。
+
+    与构建日志分开两条 annotation，理由是**两者的失败含义完全不同**：
+    构建失败 = 装不出包；运行时探针失败 = 包装出来了但用户打不开。
+    混在一条里会让人以为是编译问题。
+
+    Returns:
+        bool: 是否真的发出了 annotation。
+    """
+    if not RUNTIME_LOG.exists():
+        return False
+
+    text = RUNTIME_LOG.read_text(encoding='utf-8', errors='replace')
+    lines = [ln.rstrip() for ln in text.splitlines() if ln.strip()]
+    if not lines:
+        body = '(packaged-runtime.log 为空 —— 探针可能没启动起来)'
+    else:
+        # 探针每行都带 `[packaged-runtime]` 前缀，尾部几十行足够定位卡在哪：
+        # 找不到 exe / 等不到调试端口 / 挂载超时 / 仪表盘导航失败 / 清理残留。
+        body = '\n'.join(lines[-40:])
+
+    print(f'::error title=打包版运行时验证失败::{_escape(body)[:RUNTIME_MAX_CHARS]}')
+    return True
+
+
 def main() -> int:
+    emitted_runtime = emit_runtime_annotation()
+
     if not LOG.exists():
+        if emitted_runtime:
+            # 构建成功、只有运行时探针失败 —— 这是合法且重要的情形，不要报「找不到构建日志」
+            return 0
         print(
             '::error title=electron-builder 失败::未找到 electron-build.log'
             '（构建步骤可能没跑到，或重定向未生效）'
@@ -95,10 +146,7 @@ def main() -> int:
     text = LOG.read_text(encoding='utf-8', errors='replace')
     body = '\n'.join(extract(text)) or '(electron-build.log 里没有筛出关键行)'
 
-    # GitHub annotation 转义：% → %25，换行 → %0A
-    escaped = body.replace('%', '%25').replace('\r', '').replace('\n', '%0A')
-
-    print(f'::error title=electron-builder 失败关键行::{escaped[:MAX_CHARS]}')
+    print(f'::error title=electron-builder 失败关键行::{_escape(body)[:MAX_CHARS]}')
     return 0
 
 

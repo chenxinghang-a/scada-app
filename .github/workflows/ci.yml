@@ -325,6 +325,14 @@ jobs:
         # 开发上下文 —— 事故②里同一份字节「闸门绿、装出来灰白屏」。
         # 本步骤用一次性 userData（脚本内部保证，不碰 %APPDATA%）启动
         # release/win-unpacked/SmartSCADA.exe，CDP 探针断言 #app 挂载 + 无渲染层致命错误。
+        #
+        # 探针输出由脚本自己落盘到 `.vitest_cache/packaged-runtime.log`，
+        # 失败时由 emit_electron_failure.py 发成 annotation —— 本步骤失败时
+        # job log 拿不到（403，需管理员），annotation 是唯一公开可读的通道。
+        # 2026-10-20 实测：本步骤偶发失败（重跑即绿），而当时的注解里只有
+        # electron-builder 的日志、没有探针输出，等于**红了但不知道为什么红**。
+        # 这里**不加** `| tee`：那会让 gate-parity 测试认不出本地 npm script，
+        # 等于把「本地能跑到同一道闸门」这条不变量弄丢。
         run: node tools/verify-packaged-runtime.js
 
       - name: Report build failure as annotation
