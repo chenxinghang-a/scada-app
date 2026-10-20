@@ -135,6 +135,7 @@ import { ElMessage } from 'element-plus'
 import { devicesApi, dataApi, alarmsApi, type Device, type Register, type AlarmRule } from '@/api'
 import { registerScadaTheme, scadaThemeName, applyScadaTheme, SCADA_LEVEL_COLORS } from '@/utils/echartsTheme'
 import { assertBinaryDownload, describeDownloadError, downloadBlob } from '@/utils/export'
+import { summarizeQueryResults, describeQueryFailures } from '@/utils/historyQuery'
 
 const route = useRoute()
 
@@ -479,14 +480,21 @@ async function queryHistory() {
     ))
     if (seq !== querySeq) return  // 已有更新的查询，丢弃过期响应
 
-    // 全部请求都失败时给出明确提示，避免与"确实没有数据"混淆
-    if (results.length && results.every(r => r.failed)) {
+    // 失败分三种，必须区分开（判定逻辑在 utils/historyQuery.ts，有单测）：
+    //   · 全部失败 → 整体报错，不要画空图；
+    //   · **部分失败** → 明确点名失败参数，否则用户会以为「这个参数本来就没数据」；
+    //   · 全部成功 → 正常画图。
+    const summary = summarizeQueryResults(results)
+    if (summary.allFailed) {
       tableData.value = []
       seriesList.value = []
       timeAxis.value = []
       renderChart()
-      ElMessage.error('历史数据查询失败，请稍后重试')
+      ElMessage.error(describeQueryFailures(summary))
       return
+    }
+    if (summary.partiallyFailed) {
+      ElMessage.warning(describeQueryFailures(summary))
     }
 
     // 明细表：多寄存器时补上来源寄存器列
