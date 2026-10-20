@@ -523,7 +523,9 @@ async function batchControl(action: string) {
     )
     const res = await controlApi.batchControl(action)
     ensureControlOk(res)   // 联锁缺失/急停中时后端拒绝（200 + success:false）
-    ElMessage.success('指令已发送')
+    // 后端只在**至少一台**成功时回 success:true，message 里带「N/M 成功」。
+    // 直接写死「指令已发送」会把「10 台只成功了 1 台」吞掉 —— 操作员会以为全部执行了。
+    ElMessage.success(res?.message || '指令已发送')
     loadLogs()
   } catch (e: any) { if (e !== 'cancel') showActionError('批量控制', e) }
   finally { controlLoading.value = false }
