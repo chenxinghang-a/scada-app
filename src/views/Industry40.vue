@@ -138,7 +138,7 @@
                     </template>
                   </el-table-column>
                   <el-table-column label="故障预测" width="100">
-                    <template #="{row}">{{ row.failure_prediction?.days_to_limit != null ? row.failure_prediction.days_to_limit+'天' : '-' }}</template>
+                    <template #="{row}">{{ etaText(row.failure_prediction) }}</template>
                   </el-table-column>
                   <el-table-column prop="updated_at" label="更新时间" />
                 </el-table>
@@ -597,6 +597,7 @@ import type {
   CarbonEmission,
 } from '@/api'
 import { errorMessage } from '@/utils/error'
+import { etaText } from '@/utils/predictionEta'
 // ⚠️ 统一格式化口径（round 201 的样板）：本文件原先有 37 处内联 `.toFixed()`，
 //    而 `utils/format.ts` 里那套**带 `Number.isFinite` 守卫**（非有限值 → "-"）
 //    的 `formatPercent` / `formatNumber` 一直没人用。

@@ -19,7 +19,10 @@ export interface HealthTrend {
 /** 故障预测（predictive_maintenance._predict_failure），无阈值时后端返回 null */
 export interface FailurePrediction {
   predicted_limit: number
+  /** 剩余天数（保留 2 位小数；< 1 天时用 hours_to_limit 展示更可读） */
   days_to_limit: number
+  /** 剩余小时数（round 237 新增；后端按**真实采样间隔**换算） */
+  hours_to_limit?: number
   limit_type: 'upper' | 'lower'
   confidence: number
 }
