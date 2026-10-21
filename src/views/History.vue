@@ -133,6 +133,7 @@ import { useRoute } from 'vue-router'
 import * as echarts from 'echarts'
 import { ElMessage } from 'element-plus'
 import { devicesApi, dataApi, alarmsApi, type Device, type Register, type AlarmRule } from '@/api'
+import type { HistoryQueryParams } from '@/api/data'
 import { registerScadaTheme, scadaThemeName, applyScadaTheme, SCADA_LEVEL_COLORS } from '@/utils/echartsTheme'
 import { assertBinaryDownload, describeDownloadError, downloadBlob } from '@/utils/export'
 import { summarizeQueryResults, describeQueryFailures } from '@/utils/historyQuery'
@@ -468,15 +469,22 @@ async function queryHistory() {
   loading.value = true
   exportStatus.value = ''
   try {
-    const params: any = { interval: filter.interval }
+    // 用导出类型而不是 `any`：拼错参数名时 vue-tsc 会直接报错
+    // （之前这里写成 `params: any`，`start`/`end` 的拼写错误一路溜到了运行时）
+    const params: HistoryQueryParams = { interval: filter.interval as HistoryQueryParams['interval'] }
     const start = filter.timeRange?.[0]
     const end = filter.timeRange?.[1]
-    if (filter.timeRange?.length === 2) { params.start = new Date(start).toISOString(); params.end = new Date(end).toISOString() }
+    // 参数名必须是 start_time / end_time（后端就读这两个）——
+    // 原先写成 start / end，后端读不到，时间范围被静默丢弃，永远只查最近 1 小时。
+    if (filter.timeRange?.length === 2) {
+      params.start_time = new Date(start).toISOString()
+      params.end_time = new Date(end).toISOString()
+    }
     const wanted = filter.register_names
     const results = await Promise.all(wanted.map(register =>
       dataApi.getHistory(filter.device_id, register, params)
-        .then(data => ({ register, rows: data.data || [], failed: false }))
-        .catch(() => ({ register, rows: [] as any[], failed: true })),
+        .then(data => ({ register, rows: data.data || [], failed: false, truncated: !!data.truncated }))
+        .catch(() => ({ register, rows: [] as any[], failed: true, truncated: false })),
     ))
     if (seq !== querySeq) return  // 已有更新的查询，丢弃过期响应
 
@@ -495,6 +503,11 @@ async function queryHistory() {
     }
     if (summary.partiallyFailed) {
       ElMessage.warning(describeQueryFailures(summary))
+    }
+    // 后端对单次结果有硬上限（10000 点）。截断时若不提示，
+    // 图表后半段会「凭空消失」，用户会以为那段时间没数据。
+    if (results.some(r => r.truncated)) {
+      ElMessage.warning('数据量超过单次上限，结果已截断；请缩短时间范围或选择更粗的聚合粒度')
     }
 
     // 明细表：多寄存器时补上来源寄存器列

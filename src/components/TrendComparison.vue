@@ -142,9 +142,10 @@ async function updateChart() {
     if (!comp.deviceId || !comp.registerName || comp.timeRange.length !== 2) continue
 
     try {
+      // 参数名必须是 start_time / end_time（后端就读这两个）
       const params = {
-        start: comp.timeRange[0].toISOString(),
-        end: comp.timeRange[1].toISOString(),
+        start_time: comp.timeRange[0].toISOString(),
+        end_time: comp.timeRange[1].toISOString(),
       }
       const data = await dataApi.getHistory(comp.deviceId, comp.registerName, params)
       const historyData = data.data || []

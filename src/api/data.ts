@@ -32,6 +32,22 @@ export interface LatestValue {
 /** 不传 register_name 时的返回：{寄存器名: 值对象} */
 export type LatestMap = Record<string, LatestValue>
 
+/**
+ * 历史数据查询参数。
+ *
+ * ⚠️ 字段名必须与后端 `展示层/api/api_data.py::get_history_data` 读的一致：
+ * 后端读 `start_time` / `end_time`。曾经这里叫 `start` / `end`，
+ * `api.get` 原样拼成 `?start=...`，后端读不到 → **静默回落到「最近 1 小时」**，
+ * 用户在历史页选的时间范围被整体丢弃，且界面上没有任何提示。
+ */
+export interface HistoryQueryParams {
+  start_time?: string
+  end_time?: string
+  /** '' = 不聚合（原始采样点）；其余为聚合粒度 */
+  interval?: '' | '1min' | '5min' | '1hour' | '1day'
+  limit?: number
+}
+
 export const dataApi = {
   getRealtime() {
     return api.get('/data/realtime') as Promise<{ data: RealtimeData[] }>
@@ -76,18 +92,13 @@ export const dataApi = {
   getHistory(
     deviceId: string,
     register: string,
-    params?: {
-      start?: string
-      end?: string
-      interval?: string
-      limit?: number
-    }
+    params?: HistoryQueryParams
   ) {
     // register='*' 表示查询全部寄存器，需URL编码
     const encodedRegister = encodeURIComponent(register)
     return api.get(`/data/history/${deviceId}/${encodedRegister}`, {
       params,
-    }) as Promise<{ data: HistoryRecord[] }>
+    }) as Promise<{ data: HistoryRecord[]; truncated?: boolean }>
   },
 
   exportDevice(deviceId: string, params?: { format?: string; start_time?: string; end_time?: string }) {
