@@ -255,6 +255,7 @@
 import { ref, onMounted, onUnmounted, reactive, computed, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { devicesApi, controlApi, type Device, type Register } from '@/api'
+import { describeWriteResult } from '@/utils/writeResult'
 import { useAuthStore } from '@/stores/auth'
 import { showActionError, ensureControlOk } from '@/utils/error'
 
@@ -408,6 +409,23 @@ function findRegisterAddress(deviceId: string, registerName: string): number | u
   return reg?.address ?? undefined
 }
 
+/**
+ * 写入结果提示：**必须区分「下发成功」和「设备真的接受了」**。
+ *
+ * 后端 `write_with_verification` 的返回里有 `verified`：
+ *   true  → 回读一致；
+ *   false → 回读不一致（设备没接受这个值）；
+ *   null  → 没能回读（客户端不支持 / 通信失败）。
+ * 原来这里一律弹「写入成功」，于是「写进去了但设备没接受」和「根本没验证」
+ * 都被显示成成功 —— 操作员据此判断现场状态，属于安全相关的假成功。
+ */
+function notifyWriteResult(res: any) {
+  const notice = describeWriteResult(res)
+  if (notice.level === 'warning') ElMessage.warning(notice.message)
+  else if (notice.level === 'info') ElMessage.info(notice.message)
+  else ElMessage.success(notice.message)
+}
+
 async function writeRegister() {
   if (controlLoading.value) return
   if (!regForm.device_id || !regForm.register_name) { ElMessage.warning('请选择设备和寄存器'); return }
@@ -423,7 +441,7 @@ async function writeRegister() {
     )
     const res = await controlApi.writeRegister(regForm.device_id, address, regForm.value)
     ensureControlOk(res)   // 后端被拒时返回 200 + {success:false}，必须检查（否则假成功）
-    ElMessage.success('写入成功')
+    notifyWriteResult(res)
     loadLogs()
   } catch (e: any) { if (e !== 'cancel') showActionError('写入寄存器', e) }
   finally { controlLoading.value = false }
@@ -443,7 +461,7 @@ async function writeCoil() {
     )
     const res = await controlApi.writeCoil(coilForm.device_id, address, coilForm.value)
     ensureControlOk(res)   // 同上：被拒时 200 + {success:false}
-    ElMessage.success('写入成功')
+    notifyWriteResult(res)
     loadLogs()
   } catch (e: any) { if (e !== 'cancel') showActionError('写入线圈', e) }
   finally { controlLoading.value = false }
