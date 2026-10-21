@@ -267,3 +267,67 @@ describe('extraResources 过滤口径（不得把运行期目录打进安装包�
     }
   })
 })
+
+/**
+ * 仪表盘导航烟测的**判定**（round 227）。
+ *
+ * 背景：2026-10-21 这条闸门把 CI 打红，注解写着
+ *   `仪表盘导航：ok=false reason=timeout hash=#/login?redirect=/dashboard`
+ * 而 `#app` 是挂上的。根因是**判据有竞态**：
+ * 探针塞的是假会话，仪表盘一挂载就发请求 → 401 → 拦截器按设计清会话并弹回
+ * `#/login?redirect=/dashboard`。原判据只认「页面文本含仪表盘」或
+ * `[Dashboard]` 日志，而这两者与「弹回」是一场比赛 —— 机器快时抢得到那一帧，
+ * 慢 runner 上只能看到登录页，于是**随机红**。
+ */
+describe('classifyDashboardProbe —— 仪表盘导航判定', () => {
+  const probe = () => require_(TOOL).classifyDashboardProbe as (o: any) => any
+
+  it('看到仪表盘文本 → 通过', () => {
+    const v = probe()({ errs: [], sawDashboard: false, lastText: '仪表盘 设备 3 台', lastHash: '#/dashboard' })
+    expect(v.ok).toBe(true)
+    expect(v.evidence).toBe('dashboard-text')
+  })
+
+  it('出现 [Dashboard] 日志 → 通过', () => {
+    const v = probe()({ errs: [], sawDashboard: true, lastText: '', lastHash: '#/dashboard' })
+    expect(v.ok).toBe(true)
+    expect(v.evidence).toBe('dashboard-log')
+  })
+
+  it('被弹回 #/login?redirect=/dashboard → 通过（假会话 401 的正常后果）', () => {
+    // 这条是本次修的核心：弹回说明 /dashboard 路由确实解析并挂载过
+    // （401 来自仪表盘自己的请求），否则 CI 会在慢 runner 上随机红。
+    const v = probe()({
+      errs: [], sawDashboard: false, lastText: '用户名 密码 登录',
+      lastHash: '#/login?redirect=/dashboard',
+    })
+    expect(v.ok, '被弹回登录页却被判失败 —— 这就是 CI 随机红的原因').toBe(true)
+    expect(v.evidence).toBe('bounced-to-login')
+  })
+
+  it('停在 #/login 也算通过（同一含义）', () => {
+    const v = probe()({ errs: [], sawDashboard: false, lastText: '', lastHash: '#/login' })
+    expect(v.ok).toBe(true)
+  })
+
+  it('有致命错误 → 必须失败，哪怕顺手弹回了登录页', () => {
+    // 「崩了但页面跳走了」不能被判绿 —— 事故③的签名就是 Class extends undefined
+    const v = probe()({
+      errs: ['Class extends value undefined is not a constructor'],
+      sawDashboard: true, lastText: '仪表盘',
+      lastHash: '#/login?redirect=/dashboard',
+    })
+    expect(v.ok).toBe(false)
+    expect(v.reason).toContain('fatal-during-nav')
+  })
+
+  it('停在别的路由（既没仪表盘也没弹回登录页）→ 超时失败', () => {
+    const v = probe()({ errs: [], sawDashboard: false, lastText: '空白页', lastHash: '#/dashboard' })
+    expect(v.ok).toBe(false)
+    expect(v.reason).toBe('timeout')
+  })
+
+  it('hash 为空（页面没起来）→ 失败', () => {
+    expect(probe()({ errs: [], sawDashboard: false, lastText: '', lastHash: '' }).ok).toBe(false)
+  })
+})

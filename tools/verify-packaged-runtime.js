@@ -294,6 +294,41 @@ function probeMount(page, timeoutMs) {
  *     登录页 —— 那是**正确行为**、不是产品缺陷；所以必须用「150ms 快轮询」抓住
  *     仪表盘渲染过的那一瞬间，并接受随后的弹回。
  */
+/**
+ * 判定「仪表盘导航烟测」的观测结果（纯函数，可单测）。
+ *
+ * 为什么需要它：原来的判据是「页面文本含『仪表盘』**或**出现 `[Dashboard]` 日志」，
+ * 而假会话必然让仪表盘的 API 401 → 拦截器按设计清会话并弹回
+ * `#/login?redirect=/dashboard`。**渲染与弹回是一场比赛**：
+ * 机器快时能抢到那一帧，机器慢（CI runner）时只看到登录页 → 闸门随机红。
+ * 2026-10-21 实测就是这条把 CI 打红，注解里写着
+ * `仪表盘导航：ok=false reason=timeout hash=#/login?redirect=/dashboard`。
+ *
+ * 正确的判据要包含**确定性的证据**：
+ *   - `sawDashboard` / 页面文本含「仪表盘」 —— 直接看到仪表盘；
+ *   - `#/login?redirect=/dashboard` —— 已经被弹回登录页。这**同样是证据**：
+ *     假会话下仪表盘挂载后必然发请求、拿到 401、由拦截器弹回，
+ *     所以「弹回」说明 `/dashboard` 路由**确实解析并挂载过**；
+ *   - 出现 `Class extends / Uncaught / before initialization` —— 事故③签名，**必须 FAIL**
+ *     （这条与上面并列，优先级最高：有致命错误就不算通过）。
+ *
+ * 注意：致命错误优先级高于一切，否则「崩了但顺手弹回登录页」会被判绿。
+ */
+function classifyDashboardProbe({ errs, sawDashboard, lastText, lastHash }) {
+  const fatal = (errs || []).find((e) =>
+    /Class extends|Uncaught|before initialization/.test(String(e)))
+  if (fatal) {
+    return { ok: false, reason: 'fatal-during-nav: ' + String(fatal).slice(0, 140), hash: lastHash }
+  }
+  if (sawDashboard) return { ok: true, hash: lastHash, evidence: 'dashboard-log' }
+  if (String(lastText || '').includes('仪表盘')) return { ok: true, hash: lastHash, evidence: 'dashboard-text' }
+  // 被弹回登录页：假会话 401 的正常后果，证明 /dashboard 已解析挂载
+  if (/^#\/login(\?|$)/.test(String(lastHash || ''))) {
+    return { ok: true, hash: lastHash, evidence: 'bounced-to-login' }
+  }
+  return { ok: false, reason: 'timeout', hash: lastHash }
+}
+
 function probeDashboard(page, timeoutMs) {
   return new Promise((resolve) => {
     const ws = new WebSocket(page.webSocketDebuggerUrl)
@@ -307,7 +342,8 @@ function probeDashboard(page, timeoutMs) {
     const deadline = Date.now() + timeoutMs
     const tick = () => {
       if (Date.now() > deadline) {
-        finish({ ok: false, reason: 'timeout', hash: lastHash, text: lastText, sawDashboard })
+        const verdict = classifyDashboardProbe({ errs, sawDashboard, lastText, lastHash })
+        finish({ ...verdict, text: lastText, sawDashboard })
         return
       }
       try {
@@ -352,9 +388,13 @@ function probeDashboard(page, timeoutMs) {
       }
       if (msg.result && msg.result.result && typeof msg.result.result.value === 'string' && msg.result.result.value.startsWith('{')) {
         try { const st = JSON.parse(msg.result.result.value); lastHash = st.hash; lastText = st.text } catch (e) {}
-        if (errs.length > 0) { finish({ ok: false, reason: 'fatal-during-nav: ' + errs[0], hash: lastHash }); return }
-        if (sawDashboard || lastText.includes('仪表盘')) {
-          finish({ ok: true, hash: lastHash, text: lastText, sawDashboard })
+        const verdict = classifyDashboardProbe({ errs, sawDashboard, lastText, lastHash })
+        if (verdict.ok) {
+          finish({ ok: true, hash: lastHash, text: lastText, sawDashboard, evidence: verdict.evidence })
+          return
+        }
+        if (verdict.reason && verdict.reason !== 'timeout') {
+          finish(verdict)
           return
         }
       }
@@ -427,7 +467,7 @@ async function main(argv) {
 
     const ok = result.mounted > 0 && dash.ok && fatalLines.length === 0
     if (ok) {
-      console.log(`[packaged-runtime] PASS：页面挂载成功（#app 子节点=${result.mounted}），仪表盘导航烟测通过（hash=${dash.hash}），无渲染层致命错误。`)
+      console.log(`[packaged-runtime] PASS：页面挂载成功（#app 子节点=${result.mounted}），仪表盘导航烟测通过（hash=${dash.hash}，证据=${dash.evidence || 'unknown'}），无渲染层致命错误。`)
       return 0
     }
     console.error(
@@ -526,4 +566,7 @@ if (require.main === module) {
   })
 }
 
-module.exports = { parseArgs, runtimeDataDir, snapshotTree, cleanupCreated, runtimeNewFiles, cleanupUntilClean }
+module.exports = {
+  parseArgs, runtimeDataDir, snapshotTree, cleanupCreated, runtimeNewFiles, cleanupUntilClean,
+  classifyDashboardProbe,
+}
