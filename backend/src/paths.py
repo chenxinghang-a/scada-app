@@ -1,0 +1,284 @@
+"""
+路径管理模块
+============
+统一管理项目路径，避免到处 sys.path.insert。
+
+用法:
+    # run.py 入口处调用一次
+    import paths
+    paths.setup()
+
+    # 其他模块直接用
+    from paths import PROJECT_ROOT, DATA_DIR, CONFIG_DIR, LOG_DIR
+"""
+
+import sys
+import os
+from pathlib import Path
+from typing import Optional
+
+
+def _get_project_root():
+    """获取项目根目录，兼容PyInstaller打包"""
+    if getattr(sys, 'frozen', False):
+        # PyInstaller onefile模式：exe所在目录
+        exe_dir = Path(sys.executable).parent
+        # 检查_internal目录是否存在（PyInstaller打包后的标准结构）
+        if (exe_dir / '_internal').exists():
+            return exe_dir
+        # 如果没有_internal，检查配置目录是否直接在exe目录下
+        if (exe_dir / '配置').exists():
+            return exe_dir
+        # 向上一级查找（可能exe在子目录中）
+        parent_dir = exe_dir.parent
+        if (parent_dir / '_internal').exists():
+            return parent_dir
+        if (parent_dir / '配置').exists():
+            return parent_dir
+        # 默认返回exe目录
+        return exe_dir
+    # 开发模式：paths.py所在目录
+    return Path(__file__).resolve().parent
+
+
+# 项目根目录
+PROJECT_ROOT = _get_project_root()
+
+# 根据目录结构确定数据目录
+if (PROJECT_ROOT / '_internal').exists():
+    # PyInstaller打包后的标准结构
+    _BASE = PROJECT_ROOT / '_internal'
+elif (PROJECT_ROOT / '配置').exists():
+    # 配置目录直接在项目根目录下
+    _BASE = PROJECT_ROOT
+else:
+    _BASE = PROJECT_ROOT
+
+def _env_path(var: str, default: Path) -> Path:
+    """运行时目录的环境变量覆盖；相对路径按 :data:`PROJECT_ROOT` 解析。
+
+    为什么需要（2026-10-09，round 206）
+    ----------------------------------
+    ``tools/multi_instance.py``（多实例部署工具）的实例启动脚本一直在设置
+    ``SCADA_DATA_DIR`` / ``SCADA_CONFIG_DIR`` / ``SCADA_PORT``，
+    但**此前没有任何代码读它们** —— 于是「多实例」实际全部落在同一个
+    ``data/scada_simulated.db`` 与同一份 ``配置/`` 上，实例之间互相污染
+    （SQLite 锁竞争 / 配置互相覆盖），且端口也全挤在 5000。
+    守卫见 ``tests/test_env_vars_wired.py``。
+
+    语义：``SCADA_DATA_DIR`` / ``SCADA_CONFIG_DIR`` 是**目录**，
+    不是数据库文件路径 —— 库文件名由 :func:`get_db_path` 按模式派生。
+
+    相对路径按 ``PROJECT_ROOT`` 解析（与 :func:`resolve` 一致），
+    **不按 CWD** —— 否则「从别处启动」又会静默指向别的目录。
+    """
+    raw = os.environ.get(var)
+    if raw is None or not raw.strip():
+        return default
+    p = Path(raw.strip())
+    return p if p.is_absolute() else (PROJECT_ROOT / p)
+
+
+DATA_DIR = _env_path('SCADA_DATA_DIR', _BASE / 'data')
+CONFIG_DIR = _env_path('SCADA_CONFIG_DIR', _BASE / '配置')
+LOG_DIR = _env_path('SCADA_LOG_DIR', _BASE / 'logs')
+#: 性能指标目录（tools/auto_metrics.py 写、展示层/api/api_performance.py 读 ——
+#: 两侧必须用同一个常量，否则「写的没人读、读的没人写」又会出现）
+METRICS_DIR = PROJECT_ROOT / 'metrics'
+EXPORT_DIR = _BASE / 'exports'
+
+#: 运行时端口文件。后端启动后把实际监听的 ``port/pid/mode/started_at`` 写入此文件，
+#: 供 Electron（`scada-app/electron/backend-paths.js`）发现真实端口，避免 5000/5001 错配。
+#:
+#: ⚠️ 冻结（PyInstaller **onedir**）布局下 ``DATA_DIR`` 是 ``<backend_dir>/_internal/data``
+#: （见上方 ``_BASE`` 的推导：``_internal`` 存在时 ``_BASE = PROJECT_ROOT / '_internal'``），
+#: 所以真实落点是 ``<backend_dir>/_internal/data/runtime.json`` ——
+#: **不是** ``<backend_dir>/data/runtime.json``。
+#:
+#: 这一点曾被写错（2026-09-24 修复）：前端按后者拼路径，于是 ``readRuntimePort()``
+#: 恒返回 null，整个「避免 5000/5001 错配」的机制**从未生效过** ——
+#: 只是回退值 5000 恰好等于模拟模式端口才没暴露。
+#: 前端现在按 `electron/backend-paths.js` 的候选列表**两种布局都探测**，
+#: 并由 CI 闸门 `scada-app/tools/verify-backend-runtime.js` 在真产物上验证这条契约。
+RUNTIME_JSON_PATH = DATA_DIR / 'runtime.json'
+
+#: 存放 `配置/`、`data/`、`logs/` 等运行时目录的基准目录。
+#: 冻结（PyInstaller）时是 `_internal/`，开发时是仓库根目录。
+#: 用于把历史代码里散落的相对路径字面量统一解析成绝对路径。
+BASE_DIR = _BASE
+
+
+def resolve(p) -> Path:
+    """把项目内相对路径解析为绝对路径；已是绝对路径则原样返回。
+
+    为什么需要它
+    ------------
+    代码库里散落着 ``'配置/alarms.yaml'``、``'data/scada.db'`` 这类相对路径字面量。
+    它们**只在「当前工作目录恰好是项目根目录」时才成立** —— 从别处启动
+    （系统服务、计划任务、PyInstaller 产物、被别的模块 import）就会找不到文件。
+    而且失败方式通常是静默的：``load_yaml_config`` 读不到文件返回 ``{}``，
+    接口照常回 200，只是配置"莫名变空"。
+
+    基准取 :data:`BASE_DIR`（由 ``__file__`` / ``sys.executable`` 推导，
+    与 CWD 无关），因此解析结果稳定。
+
+    Args:
+        p: 相对路径（``str`` 或 ``Path``）或绝对路径。
+
+    Returns:
+        Path: 绝对路径。
+    """
+    path = Path(p)
+    if path.is_absolute():
+        return path
+    return BASE_DIR / path
+
+# 数据库路径（按模式区分）
+DB_PATHS = {
+    'simulated': DATA_DIR / 'scada_simulated.db',
+    'real': DATA_DIR / 'scada_real.db',
+    'simulator': DATA_DIR / 'scada_simulator.db',
+    'default': DATA_DIR / 'scada.db',
+}
+
+
+def setup():
+    """
+    初始化项目路径（在入口脚本最开始调用一次）
+
+    - 将项目根目录加入 sys.path
+    - 确保必要目录存在
+    """
+    root_str = str(PROJECT_ROOT)
+    if root_str not in sys.path:
+        sys.path.insert(0, root_str)
+
+    for d in [DATA_DIR, LOG_DIR, EXPORT_DIR]:
+        d.mkdir(parents=True, exist_ok=True)
+
+
+def get_db_path(mode: str = 'simulated') -> str:
+    """获取数据库路径"""
+    return str(DB_PATHS.get(mode, DB_PATHS['default']))
+
+
+def resolve_cli_db_mode(mode: str | None = None) -> str:
+    """CLI 工具（`tools/` 下）的库模式解析 —— **单一真源，禁止自己拼库名**。
+
+    为什么需要它
+    ------------
+    `tools/` 下的工具原先各自写死 `data/scada.db`（round 213 实测 20 处 / 9 文件）。
+    后果不是报错，而是**静默指错**：这些工具去读那份 4.5 个月没人用的旧库，
+    诊断会报「正常」、迁移会「成功」、备份会忠实地备下错的库 ——
+    **不报错、结果看起来合理，只是答案是关于另一个库的**。
+
+    优先级（从高到低）
+    ----------------
+    1. 调用方显式传入的 `mode`（CLI `--db-mode`）；
+    2. 环境变量 `SCADA_DB_MODE`（无人值守场景的显式通道）；
+    3. 回退 `'simulated'` —— 与 `run.py` 无参默认（模拟模式）一致。
+
+    ⚠️ 回退到 `'simulated'` 是**有意的默认**，但它不是「悄悄」的：
+    调用方应当在启动时打印实际选用的模式与路径（`describe_db_choice`），
+    让操作者一眼看见「这次分析的是哪个库」。
+    """
+    if mode:
+        return mode
+    env = os.environ.get('SCADA_DB_MODE')
+    if env:
+        return env
+    return 'simulated'
+
+
+def describe_db_choice(mode: str | None = None) -> str:
+    """给人看的一行说明：当前 CLI 工具用的是哪个模式、哪个库文件。"""
+    m = resolve_cli_db_mode(mode)
+    return f"库模式: {m} -> {get_db_path(m)}"
+
+
+def get_config_path(filename: str) -> str:
+    """获取配置文件路径"""
+    return str(CONFIG_DIR / filename)
+
+
+def resolve_config_file(p) -> Path:
+    """配置区文件的 **env-aware** 解析（round 213：修 round 206 没修完的那一半）。
+
+    背景
+    ----
+    round 206「多实例隔离」把**库**那一半边修了（``get_db_path`` 吃 env），
+    但**配置**那一半边没修：``展示层/api/_common.py`` 的 ``load_yaml_config`` /
+    ``save_yaml_config`` 用 ``resolve()`` 解析，而 ``resolve`` 按 **BASE_DIR**
+    （不吃 env）→ 设了 ``SCADA_CONFIG_DIR`` 后，接口读/写的仍是**仓库那份**
+    配置。实测 25 处调用点全中招（api_alarms 15 / api_system 4 / vacuum_db 2 /
+    retention_scheduler / run.py / websocket / device_control），
+    运行时反向对照：隔离配置里把 cors.origins 改成 marker.invalid 后，
+    打包产物读到的还是仓库那份 → 多实例「配置互相覆盖」照旧存在。
+
+    语义
+    ----
+    * 相对路径且以 **配置目录名开头**（``配置/...``，兼容反斜杠）→ 映射到
+      ``CONFIG_DIR``（**吃 SCADA_CONFIG_DIR env**）；
+    * 绝对路径、临时文件、其它形态 → 原样交给 ``resolve()``
+      （向后兼容：测试用 tmp 绝对路径，行为不变）。
+    """
+    text = str(p).replace('\\', '/')
+    # ⚠️ 前缀是**源路径形态**（固定字符串 '配置/'），不是 CONFIG_DIR.name ——
+    # 隔离目录可以叫任何名字（SCADA_CONFIG_DIR=/tmp/iso_cfg 完全合法），
+    # 用 CONFIG_DIR.name 做前缀会让真实隔离场景永远匹配不上（2026-10-13 测试抓出）。
+    prefix = '配置/'
+    if text.startswith(prefix):
+        rest = text[len(prefix):].lstrip('/')
+        if rest:
+            if os.environ.get('SCADA_CONFIG_DIR'):
+                # env 显式隔离（多实例）：走 CONFIG_DIR（import 时按 env 算好）
+                return CONFIG_DIR / rest
+            # 未设 env：按 BASE_DIR **动态**解析（与 CONFIG_DIR 的默认值等价，
+            # 但保留 monkeypatch BASE_DIR 的能力 —— test_path_resolution 的
+            # CWD 独立性用例依赖这一点；第一版直接走 CONFIG_DIR 时它是失真的，
+            # 而且会往真实仓库写文件，2026-10-13 抓出）
+            return (BASE_DIR / prefix) / rest
+    return resolve(p)
+
+
+# ---------------------------------------------------------------------------
+# 当前进程**实际在用**的库路径（唯一真源）
+# ---------------------------------------------------------------------------
+#
+# 为什么需要它
+# ------------
+# ``DB_PATHS`` 只是「按模式应该用哪个库」的**候选表**；真正在用的是哪一个，
+# 由入口（``run.py`` 的 ``--simulator`` / ``--real`` / 默认模拟）决定。
+# 任何「想知道当前库在哪」的模块（性能指标、运维工具…）如果自己去猜模式，
+# 就会造出**第二套真源** —— 而实测 ``data/`` 下 ``scada.db``（旧，495MB）
+# 与 ``scada_simulated.db``（在用，712MB）**同时存在**，「取第一个存在的」
+# 这种猜法会静默指错。
+#
+# 所以：**入口登记、别人只读**。
+_ACTIVE_DB_PATH: Optional[Path] = None
+
+
+def set_active_db_path(path) -> None:
+    """登记当前进程实际在用的库路径（由 ``create_app`` 调用）。
+
+    Args:
+        path: 库文件路径（相对路径会按 :func:`resolve` 解析）。
+            ``None`` / 空值时**清空**登记（不要用猜测值填充）。
+    """
+    global _ACTIVE_DB_PATH
+    if path in (None, ''):
+        _ACTIVE_DB_PATH = None
+        return
+    try:
+        _ACTIVE_DB_PATH = resolve(path)
+    except Exception:  # noqa: BLE001 —— 登记失败不该把建应用流程搞死
+        _ACTIVE_DB_PATH = None
+
+
+def get_active_db_path() -> Optional[Path]:
+    """返回当前进程实际在用的库路径；**没登记过就返回 ``None``**。
+
+    刻意**不**回退到 ``DB_PATHS['default']`` —— 「读不到真源」时调用方应当
+    显式降级（报告 unknown），而不是拿到一个可能不是当前库的路径去展示。
+    """
+    return _ACTIVE_DB_PATH

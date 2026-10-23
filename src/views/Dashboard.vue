@@ -587,14 +587,23 @@ async function loadData() {
 
     // 3. 加载报警
     try {
-      const alarmData = await alarmsApi.getAll({ limit: 50 })
+      // KPI 卡片说的是「活动报警」，未确认/CRIT/HIGH/MED 必须同口径取自 /alarms/active。
+      // 原先只用 getAll(limit:50) 的历史列表算 unacked —— 一条早已恢复、但从没被确认的
+      // 旧报警会让卡片显示「活动报警 0 条 / 未确认 1」，自相矛盾（2026-10-23 实测）。
+      const [activeRes, historyRes] = await Promise.all([
+        alarmsApi.getActive().catch(() => null),
+        alarmsApi.getAll({ limit: 50 }).catch(() => null),
+      ])
       if (gen !== loadGeneration) return
-      if (alarmData?.alarms) {
-        alarms.value = alarmData.alarms
-        latestAlarm.value = alarmData.alarms.find((a: Alarm) => !a.acknowledged) || null
-        const unacked = alarmData.alarms.filter((a: Alarm) => !a.acknowledged).length
-        kpi.unacked = unacked
-      }
+      const active = activeRes?.alarms || []
+      // 右侧「实时报警」面板优先显示活动报警；没有活动报警时退回最近的确认记录
+      alarms.value = active.length ? active : (historyRes?.alarms || [])
+      latestAlarm.value = alarms.value.find((a: Alarm) => !a.acknowledged) || null
+      kpi.alarmCount = active.length
+      kpi.unacked = active.filter((a: Alarm) => !a.acknowledged).length
+      kpi.crit = active.filter((a: Alarm) => a.alarm_level === 'critical').length
+      kpi.high = active.filter((a: Alarm) => a.alarm_level === 'warning').length
+      kpi.med = active.filter((a: Alarm) => a.alarm_level === 'info').length
     } catch (e: any) { console.warn('[Dashboard] 加载失败:', e?.message || e) }
   } finally {
     loadDataInProgress = false

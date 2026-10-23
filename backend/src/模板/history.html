@@ -1,0 +1,555 @@
+{% extends "base.html" %}
+
+{% block title %}历史数据 - 工业SCADA系统{% endblock %}
+
+{% block extra_css %}
+<style>
+    /* 历史数据页：查询条件区与结果区分离；图表色板取 --chart-*；数值右对齐等宽 */
+    .history-filters .form-label {
+        font-size: var(--font-xs);
+        font-weight: var(--weight-medium);
+        color: var(--text-muted);
+        margin-bottom: var(--space-2);
+    }
+
+    .panel + .panel { margin-top: var(--space-4); }
+
+    .chart-host {
+        height: 400px;
+        width: 100%;
+    }
+
+    /* 结果表 */
+    .history-table {
+        margin-bottom: 0;
+        color: var(--text-primary);
+    }
+
+    .history-table > :not(caption) > * > * {
+        border-color: var(--border-base);
+        background: transparent;
+        color: var(--text-primary);
+        padding: var(--space-3);
+        vertical-align: middle;
+        font-size: var(--font-sm);
+    }
+
+    .history-table thead th {
+        font-size: var(--font-xs);
+        font-weight: var(--weight-semibold);
+        color: var(--text-muted);
+        letter-spacing: 0.02em;
+        white-space: nowrap;
+    }
+
+    /* 数值列：右对齐 + 等宽数字，多行数值纵向对齐便于比对 */
+    .history-table .col-num {
+        text-align: right;
+        font-family: var(--font-mono);
+        font-variant-numeric: tabular-nums;
+        white-space: nowrap;
+    }
+
+    .history-table .col-time {
+        font-family: var(--font-mono);
+        font-variant-numeric: tabular-nums;
+        white-space: nowrap;
+        color: var(--text-secondary);
+        font-size: var(--font-xs);
+    }
+
+    .result-empty {
+        padding: var(--space-10) var(--space-4);
+        text-align: center;
+        color: var(--text-muted);
+        font-size: var(--font-sm);
+    }
+
+    .result-empty i {
+        display: block;
+        font-size: var(--font-3xl);
+        color: var(--text-disabled);
+        margin-bottom: var(--space-3);
+    }
+
+    .result-empty__hint {
+        margin-top: var(--space-1);
+        font-size: var(--font-xs);
+        color: var(--text-disabled);
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<!-- 查询条件区 -->
+<div class="panel history-filters">
+    <div class="panel__header">
+        <span><i class="bi bi-funnel me-2"></i>历史数据查询</span>
+        <span class="metric-label">选择设备与时间范围后查询</span>
+    </div>
+    <div class="panel__body">
+        <form id="history-query-form" class="row g-3 align-items-end">
+            <div class="col-md-3">
+                <label for="device-select" class="form-label">设备</label>
+                <select id="device-select" class="form-select">
+                    <option value="">全部设备</option>
+                </select>
+            </div>
+            <div class="col-md-3">
+                <label for="register-select" class="form-label">参数</label>
+                <select id="register-select" class="form-select">
+                    <option value="">全部参数</option>
+                </select>
+            </div>
+            <div class="col-md-2">
+                <label for="start-time" class="form-label">开始时间</label>
+                <input type="datetime-local" id="start-time" class="form-control">
+            </div>
+            <div class="col-md-2">
+                <label for="end-time" class="form-label">结束时间</label>
+                <input type="datetime-local" id="end-time" class="form-control">
+            </div>
+            <div class="col-md-2">
+                <label for="interval" class="form-label">时间间隔</label>
+                <select id="interval" class="form-select">
+                    <option value="1min">1分钟</option>
+                    <option value="5min">5分钟</option>
+                    <option value="1hour">1小时</option>
+                    <option value="1day">1天</option>
+                </select>
+            </div>
+            <div class="col-12 d-flex gap-2">
+                <button type="submit" class="btn btn-primary">
+                    <i class="bi bi-search me-1"></i>查询
+                </button>
+                <button type="button" id="export-btn" class="btn btn-outline-secondary">
+                    <i class="bi bi-download me-1"></i>导出数据
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- 结果区：图表 -->
+<div class="panel">
+    <div class="panel__header">
+        <span><i class="bi bi-bar-chart me-2"></i>数据图表</span>
+        <span class="metric-label" id="chart-subtitle">尚未查询</span>
+    </div>
+    <div class="panel__body">
+        <div id="history-chart" class="chart-host"></div>
+    </div>
+</div>
+
+<!-- 结果区：数据列表 -->
+<div class="panel">
+    <div class="panel__header">
+        <span><i class="bi bi-table me-2"></i>数据列表</span>
+        <span class="metric-label" id="result-count">0 条</span>
+    </div>
+    <div class="panel__body p-0">
+        <div class="table-responsive">
+            <table class="table table-hover history-table" id="history-table">
+                <thead>
+                    <tr>
+                        <th>时间</th>
+                        <th>设备</th>
+                        <th>参数</th>
+                        <th class="col-num">平均值</th>
+                        <th class="col-num">最小值</th>
+                        <th class="col-num">最大值</th>
+                        <th class="col-num">采样数</th>
+                    </tr>
+                </thead>
+                <tbody id="history-tbody">
+                    <tr>
+                        <td colspan="7">
+                            <div class="result-empty">
+                                <i class="bi bi-clipboard-data"></i>
+                                暂无数据
+                                <div class="result-empty__hint">请选择设备并设置时间范围后点击「查询」</div>
+                            </div>
+                        </td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+let historyChart = null;
+
+// 读取设计令牌（图表配色统一走 --chart-*，随深浅色主题生效）
+// 令牌缺失时返回 undefined，由 ECharts 使用自身默认值，避免在此写死备用色值
+function cssVar(name) {
+    return getComputedStyle(document.documentElement).getPropertyValue(name).trim() || undefined;
+}
+
+function chartPalette() {
+    return {
+        series: cssVar('--chart-1'),
+        grid: cssVar('--chart-grid'),
+        axisText: cssVar('--chart-axis-text'),
+        labelText: cssVar('--chart-label-text'),
+        tooltipBg: cssVar('--chart-tooltip-bg'),
+        tooltipText: cssVar('--chart-tooltip-text'),
+        border: cssVar('--border-base'),
+        fontSans: cssVar('--font-sans') || 'sans-serif'
+    };
+}
+
+document.addEventListener('DOMContentLoaded', function() {
+    // 初始化图表
+    historyChart = echarts.init(document.getElementById('history-chart'));
+    historyChart.setOption(buildChartBase());
+    window.addEventListener('resize', function() {
+        if (historyChart) historyChart.resize();
+    });
+
+    // 加载设备列表
+    fetch('/api/devices', { headers: getAuthHeaders() })
+        .then(r => r.json())
+        .then(data => {
+            const select = document.getElementById('device-select');
+            const devices = Array.isArray(data.devices) ? data.devices : Object.values(data.devices || {});
+            devices.forEach(d => {
+                const opt = document.createElement('option');
+                opt.value = d.device_id || d.id;
+                opt.textContent = d.name || opt.value;
+                select.appendChild(opt);
+            });
+            if (!devices.length) {
+                const opt = document.createElement('option');
+                opt.value = '';
+                opt.disabled = true;
+                opt.textContent = '未加载到设备';
+                select.appendChild(opt);
+            }
+            // 支持从其它页面带 ?device=<id> 跳转过来预选设备（如设备管理页"查看数据"）
+            const preset = new URLSearchParams(window.location.search).get('device');
+            if (preset && devices.some(d => (d.device_id || d.id) === preset)) {
+                select.value = preset;
+                select.dispatchEvent(new Event('change'));
+            }
+        })
+        .catch(e => { console.error('加载设备列表失败:', e); alert('加载设备列表失败: ' + e.message); });
+
+    // 设备选择变化时更新参数列表
+    document.getElementById('device-select').addEventListener('change', function() {
+        const deviceId = this.value;
+        const registerSelect = document.getElementById('register-select');
+        registerSelect.innerHTML = '<option value="">全部参数</option>';
+
+        if (deviceId) {
+            fetch(`/api/devices/${deviceId}`, { headers: getAuthHeaders() })
+                .then(r => r.json())
+                .then(payload => {
+                    // /api/devices/<id> 返回 {device: {...}} 包装，直接读顶层会拿到空数组
+                    const dev = (payload && payload.device) ? payload.device : (payload || {});
+                    // 点位分布在 registers / nodes / topics / endpoints 四类，
+                    // 只读 registers 会让 MQTT/OPC UA/REST 设备的参数下拉恒为空
+                    const points = [].concat(
+                        dev.registers || [], dev.nodes || [],
+                        dev.topics || [], dev.endpoints || []
+                    );
+                    const seen = {};
+                    points.forEach(p => {
+                        if (!p || typeof p !== 'object') return;
+                        const name = p.name || p.topic || p.node_id || p.path;
+                        if (!name || seen[name]) return;
+                        seen[name] = true;
+                        const opt = document.createElement('option');
+                        opt.value = name;
+                        opt.textContent = p.description ? `${p.description} (${name})` : name;
+                        registerSelect.appendChild(opt);
+                    });
+                    if (points.length === 0) {
+                        const opt = document.createElement('option');
+                        opt.value = '';
+                        opt.disabled = true;
+                        opt.textContent = '该设备无点位配置';
+                        registerSelect.appendChild(opt);
+                    }
+                })
+                .catch(e => {
+                    console.error('加载设备参数失败:', e);
+                    const opt = document.createElement('option');
+                    opt.value = '';
+                    opt.disabled = true;
+                    opt.textContent = '参数加载失败，可先用「全部参数」查询';
+                    registerSelect.appendChild(opt);
+                });
+        }
+    });
+
+    // 查询表单提交
+    document.getElementById('history-query-form').addEventListener('submit', function(e) {
+        e.preventDefault();
+        queryHistoryData();
+    });
+
+    // 导出按钮
+    document.getElementById('export-btn').addEventListener('click', function() {
+        exportData();
+    });
+});
+
+// 图表基础配置：字号 ≥12px，配色/网格/提示框全部取令牌
+function buildChartBase() {
+    const p = chartPalette();
+    return {
+        title: {
+            text: '历史数据趋势',
+            left: 'center',
+            textStyle: { color: p.labelText, fontSize: 14, fontWeight: 600, fontFamily: p.fontSans }
+        },
+        tooltip: {
+            trigger: 'axis',
+            backgroundColor: p.tooltipBg,
+            borderColor: p.border,
+            textStyle: { color: p.tooltipText, fontSize: 12 }
+        },
+        legend: {
+            bottom: 0,
+            textStyle: { color: p.labelText, fontSize: 12 }
+        },
+        grid: { left: 56, right: 24, top: 56, bottom: 56 },
+        xAxis: {
+            type: 'category',
+            data: [],
+            axisLine: { lineStyle: { color: p.grid } },
+            axisLabel: { color: p.axisText, fontSize: 12 },
+            splitLine: { lineStyle: { color: p.grid } }
+        },
+        yAxis: {
+            type: 'value',
+            axisLine: { lineStyle: { color: p.grid } },
+            axisLabel: { color: p.axisText, fontSize: 12 },
+            splitLine: { lineStyle: { color: p.grid } }
+        },
+        series: []
+    };
+}
+
+// 查询历史数据
+async function queryHistoryData() {
+    const deviceId = document.getElementById('device-select').value;
+    const register = document.getElementById('register-select').value;
+    const startTime = document.getElementById('start-time').value;
+    const endTime = document.getElementById('end-time').value;
+    const interval = document.getElementById('interval').value;
+
+    if (!deviceId) {
+        alert('请选择设备');
+        return;
+    }
+
+    // 构建查询参数
+    let url = `/api/data/history/${deviceId}/${register || '*'}`;
+    const params = new URLSearchParams();
+    if (startTime) params.append('start_time', startTime);
+    if (endTime) params.append('end_time', endTime);
+    params.append('interval', interval);
+
+    try {
+        const response = await fetch(`${url}?${params}`, { headers: getAuthHeaders() });
+        const data = await response.json();
+
+        if (data.data) {
+            updateHistoryTable(data.data);
+            updateHistoryChart(data.data, register);
+        } else {
+            updateHistoryTable([]);
+            updateHistoryChart([], register);
+            alert('没有查询到数据');
+        }
+    } catch (error) {
+        console.error('查询失败:', error);
+        alert('查询失败: ' + error.message);
+    }
+}
+
+// 更新历史数据表格（数值列右对齐等宽）
+function updateHistoryTable(data) {
+    const tbody = document.getElementById('history-tbody');
+    const countEl = document.getElementById('result-count');
+    if (countEl) countEl.textContent = (data ? data.length : 0) + ' 条';
+
+    tbody.innerHTML = '';
+
+    if (!data || data.length === 0) {
+        const row = document.createElement('tr');
+        const cell = document.createElement('td');
+        cell.colSpan = 7;
+        cell.innerHTML = `
+            <div class="result-empty">
+                <i class="bi bi-clipboard-data"></i>
+                暂无数据
+                <div class="result-empty__hint">请选择设备并设置时间范围后点击「查询」</div>
+            </div>`;
+        row.appendChild(cell);
+        tbody.appendChild(row);
+        return;
+    }
+
+    // 获取当前选择的设备和参数
+    const deviceId = document.getElementById('device-select').value;
+    const registerName = document.getElementById('register-select').value;
+
+    data.forEach(item => {
+        const row = document.createElement('tr');
+
+        const timeCell = document.createElement('td');
+        timeCell.className = 'col-time';
+        timeCell.textContent = item.time_bucket || item.timestamp || '-';
+        row.appendChild(timeCell);
+
+        const deviceCell = document.createElement('td');
+        deviceCell.textContent = getDeviceName(deviceId);
+        row.appendChild(deviceCell);
+
+        const registerCell = document.createElement('td');
+        registerCell.textContent = getRegisterName(registerName);
+        row.appendChild(registerCell);
+
+        // 数值列：右对齐 + 等宽
+        [formatNumber(item.avg_value), formatNumber(item.min_value),
+         formatNumber(item.max_value), String(item.sample_count || 1)].forEach(text => {
+            const cell = document.createElement('td');
+            cell.className = 'col-num';
+            cell.textContent = text;
+            row.appendChild(cell);
+        });
+
+        tbody.appendChild(row);
+    });
+}
+
+// 更新历史数据图表
+function updateHistoryChart(data, registerName) {
+    const p = chartPalette();
+    const sub = document.getElementById('chart-subtitle');
+    const name = getRegisterName(registerName) || '数据';
+
+    if (!data || data.length === 0) {
+        historyChart.setOption({ xAxis: { data: [] }, series: [] }, true);
+        historyChart.setOption(buildChartBase());
+        if (sub) sub.textContent = '暂无数据';
+        return;
+    }
+
+    const timestamps = data.map(d => {
+        const time = d.time_bucket || d.timestamp;
+        // 只显示时分秒
+        if (time && time.includes(' ')) {
+            return time.split(' ')[1];
+        }
+        return time || '-';
+    });
+    const values = data.map(d => d.avg_value || d.value);
+
+    if (sub) sub.textContent = `${name} · ${data.length} 个采样点`;
+
+    historyChart.setOption(buildChartBase());
+    historyChart.setOption({
+        xAxis: { data: timestamps },
+        series: [{
+            name: name,
+            type: 'line',
+            data: values,
+            smooth: true,
+            symbolSize: 5,
+            lineStyle: { width: 2, color: p.series },
+            itemStyle: { color: p.series },
+            areaStyle: { color: p.series, opacity: 0.12 }
+        }]
+    });
+}
+
+// 导出数据
+async function exportData() {
+    const deviceId = document.getElementById('device-select').value;
+    const startTime = document.getElementById('start-time').value;
+    const endTime = document.getElementById('end-time').value;
+
+    if (!deviceId) {
+        alert('请先选择设备');
+        return;
+    }
+
+    const format = prompt('请选择导出格式 (csv/json):', 'csv');
+    if (!format) return;
+
+    try {
+        const response = await fetch(`/api/export/device/${deviceId}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
+            body: JSON.stringify({
+                start_time: startTime || new Date(Date.now() - 3600000).toISOString(),
+                end_time: endTime || new Date().toISOString(),
+                format: format
+            })
+        });
+
+        const contentType = response.headers.get('Content-Type') || '';
+        // 失败路径：后端以 JSON 说明原因（api_error 的 error / 业务失败 message）
+        if (contentType.includes('application/json')) {
+            const result = await response.json();
+            alert('导出失败: ' + (result.error || result.message || `HTTP ${response.status}`));
+            return;
+        }
+        if (!response.ok) {
+            alert('导出失败: HTTP ' + response.status);
+            return;
+        }
+
+        // 成功路径：后端 send_file 直接返回文件流，按 JSON 解析必然抛错
+        const blob = await response.blob();
+        const disposition = response.headers.get('Content-Disposition') || '';
+        const matched = disposition.match(/filename\*?=(?:UTF-8'')?"?([^";]+)"?/i);
+        const filename = matched ? decodeURIComponent(matched[1]) : `device_${deviceId}.${format}`;
+
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = filename;
+        a.click();
+        URL.revokeObjectURL(url);
+    } catch (error) {
+        alert('导出失败: ' + error.message);
+    }
+}
+
+// 辅助函数
+function getDeviceName(deviceId) {
+    const names = {
+        'temp_sensor_01': '温度传感器1号',
+        'pressure_sensor_01': '压力传感器1号',
+        'power_meter_01': '电力仪表1号'
+    };
+    return names[deviceId] || deviceId;
+}
+
+function getRegisterName(name) {
+    const names = {
+        'temperature': '温度',
+        'humidity': '湿度',
+        'pressure': '压力',
+        'voltage': '电压',
+        'current': '电流',
+        'power': '功率',
+        'energy': '电量',
+        'status': '状态'
+    };
+    return names[name] || name;
+}
+
+function formatNumber(value, decimals = 2) {
+    if (value === null || value === undefined) return '-';
+    return Number(value).toFixed(decimals);
+}
+</script>
+{% endblock %}

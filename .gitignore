@@ -37,3 +37,10 @@ src/.guardvibe/
 src/**/.guardvibe/
 # 调试构建（vite build --minify false 的产物，2026-10-10 白屏事故排查用）
 dist-dbg/
+
+# 后端重打包产物与本地验收快照（2026-10-23）
+.build-backend/
+.ui-shots/
+.tmp-shot.png
+backend/metrics/
+backend/prev-*/

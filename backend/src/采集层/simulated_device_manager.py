@@ -1,0 +1,383 @@
+"""
+模拟设备管理器
+完全独立的模拟实现，不依赖真实设备
+"""
+
+import logging
+import yaml
+from typing import Any
+from pathlib import Path
+
+import paths
+
+from .interfaces import IDeviceManager, IDeviceClient
+from .simulated_client import is_device_stopped, _ESTOP_ACTIVE
+from .simulated_client import set_estop_state, set_device_stopped
+from .enhanced_simulated_client import (
+    EnhancedSimulatedModbusClient,
+    EnhancedSimulatedOPCUAClient,
+    EnhancedSimulatedMQTTClient,
+    EnhancedSimulatedRESTClient
+)
+
+logger = logging.getLogger(__name__)
+
+
+class SimulatedDeviceManager(IDeviceManager):
+    """
+    模拟设备管理器
+    
+    特点：
+    - 完全独立，不依赖任何真实硬件
+    - 所有设备使用模拟客户端
+    - 生成仿真数据用于演示和测试
+    - 可以独立运行，无需切换模式
+    """
+
+    SUPPORTED_PROTOCOLS = ['modbus_tcp', 'modbus_rtu', 'opcua', 'mqtt', 'rest', 'mc', 'fins']
+
+    def __init__(self, config_path: str | None = None):
+        """
+        初始化模拟设备管理器
+        
+        Args:
+            config_path: 设备配置文件路径
+        """
+        self.config_path = config_path or '配置/devices.yaml'
+        self.simulation_mode = True  # 模拟设备管理器始终为模拟模式
+        self.devices: dict[str, dict[str, Any]] = {}
+        self.clients: dict[str, IDeviceClient] = {}
+        
+        # 加载设备配置
+        self.load_config()
+        
+        logger.info("模拟设备管理器初始化完成")
+
+    def load_config(self) -> None:
+        """加载设备配置文件"""
+        try:
+            config_file = paths.resolve(self.config_path)
+            if not config_file.exists():
+                logger.error(f"配置文件不存在: {self.config_path}")
+                return
+
+            with open(config_file, 'r', encoding='utf-8') as f:
+                config = yaml.safe_load(f)
+
+            # 解析设备配置
+            devices_config = config.get('devices', [])
+            for device_config in devices_config:
+                device_id = device_config.get('id')
+                if device_id:
+                    self.devices[device_id] = device_config
+                    protocol = device_config.get('protocol', 'modbus_tcp')
+                    logger.info(f"[模拟] 加载设备配置: {device_id} [{protocol}] - {device_config.get('name')}")
+
+            # 按协议统计
+            proto_count = {}
+            for d in self.devices.values():
+                p = d.get('protocol', 'modbus_tcp')
+                proto_count[p] = proto_count.get(p, 0) + 1
+            summary = ', '.join(f"{k}:{v}" for k, v in proto_count.items())
+            logger.info(f"[模拟] 共加载 {len(self.devices)} 个设备 ({summary})")
+
+        except Exception as e:
+            logger.error(f"加载配置文件异常: {e}")
+
+    def _create_simulated_client(self, config: dict[str, Any]) -> IDeviceClient | None:
+        """
+        根据协议类型创建模拟客户端
+
+        Args:
+            config: 设备配置
+
+        Returns:
+            模拟客户端实例
+        """
+        protocol = config.get('protocol', 'modbus_tcp')
+
+        if protocol in ('modbus_tcp', 'modbus_rtu'):
+            return EnhancedSimulatedModbusClient(config)
+        elif protocol == 'opcua':
+            return EnhancedSimulatedOPCUAClient(config)
+        elif protocol == 'mqtt':
+            return EnhancedSimulatedMQTTClient(config)
+        elif protocol == 'rest':
+            return EnhancedSimulatedRESTClient(config)
+        elif protocol == 'mc':
+            # 三菱MC协议使用Modbus模拟客户端（寄存器结构兼容）
+            return EnhancedSimulatedModbusClient(config)
+        elif protocol == 'fins':
+            # 欧姆龙FINS协议使用Modbus模拟客户端（寄存器结构兼容）
+            return EnhancedSimulatedModbusClient(config)
+        else:
+            logger.error(f"不支持的协议类型: {protocol}")
+            return None
+
+    def get_client(self, device_id: str) -> IDeviceClient | None:
+        """获取设备客户端（懒创建）"""
+        if device_id not in self.clients:
+            device_config = self.devices.get(device_id)
+            if not device_config:
+                logger.error(f"设备 {device_id} 配置不存在")
+                return None
+
+            client = self._create_simulated_client(device_config)
+            if client is None:
+                return None
+
+            self.clients[device_id] = client
+
+        return self.clients[device_id]
+
+    def connect_device(self, device_id: str) -> bool:
+        """连接设备"""
+        client = self.get_client(device_id)
+        if not client:
+            return False
+        return client.connect()
+
+    def set_estop_override(self, active: bool) -> None:
+        """设置紧急停机覆盖（模拟客户端停止机械类数据）"""
+        set_estop_state(active)
+        logger.info(f"[模拟] E-STOP override: {'激活' if active else '已解除'}")
+
+    def stop_device(self, device_id: str) -> bool:
+        """停止指定设备（仅限机械类）"""
+        config = self.devices.get(device_id)
+        if not config:
+            return False
+        category = IDeviceManager.get_device_category(config)
+        if category != 'mechanical':
+            logger.warning(f"设备 {device_id} 类型为 {category}，不可启停")
+            return False
+        set_device_stopped(device_id, True)
+        logger.info(f"[模拟] 设备 {device_id} 已停止")
+        return True
+
+    def start_device(self, device_id: str) -> bool:
+        """启动指定设备（仅限机械类）"""
+        config = self.devices.get(device_id)
+        if not config:
+            return False
+        category = IDeviceManager.get_device_category(config)
+        if category != 'mechanical':
+            logger.warning(f"设备 {device_id} 类型为 {category}，不可启停")
+            return False
+        set_device_stopped(device_id, False)
+        logger.info(f"[模拟] 设备 {device_id} 已启动")
+        return True
+
+    def adjust_device(self, device_id: str, register_name: str, value: float) -> dict:
+        """调节设备参数（模拟模式：记录值但不实际写入）"""
+        config = self.devices.get(device_id)
+        if not config:
+            return {'success': False, 'message': f'设备 {device_id} 不存在'}
+
+        # 验证寄存器存在
+        registers = config.get('registers', [])
+        target = None
+        for reg in registers:
+            if reg.get('name') == register_name:
+                target = reg
+                break
+
+        if not target:
+            return {'success': False, 'message': f'寄存器 {register_name} 不存在'}
+
+        logger.info(f"[模拟] 设备 {device_id} 调节 {register_name} = {value}")
+        return {'success': True, 'message': f'{register_name} 设置为 {value}（模拟）'}
+
+    def disconnect_device(self, device_id: str) -> None:
+        """断开设备连接"""
+        client = self.clients.get(device_id)
+        if client:
+            client.disconnect()
+
+    def connect_all(self, **kwargs) -> dict[str, bool]:
+        """连接所有设备"""
+        results = {}
+        for device_id in self.devices:
+            if self.devices[device_id].get('enabled', True):
+                results[device_id] = self.connect_device(device_id)
+            else:
+                results[device_id] = None  # 跳过禁用设备
+        return results
+
+    def disconnect_all(self) -> None:
+        """断开所有设备连接"""
+        for device_id in list(self.clients.keys()):
+            self.disconnect_device(device_id)
+
+    def start_reconnect_loop(self, interval: int = 30) -> None:
+        """模拟模式无需断线重连（显式说明性 no-op）。
+
+        模拟客户端在内存中维护连接，不会真正掉线，因此不启动任何后台重连线程。
+        保留此方法仅为满足与真实管理器一致的 ``IDeviceManager`` 契约。
+        """
+        logger.info(
+            "[模拟] 模拟模式无需断连重连：设备由内存中的模拟客户端维护，"
+            "不会真正掉线，跳过重连循环（interval=%ss 被忽略）", interval)
+
+    def stop_reconnect_loop(self) -> None:
+        """模拟模式无重连循环，no-op（显式说明，保持契约对齐）。"""
+        logger.debug("[模拟] stop_reconnect_loop 为 no-op（模拟模式本就未启动重连循环）")
+
+    def get_device_status(self, device_id: str) -> dict[str, Any]:
+        """获取设备状态"""
+        client = self.clients.get(device_id)
+        device_config = self.devices.get(device_id)
+
+        if not device_config:
+            return {'error': '设备配置不存在'}
+
+        status = {
+            'device_id': device_id,
+            'name': device_config.get('name'),
+            'description': device_config.get('description'),
+            'protocol': device_config.get('protocol', 'modbus_tcp'),
+            'host': device_config.get('host', device_config.get('endpoint', '')),
+            'port': device_config.get('port'),
+            'enabled': device_config.get('enabled', True),
+            'connected': False,
+            'stopped': is_device_stopped(device_id) or _ESTOP_ACTIVE,
+            'device_category': IDeviceManager.get_device_category(device_config),
+            'register_count': len(device_config.get('registers', [])) + len(device_config.get('nodes', [])) + len(device_config.get('topics', [])) + len(device_config.get('endpoints', [])),
+            'registers': device_config.get('registers', []),
+            'nodes': device_config.get('nodes', []),
+            'topics': device_config.get('topics', []),
+            'endpoints': device_config.get('endpoints', []),
+            'stats': {},
+            'mode': 'simulated'
+        }
+
+        if client:
+            status['connected'] = getattr(client, 'connected', False)
+            if hasattr(client, 'get_stats'):
+                status['stats'] = client.get_stats()
+            else:
+                status['stats'] = getattr(client, 'stats', {})
+
+        return status
+
+    def get_all_devices(self) -> dict[str, dict[str, Any]]:
+        """获取所有设备配置"""
+        return self.devices.copy()
+
+    def get_all_status(self, brief: bool = False) -> list[dict[str, Any]]:
+        """获取所有设备状态
+
+        Args:
+            brief: True时返回精简字段，适用于100+设备的仪表盘轮询
+        """
+        if brief:
+            return [self._get_brief_status(did) for did in self.devices]
+        return [self.get_device_status(did) for did in self.devices]
+
+    def _get_brief_status(self, device_id: str) -> dict[str, Any]:
+        """获取设备精简状态（仅仪表盘所需字段）"""
+        device_config = self.devices.get(device_id, {})
+        client = self.clients.get(device_id)
+        # 仪表盘需要寄存器名来显示数值，但不需要完整配置
+        regs = device_config.get('registers', [])
+        nodes = device_config.get('nodes', [])
+        topics = device_config.get('topics', [])
+        endpoints = device_config.get('endpoints', [])
+        return {
+            'device_id': device_id,
+            'id': device_id,
+            'name': device_config.get('name', device_id),
+            'zone': device_config.get('zone', ''),
+            'connected': getattr(client, 'connected', False) if client else False,
+            'stopped': is_device_stopped(device_id) or _ESTOP_ACTIVE,
+            'status': 'fault' if (is_device_stopped(device_id) or _ESTOP_ACTIVE) else ('online' if (client and getattr(client, 'connected', False)) else 'offline'),
+            'protocol': device_config.get('protocol', 'modbus_tcp'),
+            'host': device_config.get('host', device_config.get('endpoint', '')),
+            'device_category': IDeviceManager.get_device_category(device_config),
+            'registers': [{'name': r.get('name', ''), 'unit': r.get('unit', '')} for r in regs],
+            'nodes': [{'name': n.get('name', ''), 'unit': n.get('unit', '')} for n in nodes],
+            'topics': [{'name': t.get('name', ''), 'unit': t.get('unit', '')} for t in topics],
+            'endpoints': [{'name': e.get('name', ''), 'unit': e.get('unit', '')} for e in endpoints],
+        }
+
+    def add_device(self, device_config: dict[str, Any]) -> bool:
+        """添加设备"""
+        try:
+            device_id = device_config.get('id')
+            protocol = device_config.get('protocol', 'modbus_tcp')
+
+            if not device_id:
+                logger.error("设备配置缺少id字段")
+                return False
+
+            if protocol not in self.SUPPORTED_PROTOCOLS:
+                logger.error(f"不支持的协议: {protocol}，支持: {self.SUPPORTED_PROTOCOLS}")
+                return False
+
+            if device_id in self.devices:
+                logger.warning(f"设备 {device_id} 已存在，将被覆盖")
+                self.disconnect_device(device_id)
+                if device_id in self.clients:
+                    del self.clients[device_id]
+
+            self.devices[device_id] = device_config
+            self._save_config()
+
+            logger.info(f"[模拟] 添加设备: {device_id} [{protocol}]")
+            return True
+
+        except Exception as e:
+            logger.error(f"添加设备异常: {e}")
+            return False
+
+    def remove_device(self, device_id: str) -> bool:
+        """移除设备"""
+        try:
+            self.disconnect_device(device_id)
+            self.devices.pop(device_id, None)
+            self.clients.pop(device_id, None)
+            self._save_config()
+            logger.info(f"[模拟] 移除设备: {device_id}")
+            return True
+        except Exception as e:
+            logger.error(f"移除设备异常: {e}")
+            return False
+
+    def get_protocol_summary(self) -> dict[str, int]:
+        """获取各协议设备数量统计"""
+        summary = {}
+        for d in self.devices.values():
+            p = d.get('protocol', 'modbus_tcp')
+            summary[p] = summary.get(p, 0) + 1
+        return summary
+
+    def switch_simulation_mode(self, new_mode: bool) -> dict:
+        """
+        切换模拟/真实模式（运行时热切换）
+
+        模拟管理器始终为模拟模式，切换到真实模式需要重启。
+
+        Args:
+            new_mode: True=模拟模式, False=真实模式
+
+        Returns:
+            dict: {'success': bool, 'message': str}
+        """
+        if not new_mode:
+            return {
+                'success': False,
+                'message': '当前为模拟设备管理器，无法切换到真实模式。请使用 --real 参数重启系统。'
+            }
+        return {'success': True, 'message': '当前已是模拟模式'}
+
+    def _save_config(self) -> None:
+        """保存设备配置到文件"""
+        try:
+            config = {'devices': list(self.devices.values())}
+            config_file = paths.resolve(self.config_path)
+            config_file.parent.mkdir(parents=True, exist_ok=True)
+            with open(config_file, 'w', encoding='utf-8') as f:
+                yaml.dump(config, f, allow_unicode=True, default_flow_style=False)
+            logger.info("[模拟] 设备配置已保存")
+        except Exception as e:
+            logger.error(f"保存配置文件异常: {e}")

@@ -1,0 +1,1094 @@
+"""
+设备管理API
+设备CRUD/连接测试/协议列表/设备模板
+"""
+
+from typing import Any
+import logging
+import re
+from functools import wraps
+from flask import Blueprint, jsonify, request, current_app
+
+from 用户层.auth import jwt_required, role_required
+from ._common import get_auth_manager, api_error_handler, api_error, safe_int
+
+logger = logging.getLogger(__name__)
+
+devices_bp = Blueprint('api_devices', __name__, url_prefix='/api')
+
+_require_auth = jwt_required
+_require_engineer = role_required('admin', 'engineer')
+
+
+# ==================== 设备管理API ====================
+
+@devices_bp.route('/devices', methods=['GET'])
+@_require_auth
+def get_devices():
+    """获取所有设备列表（支持按区域过滤）"""
+    devices = current_app.device_manager.get_all_status()
+    zone = request.args.get('zone')
+    if zone:
+        if isinstance(devices, dict):
+            devices = {k: v for k, v in devices.items() if v.get('zone') == zone}
+        elif isinstance(devices, list):
+            devices = [d for d in devices if d.get('zone') == zone]
+    return jsonify({'devices': devices})
+
+
+@devices_bp.route('/devices/<device_id>', methods=['GET'])
+@_require_auth
+def get_device(device_id):
+    """获取单个设备详情"""
+    status = current_app.device_manager.get_device_status(device_id)
+    if 'error' in status:
+        return api_error(status['error'], 404)
+    return jsonify({'device': status})
+
+
+@devices_bp.route('/devices', methods=['POST'])
+@_require_engineer
+def add_device():
+    """添加新设备（支持所有协议）"""
+    data = request.get_json()
+    if not data:
+        return api_error('请提供设备配置')
+
+    # 基础必填字段
+    for field in ('id', 'name'):
+        if field not in data:
+            return api_error(f'缺少必填字段: {field}')
+
+    # 设备ID格式验证（防止SQL注入和特殊字符）
+    device_id = data.get('id', '')
+    if not device_id or not device_id.replace('_', '').replace('-', '').isalnum():
+        return api_error('设备ID只能包含字母、数字、下划线和连字符')
+
+    # 设备名称只允许纯文本，拒绝 HTML 标签，避免名称进入前端后形成 XSS
+    device_name = data.get('name')
+    if not isinstance(device_name, str) or not device_name.strip():
+        return api_error('设备名称必须是非空文本')
+    if re.search(r'<[^>]*>', device_name):
+        return api_error('设备名称不能包含HTML标签')
+
+    protocol = data.get('protocol', 'modbus_tcp')
+
+    # 协议级必填字段验证
+    try:
+        _validate_protocol_fields(protocol, data)
+    except ValueError as e:
+        logger.warning(f"设备配置验证失败: {e}")
+        return api_error('设备配置验证失败，请检查必填字段')
+
+    # 构建设备配置
+    try:
+        device_config = _build_device_config(protocol, data)
+    except ValueError as e:
+        logger.warning(f"设备配置类型错误: {e}")
+        return api_error(str(e))
+
+    success = current_app.device_manager.add_device(device_config)
+    if success:
+        get_auth_manager().log_operation(
+            request.current_user['username'], 'add_device', f"添加设备: {data['id']}")
+        # 设备存在 → 启动采集任务 → 数据开始入库
+        data_collector = getattr(current_app, 'data_collector', None)
+        if data_collector:
+            data_collector.start_device_task(data['id'], device_config)
+        # 获取设备状态（包含连接状态）
+        device_status = current_app.device_manager.get_device_status(data['id'])
+        return jsonify({
+            'success': True,
+            'message': f"设备 {data['id']} 添加成功",
+            'connected': device_status.get('connected', False),
+            'device': device_status
+        })
+    else:
+        return jsonify({'success': False, 'message': '添加失败'}), 400
+
+
+@devices_bp.route('/devices/<device_id>', methods=['PUT'])
+@_require_engineer
+def update_device(device_id):
+    """更新设备配置（支持所有协议）"""
+    data = request.get_json()
+    if not data:
+        return api_error('请提供设备配置')
+
+    device_manager = current_app.device_manager
+    if device_id not in device_manager.devices:
+        return api_error(f'设备 {device_id} 不存在', 404)
+
+    device_config = device_manager.devices[device_id]
+    protocol = data.get('protocol', device_config.get('protocol', 'modbus_tcp'))
+
+    # 通用字段
+    try:
+        for key in ('name', 'description', 'enabled', 'collection_interval', 'protocol'):
+            if key in data:
+                if key == 'collection_interval':
+                    device_config[key] = safe_int(data[key], key)
+                elif key == 'enabled':
+                    # 布尔字段：字符串 "false"/"0" 也应视为 False
+                    v = data[key]
+                    if isinstance(v, str):
+                        v = v.lower() not in ('false', '0', 'no', '')
+                    device_config[key] = v
+                else:
+                    device_config[key] = data[key]
+    except ValueError as e:
+        return api_error(str(e))
+
+    # 协议专属字段
+    try:
+        _update_protocol_fields(protocol, device_config, data)
+    except ValueError as e:
+        return api_error(str(e))
+
+    device_manager._save_config()
+    get_auth_manager().log_operation(
+        request.current_user['username'], 'update_device', f"更新设备: {device_id}")
+    return jsonify({'success': True, 'message': f'设备 {device_id} 更新成功'})
+
+
+@devices_bp.route('/devices/<device_id>', methods=['DELETE'])
+@_require_engineer
+def delete_device(device_id):
+    """删除设备（先验证存在 → 停采集 → 删配置）"""
+    # 先检查设备是否存在
+    devices = current_app.device_manager.devices
+    if device_id not in devices:
+        return jsonify({'success': False, 'message': f'设备 {device_id} 不存在'}), 404
+
+    # 停止采集任务
+    data_collector = getattr(current_app, 'data_collector', None)
+    if data_collector:
+        data_collector.remove_device_task(device_id)
+
+    # 删除设备配置
+    initializer = _get_simulation_initializer()
+    if initializer is not None:
+        result = initializer.remove_device(device_id)
+        if result and result.get('success'):
+            get_auth_manager().log_operation(
+                request.current_user['username'], 'delete_device', f"删除设备: {device_id}")
+            return jsonify({'success': True, 'message': f'设备 {device_id} 已删除'})
+        # 回退到 device_manager
+        success = current_app.device_manager.remove_device(device_id)
+    else:
+        success = current_app.device_manager.remove_device(device_id)
+
+    if success:
+        get_auth_manager().log_operation(
+            request.current_user['username'], 'delete_device', f"删除设备: {device_id}")
+        return jsonify({'success': True, 'message': f'设备 {device_id} 已删除'})
+    return jsonify({'success': False, 'message': f'删除设备 {device_id} 失败'}), 400
+
+
+@devices_bp.route('/devices/<device_id>/connect', methods=['POST'])
+@_require_engineer
+def connect_device(device_id):
+    """连接设备"""
+    device_manager = current_app.device_manager
+    config = device_manager.devices.get(device_id)
+    if not config:
+        return jsonify({'success': False, 'message': f'设备 {device_id} 不存在'}), 404
+
+    result = device_manager.connect_device(device_id)
+    if result:
+        username = getattr(request, 'current_user', {}).get('username', 'system')
+        get_auth_manager().log_operation(username, 'connect_device', f'连接设备: {device_id}')
+    return jsonify({'success': result, 'message': f'设备 {device_id} 连接{"成功" if result else "失败"}'})
+
+
+@devices_bp.route('/devices/<device_id>/disconnect', methods=['POST'])
+@_require_engineer
+def disconnect_device(device_id):
+    """断开设备连接"""
+    device_manager = current_app.device_manager
+    config = device_manager.devices.get(device_id)
+    if not config:
+        return jsonify({'success': False, 'message': f'设备 {device_id} 不存在'}), 404
+
+    device_manager.disconnect_device(device_id)
+    username = getattr(request, 'current_user', {}).get('username', 'system')
+    get_auth_manager().log_operation(username, 'disconnect_device', f'断开设备: {device_id}')
+    return jsonify({'success': True, 'message': f'设备 {device_id} 已断开'})
+
+
+@devices_bp.route('/devices/<device_id>/stop', methods=['POST'])
+@_require_engineer
+def stop_device(device_id):
+    """停止设备（仅 mechanical 类型有效）"""
+    device_manager = current_app.device_manager
+    config = device_manager.devices.get(device_id)
+    if not config:
+        return api_error(f'设备 {device_id} 不存在', 404)
+
+    from 采集层.interfaces import IDeviceManager
+    category = IDeviceManager.get_device_category(config)
+    if category != 'mechanical':
+        return api_error(f'{category} 类型设备不支持启停操作')
+
+    result = device_manager.stop_device(device_id)
+    if result:
+        get_auth_manager().log_operation(request.current_user.get('username', 'system'), 'stop_device', device_id, f'设备停止: {device_id}')
+    return jsonify({'success': result, 'message': f'设备 {device_id} 已停止'})
+
+
+@devices_bp.route('/devices/<device_id>/start', methods=['POST'])
+@_require_engineer
+def start_device(device_id):
+    """启动设备"""
+    device_manager = current_app.device_manager
+    config = device_manager.devices.get(device_id)
+    if not config:
+        return api_error(f'设备 {device_id} 不存在', 404)
+
+    from 采集层.interfaces import IDeviceManager
+    category = IDeviceManager.get_device_category(config)
+    if category != 'mechanical':
+        return jsonify({'success': False, 'message': f'{category} 类型设备不支持启停操作'}), 400
+
+    result = device_manager.start_device(device_id)
+    if result:
+        get_auth_manager().log_operation(request.current_user.get('username', 'system'), 'start_device', device_id, f'设备启动: {device_id}')
+    return jsonify({'success': result, 'message': f'设备 {device_id} 已启动'})
+
+
+def _start_device_collection(device_id: str):
+    """为已添加的设备启动采集任务"""
+    data_collector = getattr(current_app, 'data_collector', None)
+    if not data_collector:
+        return
+    device_config = current_app.device_manager.get_all_devices().get(device_id)
+    if device_config:
+        data_collector.start_device_task(device_id, device_config)
+
+
+@devices_bp.route('/devices/<device_id>/test', methods=['POST'])
+@_require_auth
+@_require_engineer
+def test_device_connection(device_id):
+    """测试设备连接（支持所有协议）"""
+    device_manager = current_app.device_manager
+    device_config = device_manager.devices.get(device_id)
+
+    if not device_config:
+        return jsonify({'success': False, 'message': f'设备 {device_id} 不存在'}), 404
+
+    protocol = device_config.get('protocol', 'modbus_tcp')
+
+    try:
+        test_client = _create_test_client(device_config, device_manager.simulation_mode)
+        if test_client is None:
+            return jsonify({'success': False, 'message': f'不支持的协议: {protocol}'}), 400
+
+        connected = test_client.connect()
+        if not connected:
+            return jsonify({
+                'success': False,
+                'message': f'连接失败（协议: {protocol}）',
+                'protocol': protocol,
+                'endpoint': device_config.get('host', device_config.get('endpoint', ''))
+            })
+
+        # 读取示例数据
+        sample = {}
+        if protocol in ('modbus_tcp', 'modbus_rtu'):
+            registers = device_config.get('registers', [])
+            if registers:
+                reg = registers[0]
+                result = test_client.read_holding_registers(reg['address'], reg.get('length', 1))
+                if result is not None:
+                    sample = {'register': reg['name'], 'value': result, 'unit': reg.get('unit', '')}
+            test_client.disconnect()
+        elif protocol == 'opcua':
+            latest = test_client.get_latest_data()
+            if latest:
+                name, ldata = list(latest.items())[0]
+                sample = {'node': name, 'value': ldata.get('value'), 'unit': ldata.get('unit', '')}
+            test_client.disconnect()
+        elif protocol == 'rest':
+            for ep in device_config.get('endpoints', []):
+                value = test_client.read_endpoint(ep)
+                if value is not None:
+                    sample = {'endpoint': ep.get('name'), 'value': value, 'unit': ep.get('unit', '')}
+                    break
+            test_client.disconnect()
+        elif protocol == 'mqtt':
+            test_client.disconnect()
+
+        return jsonify({
+            'success': True, 'message': f'连接成功（协议: {protocol}）',
+            'protocol': protocol, 'sample_data': sample
+        })
+    except Exception as e:
+        logger.error(f"连接测试失败: {e}", exc_info=True)
+        return jsonify({'success': False, 'message': '连接测试失败，请检查设备配置', 'protocol': protocol})
+
+
+@devices_bp.route('/devices/protocols', methods=['GET'])
+@_require_auth
+def get_supported_protocols():
+    """获取系统支持的协议列表"""
+    protocols = [
+        {'id': 'modbus_tcp', 'name': 'Modbus TCP', 'description': '工业以太网标准协议，适用于PLC/仪表/传感器', 'default_port': 502, 'requires': ['host', 'port', 'slave_id', 'registers']},
+        {'id': 'modbus_rtu', 'name': 'Modbus RTU', 'description': '串口通信协议，适用于传统工业设备', 'default_port': None, 'requires': ['serial_port', 'baudrate', 'slave_id', 'registers']},
+        {'id': 'opcua', 'name': 'OPC UA', 'description': '工业4.0标准协议，面向对象，内置安全认证', 'default_port': 4840, 'requires': ['endpoint', 'nodes']},
+        {'id': 'mqtt', 'name': 'MQTT', 'description': '物联网消息协议，适合无线传感器和IoT设备', 'default_port': 1883, 'requires': ['host', 'port', 'topics']},
+        {'id': 'rest', 'name': 'REST HTTP', 'description': 'HTTP接口，适合智能网关和云平台对接', 'default_port': 80, 'requires': ['base_url', 'endpoints']},
+        {'id': 'mc', 'name': '三菱MC协议', 'description': '三菱PLC SLMP/3E帧协议，适用于FX5U/Q/iQ-R系列', 'default_port': 5000, 'requires': ['host', 'port', 'registers']},
+        {'id': 'fins', 'name': '欧姆龙FINS', 'description': '欧姆龙PLC FINS/TCP协议，适用于NJ/NX/CJ系列', 'default_port': 9600, 'requires': ['host', 'port', 'registers']},
+    ]
+    return jsonify({'protocols': protocols, 'summary': current_app.device_manager.get_protocol_summary()})
+
+
+@devices_bp.route('/devices/<device_id>/behavior', methods=['GET'])
+@_require_auth
+def get_device_behavior(device_id):
+    """获取设备行为模拟状态（增强版模拟专用）"""
+    device_manager = current_app.device_manager
+    client = device_manager.get_client(device_id)
+    
+    if not client:
+        return api_error(f'设备 {device_id} 不存在或未连接', 404)
+
+    # 检查是否是增强版模拟客户端
+    if hasattr(client, 'behavior_simulator'):
+        simulator = client.behavior_simulator
+        return jsonify({
+            'device_id': device_id,
+            'state': simulator.state.name,
+            'state_value': simulator.state.value,
+            'health_score': round(simulator.health.overall_score, 1),
+            'health_details': {
+                'mechanical': round(simulator.health.mechanical_health, 1),
+                'electrical': round(simulator.health.electrical_health, 1),
+                'thermal': round(simulator.health.thermal_health, 1),
+                'vibration': round(simulator.health.vibration_health, 1)
+            },
+            'active_fault': simulator.active_fault.value,
+            'fault_severity': round(simulator.fault_severity, 2),
+            'operating_hours': round(simulator.health.operating_hours, 2),
+            'stats': simulator.stats
+        })
+    else:
+        return jsonify({
+            'device_id': device_id,
+            'message': '该设备未使用增强版模拟',
+            'connected': getattr(client, 'connected', False)
+        })
+
+
+@devices_bp.route('/devices/<device_id>/inject-fault', methods=['POST'])
+@_require_engineer
+def inject_device_fault(device_id):
+    """注入设备故障（测试用）"""
+    data = request.get_json()
+    if not data:
+        return api_error('请提供故障配置')
+
+    fault_type = data.get('fault_type', 'sensor_drift')
+    severity = data.get('severity', 0.5)
+
+    device_manager = current_app.device_manager
+
+    if not device_manager.simulation_mode:
+        return api_error('故障注入仅在模拟模式下可用', 403)
+
+    client = device_manager.get_client(device_id)
+
+    if not client:
+        return api_error(f'设备 {device_id} 不存在或未连接', 404)
+
+    # 检查是否是增强版模拟客户端
+    if hasattr(client, 'inject_fault'):
+        from 采集层.device_behavior_simulator import FaultType
+        
+        # 映射故障类型
+        fault_map = {
+            'sensor_drift': FaultType.SENSOR_DRIFT,
+            'overheating': FaultType.OVERHEATING,
+            'pressure_leak': FaultType.PRESSURE_LEAK,
+            'motor_wear': FaultType.MOTOR_WEAR,
+            'communication': FaultType.COMMUNICATION,
+            'power_fluctuation': FaultType.POWER_FLUCTUATION
+        }
+        
+        fault = fault_map.get(fault_type)
+        if not fault:
+            return api_error(f'不支持的故障类型: {fault_type}')
+
+        client.inject_fault(fault, severity)
+
+        get_auth_manager().log_operation(
+            request.current_user['username'], 'inject_fault',
+            f"注入故障: {device_id} - {fault_type} (严重度: {severity})")
+
+        return jsonify({
+            'success': True,
+            'message': f'已注入故障: {fault_type}',
+            'device_id': device_id,
+            'fault_type': fault_type,
+            'severity': severity
+        })
+    else:
+        return api_error('该设备不支持故障注入')
+
+
+@devices_bp.route('/devices/<device_id>/force-state', methods=['POST'])
+@_require_engineer
+def force_device_state(device_id):
+    """强制设置设备状态（测试用）"""
+    data = request.get_json()
+    if not data:
+        return api_error('请提供状态配置')
+    
+    state_name = data.get('state', 'RUNNING')
+    
+    device_manager = current_app.device_manager
+
+    if not device_manager.simulation_mode:
+        return api_error('状态强制设置仅在模拟模式下可用', 403)
+
+    client = device_manager.get_client(device_id)
+
+    if not client:
+        return api_error(f'设备 {device_id} 不存在或未连接', 404)
+
+    # 检查是否是增强版模拟客户端
+    if hasattr(client, 'force_state'):
+        from 采集层.device_behavior_simulator import DeviceState
+
+        # 映射状态
+        state_map = {
+            'STOPPED': DeviceState.STOPPED,
+            'IDLE': DeviceState.IDLE,
+            'RUNNING': DeviceState.RUNNING,
+            'FAULT': DeviceState.FAULT,
+            'MAINTENANCE': DeviceState.MAINTENANCE,
+            'SETUP': DeviceState.SETUP
+        }
+
+        state = state_map.get(state_name)
+        if not state:
+            return api_error(f'不支持的状态: {state_name}')
+
+        client.force_state(state)
+
+        get_auth_manager().log_operation(
+            request.current_user['username'], 'force_state',
+            f"强制状态: {device_id} → {state_name}")
+
+        return jsonify({
+            'success': True,
+            'message': f'已设置状态: {state_name}',
+            'device_id': device_id,
+            'state': state_name
+        })
+    else:
+        return api_error('该设备不支持状态强制设置')
+
+
+@devices_bp.route('/devices/templates', methods=['GET'])
+@_require_auth
+def get_device_templates():
+    """获取设备模板列表"""
+    templates = [
+        # ==================== 传感器类 ====================
+        {'id': 'temperature_sensor', 'name': '温度传感器', 'description': '常见温度传感器模板', 'protocol': 'modbus_tcp', 'port': 502,
+         'registers': [
+             {'name': 'temperature', 'description': '温度值', 'address': 0, 'length': 1, 'data_type': 'float32', 'scale': 0.1, 'unit': '°C'},
+             {'name': 'humidity', 'description': '湿度值', 'address': 2, 'length': 1, 'data_type': 'float32', 'scale': 0.1, 'unit': '%RH'}
+         ]},
+        {'id': 'pressure_sensor', 'name': '压力传感器', 'description': '管道压力监测传感器', 'protocol': 'modbus_tcp', 'port': 502,
+         'registers': [
+             {'name': 'pressure', 'description': '压力值', 'address': 0, 'length': 1, 'data_type': 'float32', 'scale': 0.01, 'unit': 'MPa'},
+             {'name': 'temperature', 'description': '介质温度', 'address': 2, 'length': 1, 'data_type': 'float32', 'scale': 0.1, 'unit': '°C'}
+         ]},
+        {'id': 'power_meter', 'name': '电力仪表', 'description': '多功能电力监测仪表', 'protocol': 'modbus_tcp', 'port': 502,
+         'registers': [
+             {'name': 'voltage', 'description': '电压', 'address': 0, 'length': 1, 'data_type': 'float32', 'scale': 0.1, 'unit': 'V'},
+             {'name': 'current', 'description': '电流', 'address': 2, 'length': 1, 'data_type': 'float32', 'scale': 0.01, 'unit': 'A'},
+             {'name': 'power', 'description': '有功功率', 'address': 4, 'length': 1, 'data_type': 'float32', 'scale': 0.001, 'unit': 'kW'},
+             {'name': 'energy', 'description': '累计电量', 'address': 6, 'length': 2, 'data_type': 'float64', 'scale': 0.01, 'unit': 'kWh'}
+         ]},
+        {'id': 'flow_meter', 'name': '流量计', 'description': '管道流量监测仪表', 'protocol': 'modbus_tcp', 'port': 502,
+         'registers': [
+             {'name': 'flow_rate', 'description': '瞬时流量', 'address': 0, 'length': 1, 'data_type': 'float32', 'scale': 0.01, 'unit': 'm³/h'},
+             {'name': 'total_flow', 'description': '累计流量', 'address': 2, 'length': 2, 'data_type': 'float64', 'scale': 0.01, 'unit': 'm³'},
+             {'name': 'temperature', 'description': '介质温度', 'address': 4, 'length': 1, 'data_type': 'float32', 'scale': 0.1, 'unit': '°C'}
+         ]},
+        
+        # ==================== PLC控制器类 ====================
+        {'id': 'siemens_s7_1500', 'name': '西门子S7-1500 PLC', 'description': '高端PLC，支持Profinet/OPC UA', 'protocol': 'modbus_tcp', 'port': 502,
+         'vendor': '西门子', 'device_model': 'S7-1516-3 PN/DP',
+         'registers': [
+             {'name': 'boiler_temperature', 'description': '锅炉出口温度', 'address': 0, 'length': 2, 'data_type': 'float32', 'scale': 1.0, 'unit': '°C'},
+             {'name': 'boiler_pressure', 'description': '锅炉压力', 'address': 2, 'length': 2, 'data_type': 'float32', 'scale': 1.0, 'unit': 'MPa'},
+             {'name': 'steam_flow', 'description': '蒸汽流量', 'address': 4, 'length': 2, 'data_type': 'float32', 'scale': 1.0, 'unit': 't/h'},
+             {'name': 'feed_water_level', 'description': '给水液位', 'address': 6, 'length': 2, 'data_type': 'float32', 'scale': 1.0, 'unit': 'mm'},
+             {'name': 'boiler_status', 'description': '锅炉状态 0=停炉/1=运行/2=故障', 'address': 8, 'length': 1, 'data_type': 'uint16', 'scale': 1, 'unit': ''}
+         ]},
+        {'id': 'siemens_s7_1200', 'name': '西门子S7-1200 PLC', 'description': '紧凑型PLC，适用于中小型设备', 'protocol': 'modbus_tcp', 'port': 502,
+         'vendor': '西门子', 'device_model': 'S7-1214C DC/DC/DC',
+         'registers': [
+             {'name': 'motor_speed', 'description': '电机转速', 'address': 0, 'length': 2, 'data_type': 'float32', 'scale': 1.0, 'unit': 'RPM'},
+             {'name': 'motor_current', 'description': '电机电流', 'address': 2, 'length': 2, 'data_type': 'float32', 'scale': 0.01, 'unit': 'A'},
+             {'name': 'vibration', 'description': '振动值', 'address': 4, 'length': 2, 'data_type': 'float32', 'scale': 0.1, 'unit': 'mm/s'},
+             {'name': 'temperature', 'description': '轴承温度', 'address': 6, 'length': 2, 'data_type': 'float32', 'scale': 0.1, 'unit': '°C'},
+             {'name': 'run_status', 'description': '运行状态', 'address': 8, 'length': 1, 'data_type': 'uint16', 'scale': 1, 'unit': ''}
+         ]},
+        {'id': 'mitsubishi_fx5u', 'name': '三菱FX5U PLC', 'description': '高性能小型PLC，适用于注塑机/包装机', 'protocol': 'modbus_tcp', 'port': 502,
+         'vendor': '三菱电机', 'device_model': 'FX5U-64M',
+         'registers': [
+             {'name': 'mold_temperature', 'description': '模具温度', 'address': 0, 'length': 2, 'data_type': 'float32', 'scale': 1.0, 'unit': '°C'},
+             {'name': 'injection_pressure', 'description': '注射压力', 'address': 2, 'length': 2, 'data_type': 'float32', 'scale': 1.0, 'unit': 'MPa'},
+             {'name': 'injection_speed', 'description': '注射速度', 'address': 4, 'length': 2, 'data_type': 'float32', 'scale': 1.0, 'unit': 'mm/s'},
+             {'name': 'cycle_time', 'description': '成型周期', 'address': 6, 'length': 2, 'data_type': 'float32', 'scale': 1.0, 'unit': 's'},
+             {'name': 'shot_count', 'description': '注射计数', 'address': 8, 'length': 1, 'data_type': 'uint16', 'scale': 1, 'unit': '个'}
+         ]},
+        {'id': 'schneider_m340', 'name': '施耐德M340 PLC', 'description': '中型PLC，适用于水处理/化工', 'protocol': 'modbus_tcp', 'port': 502,
+         'vendor': '施耐德电气', 'device_model': 'BMX P34 2020',
+         'registers': [
+             {'name': 'inlet_flow', 'description': '进水流量', 'address': 0, 'length': 2, 'data_type': 'float32', 'scale': 1.0, 'unit': 'm³/h'},
+             {'name': 'outlet_flow', 'description': '出水流量', 'address': 2, 'length': 2, 'data_type': 'float32', 'scale': 1.0, 'unit': 'm³/h'},
+             {'name': 'water_level', 'description': '沉淀池液位', 'address': 4, 'length': 2, 'data_type': 'float32', 'scale': 1.0, 'unit': 'm'},
+             {'name': 'ph_value', 'description': '出水pH值', 'address': 6, 'length': 2, 'data_type': 'float32', 'scale': 1.0, 'unit': ''},
+             {'name': 'turbidity', 'description': '出水浊度', 'address': 8, 'length': 2, 'data_type': 'float32', 'scale': 1.0, 'unit': 'NTU'}
+         ]},
+        {'id': 'omron_nj', 'name': '欧姆龙NJ系列PLC', 'description': '机器自动化控制器，支持EtherCAT', 'protocol': 'modbus_tcp', 'port': 502,
+         'vendor': '欧姆龙', 'device_model': 'NJ501-1300',
+         'registers': [
+             {'name': 'position_x', 'description': 'X轴位置', 'address': 0, 'length': 2, 'data_type': 'float32', 'scale': 0.001, 'unit': 'mm'},
+             {'name': 'position_y', 'description': 'Y轴位置', 'address': 2, 'length': 2, 'data_type': 'float32', 'scale': 0.001, 'unit': 'mm'},
+             {'name': 'speed', 'description': '运行速度', 'address': 4, 'length': 2, 'data_type': 'float32', 'scale': 1.0, 'unit': 'mm/s'},
+             {'name': 'torque', 'description': '扭矩', 'address': 6, 'length': 2, 'data_type': 'float32', 'scale': 0.1, 'unit': 'N·m'},
+             {'name': 'cycle_count', 'description': '循环计数', 'address': 8, 'length': 1, 'data_type': 'uint16', 'scale': 1, 'unit': '个'}
+         ]},
+        {'id': 'delta_dvp', 'name': '台达DVP PLC', 'description': '经济型PLC，适用于包装/输送', 'protocol': 'modbus_tcp', 'port': 502,
+         'vendor': '台达电子', 'device_model': 'DVP32EH00T3',
+         'registers': [
+             {'name': 'conveyor_speed', 'description': '输送带速度', 'address': 0, 'length': 1, 'data_type': 'uint16', 'scale': 0.1, 'unit': 'm/min'},
+             {'name': 'sealing_temperature', 'description': '封箱温度', 'address': 1, 'length': 1, 'data_type': 'uint16', 'scale': 0.1, 'unit': '°C'},
+             {'name': 'label_count', 'description': '贴标计数', 'address': 2, 'length': 1, 'data_type': 'uint16', 'scale': 1, 'unit': '个'},
+             {'name': 'reject_count', 'description': '剔除计数', 'address': 3, 'length': 1, 'data_type': 'uint16', 'scale': 1, 'unit': '个'},
+             {'name': 'packing_status', 'description': '包装线状态', 'address': 4, 'length': 1, 'data_type': 'uint16', 'scale': 1, 'unit': ''}
+         ]},
+        {'id': 'inovance_h5u', 'name': '汇川H5U PLC', 'description': '国产高性能PLC，适用于涂装/喷涂', 'protocol': 'modbus_tcp', 'port': 502,
+         'vendor': '汇川技术', 'device_model': 'H5U-3232MT',
+         'registers': [
+             {'name': 'spray_pressure', 'description': '喷涂压力', 'address': 0, 'length': 2, 'data_type': 'float32', 'scale': 1.0, 'unit': 'MPa'},
+             {'name': 'oven_temperature', 'description': '烘干炉温度', 'address': 2, 'length': 2, 'data_type': 'float32', 'scale': 1.0, 'unit': '°C'},
+             {'name': 'spray_speed', 'description': '喷涂速度', 'address': 4, 'length': 2, 'data_type': 'float32', 'scale': 1.0, 'unit': 'm/min'},
+             {'name': 'coating_thickness', 'description': '涂层厚度', 'address': 6, 'length': 2, 'data_type': 'float32', 'scale': 1.0, 'unit': 'μm'},
+             {'name': 'painted_count', 'description': '喷涂计数', 'address': 8, 'length': 1, 'data_type': 'uint16', 'scale': 1, 'unit': '个'}
+         ]},
+        {'id': 'hollysys_lk', 'name': '和利时LK PLC', 'description': '国产大型PLC，适用于化工/制药', 'protocol': 'modbus_tcp', 'port': 502,
+         'vendor': '和利时', 'device_model': 'LK210',
+         'registers': [
+             {'name': 'distill_temperature', 'description': '蒸馏塔顶温度', 'address': 0, 'length': 2, 'data_type': 'float32', 'scale': 1.0, 'unit': '°C'},
+             {'name': 'distill_pressure', 'description': '蒸馏塔压力', 'address': 2, 'length': 2, 'data_type': 'float32', 'scale': 1.0, 'unit': 'kPa'},
+             {'name': 'dryer_temperature', 'description': '干燥机温度', 'address': 4, 'length': 2, 'data_type': 'float32', 'scale': 1.0, 'unit': '°C'},
+             {'name': 'reflux_ratio', 'description': '回流比', 'address': 6, 'length': 2, 'data_type': 'float32', 'scale': 1.0, 'unit': ''},
+             {'name': 'batch_count', 'description': '批次计数', 'address': 8, 'length': 1, 'data_type': 'uint16', 'scale': 1, 'unit': '个'}
+         ]},
+        
+        # ==================== 变频器/驱动类 ====================
+        {'id': 'inverter', 'name': '变频器', 'description': 'ABB/西门子等变频器', 'protocol': 'modbus_tcp', 'port': 502,
+         'registers': [
+             {'name': 'frequency', 'description': '输出频率', 'address': 0, 'length': 1, 'data_type': 'float32', 'scale': 0.01, 'unit': 'Hz'},
+             {'name': 'current', 'description': '输出电流', 'address': 2, 'length': 1, 'data_type': 'float32', 'scale': 0.01, 'unit': 'A'},
+             {'name': 'voltage', 'description': '输出电压', 'address': 4, 'length': 1, 'data_type': 'float32', 'scale': 0.1, 'unit': 'V'},
+             {'name': 'status', 'description': '运行状态', 'address': 100, 'length': 1, 'data_type': 'uint16', 'scale': 1, 'unit': ''}
+         ]},
+        
+        # ==================== OPC UA设备 ====================
+        {'id': 'opcua_plc', 'name': 'OPC UA PLC控制器', 'description': '支持OPC UA的PLC（如西门子S7-1500）', 'protocol': 'opcua',
+         'endpoint': 'opc.tcp://192.168.1.50:4840',
+         'nodes': [
+             {'node_id': 'ns=3;s=Temperature', 'name': 'temperature', 'description': '温度值', 'unit': '°C'},
+             {'node_id': 'ns=3;s=Pressure', 'name': 'pressure', 'description': '压力值', 'unit': 'MPa'},
+             {'node_id': 'ns=3;s=MotorSpeed', 'name': 'motor_speed', 'description': '电机转速', 'unit': 'RPM'},
+             {'node_id': 'ns=3;s=RunningStatus', 'name': 'running_status', 'description': '运行状态', 'unit': ''}
+         ]},
+        
+        # ==================== MQTT设备 ====================
+        {'id': 'mqtt_iot_sensor', 'name': 'MQTT IoT传感器', 'description': '无线环境监测节点（MQTT协议）', 'protocol': 'mqtt', 'port': 1883,
+         'topics': [
+             {'topic': 'factory/workshop_a/temperature', 'name': 'temperature', 'unit': '°C', 'json_path': 'value'},
+             {'topic': 'factory/workshop_a/humidity', 'name': 'humidity', 'unit': '%RH', 'json_path': 'value'},
+             {'topic': 'factory/workshop_a/co2', 'name': 'co2', 'unit': 'ppm', 'json_path': 'value'}
+         ]},
+        
+        # ==================== REST设备 ====================
+        {'id': 'rest_gateway', 'name': 'REST智能网关', 'description': '产线数据网关（HTTP接口）', 'protocol': 'rest',
+         'base_url': 'http://192.168.1.250/api',
+         'endpoints': [
+             {'name': 'temperature', 'path': '/sensors/temp', 'method': 'GET', 'json_path': 'data.value', 'unit': '°C'},
+             {'name': 'humidity', 'path': '/sensors/humi', 'method': 'GET', 'json_path': 'data.value', 'unit': '%RH'},
+             {'name': 'production_count', 'path': '/production/count', 'method': 'GET', 'json_path': 'data.total', 'unit': '个'}
+         ]},
+
+        # ==================== 伺服驱动器 ====================
+        {'id': 'mitsubishi_servo', 'name': '三菱伺服驱动器', 'description': '三菱MR-J5/J4系列伺服驱动器（位置/速度/转矩控制）', 'protocol': 'modbus_tcp', 'port': 502,
+         'vendor': '三菱电机', 'device_model': 'MR-J5-20A',
+         'device_category': 'mechanical',
+         'registers': [
+             {'name': 'control_word', 'description': '控制字 (0x0006=使能/0x0007=启动)', 'address': 0, 'length': 1, 'data_type': 'uint16', 'scale': 1, 'unit': ''},
+             {'name': 'status_word', 'description': '状态字 (运行/停止/故障)', 'address': 1, 'length': 1, 'data_type': 'uint16', 'scale': 1, 'unit': ''},
+             {'name': 'operation_mode', 'description': '运行模式 (1=位置/3=速度/4=转矩)', 'address': 2, 'length': 1, 'data_type': 'int16', 'scale': 1, 'unit': ''},
+             {'name': 'position_command', 'description': '位置指令', 'address': 10, 'length': 2, 'data_type': 'int32', 'scale': 1, 'unit': 'pulse'},
+             {'name': 'position_feedback', 'description': '位置反馈', 'address': 12, 'length': 2, 'data_type': 'int32', 'scale': 1, 'unit': 'pulse'},
+             {'name': 'following_error', 'description': '跟随误差', 'address': 14, 'length': 2, 'data_type': 'int32', 'scale': 1, 'unit': 'pulse'},
+             {'name': 'velocity_command', 'description': '速度指令', 'address': 20, 'length': 2, 'data_type': 'int32', 'scale': 0.1, 'unit': 'r/min'},
+             {'name': 'velocity_feedback', 'description': '速度反馈', 'address': 22, 'length': 2, 'data_type': 'int32', 'scale': 0.1, 'unit': 'r/min'},
+             {'name': 'torque_command', 'description': '转矩指令', 'address': 30, 'length': 1, 'data_type': 'int16', 'scale': 0.1, 'unit': '%'},
+             {'name': 'torque_feedback', 'description': '转矩反馈', 'address': 31, 'length': 1, 'data_type': 'int16', 'scale': 0.1, 'unit': '%'},
+             {'name': 'alarm_code', 'description': '报警代码', 'address': 40, 'length': 1, 'data_type': 'uint16', 'scale': 1, 'unit': ''},
+             {'name': 'motor_temperature', 'description': '电机温度', 'address': 50, 'length': 1, 'data_type': 'int16', 'scale': 0.1, 'unit': '°C'},
+         ]},
+
+        # ==================== 变频器（完整版） ====================
+        {'id': 'abb_vfd', 'name': 'ABB变频器', 'description': 'ABB ACS580系列变频器（完整参数集）', 'protocol': 'modbus_tcp', 'port': 502,
+         'vendor': 'ABB', 'device_model': 'ACS580-01',
+         'device_category': 'mechanical',
+         'registers': [
+             # 运行参数
+             {'name': 'output_frequency', 'description': '输出频率', 'address': 0, 'length': 2, 'data_type': 'float32', 'scale': 1.0, 'unit': 'Hz'},
+             {'name': 'output_current', 'description': '输出电流', 'address': 2, 'length': 2, 'data_type': 'float32', 'scale': 1.0, 'unit': 'A'},
+             {'name': 'output_voltage', 'description': '输出电压', 'address': 4, 'length': 2, 'data_type': 'float32', 'scale': 1.0, 'unit': 'V'},
+             {'name': 'output_power', 'description': '输出功率', 'address': 6, 'length': 2, 'data_type': 'float32', 'scale': 1.0, 'unit': 'kW'},
+             {'name': 'dc_bus_voltage', 'description': '直流母线电压', 'address': 8, 'length': 2, 'data_type': 'float32', 'scale': 1.0, 'unit': 'V'},
+             {'name': 'motor_temperature', 'description': '电机温度', 'address': 10, 'length': 2, 'data_type': 'float32', 'scale': 1.0, 'unit': '°C'},
+             {'name': 'heatsink_temperature', 'description': '散热器温度', 'address': 12, 'length': 2, 'data_type': 'float32', 'scale': 1.0, 'unit': '°C'},
+             # 控制参数
+             {'name': 'frequency_reference', 'description': '频率设定值', 'address': 20, 'length': 2, 'data_type': 'float32', 'scale': 1.0, 'unit': 'Hz'},
+             {'name': 'acceleration_time', 'description': '加速时间', 'address': 22, 'length': 2, 'data_type': 'float32', 'scale': 1.0, 'unit': 's'},
+             {'name': 'deceleration_time', 'description': '减速时间', 'address': 24, 'length': 2, 'data_type': 'float32', 'scale': 1.0, 'unit': 's'},
+             {'name': 'run_status', 'description': '运行状态 (0=停止/1=运行/2=故障)', 'address': 30, 'length': 1, 'data_type': 'uint16', 'scale': 1, 'unit': ''},
+             {'name': 'fault_code', 'description': '故障代码', 'address': 31, 'length': 1, 'data_type': 'uint16', 'scale': 1, 'unit': ''},
+             # 能耗数据
+             {'name': 'energy_consumed', 'description': '累计耗电量', 'address': 40, 'length': 2, 'data_type': 'float32', 'scale': 1.0, 'unit': 'kWh'},
+             {'name': 'power_factor', 'description': '功率因数', 'address': 42, 'length': 2, 'data_type': 'float32', 'scale': 1.0, 'unit': ''},
+         ]},
+
+        # ==================== 三菱MC协议设备 ====================
+        {'id': 'fx5u_mc', 'name': '三菱FX5U PLC (MC协议)', 'description': '三菱FX5U系列PLC，SLMP/3E帧协议', 'protocol': 'mc', 'port': 5000,
+         'vendor': '三菱电机', 'device_model': 'FX5U-64M',
+         'registers': [
+             {'name': 'temperature', 'description': '模具温度', 'address': 0, 'length': 2, 'data_type': 'float32', 'scale': 1.0, 'unit': '°C'},
+             {'name': 'injection_pressure', 'description': '注射压力', 'address': 2, 'length': 2, 'data_type': 'float32', 'scale': 1.0, 'unit': 'MPa'},
+             {'name': 'injection_speed', 'description': '注射速度', 'address': 4, 'length': 2, 'data_type': 'float32', 'scale': 1.0, 'unit': 'mm/s'},
+             {'name': 'cycle_time', 'description': '成型周期', 'address': 6, 'length': 2, 'data_type': 'float32', 'scale': 1.0, 'unit': 's'},
+             {'name': 'shot_count', 'description': '注射计数', 'address': 8, 'length': 1, 'data_type': 'uint16', 'scale': 1, 'unit': '个'},
+             {'name': 'mold_temperature', 'description': '模具温度2', 'address': 10, 'length': 2, 'data_type': 'float32', 'scale': 1.0, 'unit': '°C'},
+         ]},
+
+        # ==================== 欧姆龙FINS协议设备 ====================
+        {'id': 'nj501_fins', 'name': '欧姆龙NJ501 PLC (FINS协议)', 'description': '欧姆龙NJ系列机器自动化控制器', 'protocol': 'fins', 'port': 9600,
+         'vendor': '欧姆龙', 'device_model': 'NJ501-1300',
+         'registers': [
+             {'name': 'position_x', 'description': 'X轴位置', 'address': 0, 'length': 2, 'data_type': 'float32', 'scale': 0.001, 'unit': 'mm'},
+             {'name': 'position_y', 'description': 'Y轴位置', 'address': 2, 'length': 2, 'data_type': 'float32', 'scale': 0.001, 'unit': 'mm'},
+             {'name': 'speed', 'description': '运行速度', 'address': 4, 'length': 2, 'data_type': 'float32', 'scale': 1.0, 'unit': 'mm/s'},
+             {'name': 'torque', 'description': '扭矩', 'address': 6, 'length': 2, 'data_type': 'float32', 'scale': 0.1, 'unit': 'N·m'},
+             {'name': 'cycle_count', 'description': '循环计数', 'address': 8, 'length': 1, 'data_type': 'uint16', 'scale': 1, 'unit': '个'},
+         ]},
+
+        # ==================== IO-Link主站 ====================
+        {'id': 'io_link_master', 'name': 'IO-Link主站', 'description': 'Turck TBEN-L系列IO-Link主站（8端口）', 'protocol': 'modbus_tcp', 'port': 502,
+         'vendor': 'Turck', 'device_model': 'TBEN-L4-8IOL',
+         'registers': [
+             {'name': 'port1_pressure', 'description': '端口1-压力传感器', 'address': 0, 'length': 2, 'data_type': 'float32', 'scale': 0.001, 'unit': 'MPa'},
+             {'name': 'port2_flow', 'description': '端口2-流量传感器', 'address': 2, 'length': 2, 'data_type': 'float32', 'scale': 0.01, 'unit': 'L/min'},
+             {'name': 'port3_temperature', 'description': '端口3-温度传感器', 'address': 4, 'length': 2, 'data_type': 'float32', 'scale': 0.1, 'unit': '°C'},
+             {'name': 'port4_distance', 'description': '端口4-距离传感器', 'address': 6, 'length': 2, 'data_type': 'float32', 'scale': 0.1, 'unit': 'mm'},
+             {'name': 'device_status', 'description': '设备状态字', 'address': 20, 'length': 1, 'data_type': 'uint16', 'scale': 1, 'unit': ''},
+             {'name': 'port_status', 'description': '端口状态位图', 'address': 21, 'length': 1, 'data_type': 'uint16', 'scale': 1, 'unit': ''},
+         ]},
+
+        # ==================== 编码器 ====================
+        {'id': 'absolute_encoder', 'name': '绝对值编码器', 'description': '多圈绝对值编码器（SSI/Biss-C接口）', 'protocol': 'modbus_tcp', 'port': 502,
+         'vendor': '海德汉', 'device_model': 'ROQ 437',
+         'registers': [
+             {'name': 'position', 'description': '当前位置（多圈）', 'address': 0, 'length': 2, 'data_type': 'int32', 'scale': 1, 'unit': 'pulse'},
+             {'name': 'position_mm', 'description': '当前位置(mm)', 'address': 2, 'length': 2, 'data_type': 'float32', 'scale': 0.001, 'unit': 'mm'},
+             {'name': 'speed', 'description': '转速', 'address': 4, 'length': 2, 'data_type': 'float32', 'scale': 0.1, 'unit': 'r/min'},
+             {'name': 'turns', 'description': '圈数', 'address': 6, 'length': 1, 'data_type': 'uint16', 'scale': 1, 'unit': '圈'},
+             {'name': 'status', 'description': '编码器状态', 'address': 8, 'length': 1, 'data_type': 'uint16', 'scale': 1, 'unit': ''},
+         ]},
+
+        # ==================== 视觉系统 ====================
+        {'id': 'vision_system', 'name': '机器视觉系统', 'description': '康耐视In-Sight系列视觉传感器', 'protocol': 'modbus_tcp', 'port': 502,
+         'vendor': '康耐视', 'device_model': 'In-Sight 2800',
+         'registers': [
+             {'name': 'result', 'description': '检测结果 (0=NG/1=OK)', 'address': 0, 'length': 1, 'data_type': 'uint16', 'scale': 1, 'unit': ''},
+             {'name': 'score', 'description': '匹配分数', 'address': 1, 'length': 2, 'data_type': 'float32', 'scale': 0.01, 'unit': '%'},
+             {'name': 'position_x', 'description': '检测X坐标', 'address': 3, 'length': 2, 'data_type': 'float32', 'scale': 0.01, 'unit': 'mm'},
+             {'name': 'position_y', 'description': '检测Y坐标', 'address': 5, 'length': 2, 'data_type': 'float32', 'scale': 0.01, 'unit': 'mm'},
+             {'name': 'angle', 'description': '检测角度', 'address': 7, 'length': 2, 'data_type': 'float32', 'scale': 0.1, 'unit': '°'},
+             {'name': 'total_count', 'description': '检测总数', 'address': 10, 'length': 1, 'data_type': 'uint16', 'scale': 1, 'unit': '个'},
+             {'name': 'ng_count', 'description': '不良数', 'address': 11, 'length': 1, 'data_type': 'uint16', 'scale': 1, 'unit': '个'},
+         ]},
+
+        # ==================== 安全PLC ====================
+        {'id': 'safety_plc', 'name': '安全PLC', 'description': 'Pilz PNOZ multi系列安全控制器', 'protocol': 'modbus_tcp', 'port': 502,
+         'vendor': 'Pilz', 'device_model': 'PNOZ m B1',
+         'registers': [
+             {'name': 'safety_input_1', 'description': '安全输入1 (急停)', 'address': 0, 'length': 1, 'data_type': 'uint16', 'scale': 1, 'unit': ''},
+             {'name': 'safety_input_2', 'description': '安全输入2 (安全门)', 'address': 1, 'length': 1, 'data_type': 'uint16', 'scale': 1, 'unit': ''},
+             {'name': 'safety_input_3', 'description': '安全输入3 (光栅)', 'address': 2, 'length': 1, 'data_type': 'uint16', 'scale': 1, 'unit': ''},
+             {'name': 'safety_output_1', 'description': '安全输出1 (主接触器)', 'address': 10, 'length': 1, 'data_type': 'uint16', 'scale': 1, 'unit': ''},
+             {'name': 'safety_output_2', 'description': '安全输出2 (液压阀)', 'address': 11, 'length': 1, 'data_type': 'uint16', 'scale': 1, 'unit': ''},
+             {'name': 'diagnostic_code', 'description': '诊断代码', 'address': 20, 'length': 1, 'data_type': 'uint16', 'scale': 1, 'unit': ''},
+             {'name': 'reset_required', 'description': '需要复位 (0=正常/1=需要复位)', 'address': 21, 'length': 1, 'data_type': 'uint16', 'scale': 1, 'unit': ''},
+         ]},
+
+        # ==================== 条码/RFID读写器 ====================
+        {'id': 'barcode_reader', 'name': '条码/RFID读写器', 'description': '基恩士SR系列条码读取器', 'protocol': 'modbus_tcp', 'port': 502,
+         'vendor': '基恩士', 'device_model': 'SR-2000',
+         'registers': [
+             {'name': 'read_status', 'description': '读取状态 (0=无/1=成功/2=失败)', 'address': 0, 'length': 1, 'data_type': 'uint16', 'scale': 1, 'unit': ''},
+             {'name': 'barcode_data', 'description': '条码数据(数值部分)', 'address': 1, 'length': 2, 'data_type': 'uint32', 'scale': 1, 'unit': ''},
+             {'name': 'read_count', 'description': '读取成功次数', 'address': 10, 'length': 1, 'data_type': 'uint16', 'scale': 1, 'unit': '次'},
+             {'name': 'error_count', 'description': '读取失败次数', 'address': 11, 'length': 1, 'data_type': 'uint16', 'scale': 1, 'unit': '次'},
+             {'name': 'trigger', 'description': '触发读取 (写1触发)', 'address': 20, 'length': 1, 'data_type': 'uint16', 'scale': 1, 'unit': ''},
+         ]},
+
+        # ==================== 电力分析仪（完整版） ====================
+        {'id': 'power_analyzer_full', 'name': '多功能电力分析仪', 'description': 'ABB M4M系列电力分析仪（完整参数）', 'protocol': 'modbus_tcp', 'port': 502,
+         'vendor': 'ABB', 'device_model': 'M4M 30',
+         'registers': [
+             {'name': 'voltage_l1', 'description': 'L1相电压', 'address': 0, 'length': 2, 'data_type': 'float32', 'scale': 0.1, 'unit': 'V'},
+             {'name': 'voltage_l2', 'description': 'L2相电压', 'address': 2, 'length': 2, 'data_type': 'float32', 'scale': 0.1, 'unit': 'V'},
+             {'name': 'voltage_l3', 'description': 'L3相电压', 'address': 4, 'length': 2, 'data_type': 'float32', 'scale': 0.1, 'unit': 'V'},
+             {'name': 'current_l1', 'description': 'L1相电流', 'address': 6, 'length': 2, 'data_type': 'float32', 'scale': 0.01, 'unit': 'A'},
+             {'name': 'current_l2', 'description': 'L2相电流', 'address': 8, 'length': 2, 'data_type': 'float32', 'scale': 0.01, 'unit': 'A'},
+             {'name': 'current_l3', 'description': 'L3相电流', 'address': 10, 'length': 2, 'data_type': 'float32', 'scale': 0.01, 'unit': 'A'},
+             {'name': 'active_power', 'description': '有功功率', 'address': 12, 'length': 2, 'data_type': 'float32', 'scale': 0.001, 'unit': 'kW'},
+             {'name': 'reactive_power', 'description': '无功功率', 'address': 14, 'length': 2, 'data_type': 'float32', 'scale': 0.001, 'unit': 'kvar'},
+             {'name': 'apparent_power', 'description': '视在功率', 'address': 16, 'length': 2, 'data_type': 'float32', 'scale': 0.001, 'unit': 'kVA'},
+             {'name': 'power_factor', 'description': '功率因数', 'address': 18, 'length': 2, 'data_type': 'float32', 'scale': 0.01, 'unit': ''},
+             {'name': 'frequency', 'description': '频率', 'address': 20, 'length': 2, 'data_type': 'float32', 'scale': 0.01, 'unit': 'Hz'},
+             {'name': 'thd_voltage', 'description': '电压谐波畸变率', 'address': 22, 'length': 2, 'data_type': 'float32', 'scale': 0.1, 'unit': '%'},
+             {'name': 'thd_current', 'description': '电流谐波畸变率', 'address': 24, 'length': 2, 'data_type': 'float32', 'scale': 0.1, 'unit': '%'},
+             {'name': 'energy_active', 'description': '有功电能', 'address': 30, 'length': 2, 'data_type': 'float64', 'scale': 0.01, 'unit': 'kWh'},
+             {'name': 'energy_reactive', 'description': '无功电能', 'address': 34, 'length': 2, 'data_type': 'float64', 'scale': 0.01, 'unit': 'kvarh'},
+         ]},
+    ]
+    return jsonify({'templates': templates})
+
+
+# ==================== 内部辅助函数 ====================
+
+def _validate_protocol_fields(protocol: str, data: dict[str, Any]):
+    """验证协议必填字段，失败抛异常"""
+    if protocol in ('modbus_tcp', 'modbus_rtu'):
+        for field in ('host', 'port'):
+            if field not in data:
+                raise ValueError(f'Modbus设备缺少必填字段: {field}')
+        _validate_port(data['port'])
+    elif protocol == 'opcua':
+        if 'endpoint' not in data:
+            raise ValueError('OPC UA设备缺少必填字段: endpoint')
+        if not data.get('nodes'):
+            raise ValueError('OPC UA设备缺少节点配置')
+    elif protocol == 'mqtt':
+        for field in ('host', 'port'):
+            if field not in data:
+                raise ValueError(f'MQTT设备缺少必填字段: {field}')
+        _validate_port(data['port'])
+        if not data.get('topics'):
+            raise ValueError('MQTT设备缺少主题配置')
+    elif protocol == 'rest':
+        if 'base_url' not in data:
+            raise ValueError('REST设备缺少必填字段: base_url')
+        if not data.get('endpoints'):
+            raise ValueError('REST设备缺少端点配置')
+    elif protocol == 'mc':
+        for field in ('host', 'port'):
+            if field not in data:
+                raise ValueError(f'MC协议设备缺少必填字段: {field}')
+        _validate_port(data['port'])
+    elif protocol == 'fins':
+        for field in ('host', 'port'):
+            if field not in data:
+                raise ValueError(f'FINS协议设备缺少必填字段: {field}')
+        _validate_port(data['port'])
+
+
+def _validate_port(value: Any) -> int:
+    """验证 TCP/MQTT 等协议端口处于合法范围。"""
+    try:
+        port = int(value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError('端口必须是整数') from exc
+    if not 1 <= port <= 65535:
+        raise ValueError('端口范围必须是1到65535')
+    return port
+
+
+def _build_device_config(protocol: str, data: dict[str, Any]) -> dict[str, Any]:
+    """根据协议类型构建设备配置字典"""
+    config = {
+        'id': data['id'],
+        'name': data['name'],
+        'description': data.get('description', ''),
+        'protocol': protocol,
+        'device_category': data.get('device_category', 'instrument'),
+        'enabled': data.get('enabled', True),
+        'collection_interval': safe_int(data.get('collection_interval', 5), 'collection_interval')
+    }
+
+    if protocol in ('modbus_tcp', 'modbus_rtu'):
+        config['host'] = data['host']
+        config['port'] = safe_int(data['port'], 'port')
+        config['slave_id'] = safe_int(data.get('slave_id', 1), 'slave_id')
+        config['registers'] = data.get('registers', [])
+        if protocol == 'modbus_rtu':
+            config['baudrate'] = safe_int(data.get('baudrate', 115200), 'baudrate')
+    elif protocol == 'opcua':
+        config['endpoint'] = data['endpoint']
+        config['security_mode'] = data.get('security_mode', 'None')
+        if data.get('username'):
+            config['username'] = data['username']
+            config['password'] = data.get('password', '')
+        config['nodes'] = data['nodes']
+    elif protocol == 'mqtt':
+        config['host'] = data['host']
+        config['port'] = safe_int(data['port'], 'port')
+        if data.get('username'):
+            config['username'] = data['username']
+            config['password'] = data.get('password', '')
+        config['topics'] = data['topics']
+    elif protocol == 'rest':
+        config['base_url'] = data['base_url']
+        config['poll_interval'] = safe_int(data.get('poll_interval', 10), 'poll_interval')
+        auth_type = data.get('auth_type', 'none')
+        if auth_type != 'none':
+            config['auth_type'] = auth_type
+            if auth_type in ('bearer', 'api_key'):
+                config['auth_token'] = data.get('auth_token', '')
+            elif auth_type == 'basic':
+                config['auth_username'] = data.get('auth_username', '')
+                config['auth_password'] = data.get('auth_password', '')
+        config['endpoints'] = data['endpoints']
+    elif protocol == 'mc':
+        config['host'] = data['host']
+        config['port'] = safe_int(data['port'], 'port')
+        config['network'] = safe_int(data.get('network', 0), 'network')
+        config['pc'] = safe_int(data.get('pc', 0xFF), 'pc')
+        config['registers'] = data.get('registers', [])
+    elif protocol == 'fins':
+        config['host'] = data['host']
+        config['port'] = safe_int(data['port'], 'port')
+        config['registers'] = data.get('registers', [])
+
+    return config
+
+
+def _update_protocol_fields(protocol: str, device_config: dict[str, Any], data: dict[str, Any]):
+    """更新协议专属字段"""
+    _int_keys_map = {
+        'modbus_tcp': ('port', 'slave_id'),
+        'modbus_rtu': ('port', 'slave_id'),
+        'mqtt': ('port',),
+        'rest': ('poll_interval',),
+        'mc': ('port', 'network', 'pc'),
+        'fins': ('port',),
+    }
+    int_keys = _int_keys_map.get(protocol, ())
+
+    if protocol in ('modbus_tcp', 'modbus_rtu'):
+        fields = ('host', 'port', 'slave_id', 'registers', 'baudrate')
+    elif protocol == 'opcua':
+        fields = ('endpoint', 'security_mode', 'username', 'password', 'nodes')
+    elif protocol == 'mqtt':
+        fields = ('host', 'port', 'username', 'password', 'topics')
+    elif protocol == 'rest':
+        fields = ('base_url', 'poll_interval', 'auth_type', 'auth_token', 'auth_username', 'auth_password', 'endpoints')
+    elif protocol == 'mc':
+        fields = ('host', 'port', 'network', 'pc', 'registers')
+    elif protocol == 'fins':
+        fields = ('host', 'port', 'registers')
+    else:
+        return
+
+    for key in fields:
+        if key in data:
+            if key in int_keys:
+                device_config[key] = safe_int(data[key], key)
+            else:
+                device_config[key] = data[key]
+
+
+# ==================== 模拟设备预设API ====================
+
+def _create_test_client(config: dict, simulation_mode: bool):
+    """
+    创建测试用设备客户端
+
+    Args:
+        config: 设备配置
+        simulation_mode: 是否模拟模式
+
+    Returns:
+        设备客户端实例，不支持的协议返回None
+    """
+    protocol = config.get('protocol', 'modbus_tcp')
+
+    if simulation_mode:
+        from 采集层.enhanced_simulated_client import (
+            EnhancedSimulatedModbusClient,
+            EnhancedSimulatedOPCUAClient,
+            EnhancedSimulatedMQTTClient,
+            EnhancedSimulatedRESTClient
+        )
+        if protocol in ('modbus_tcp', 'modbus_rtu', 'mc', 'fins'):
+            return EnhancedSimulatedModbusClient(config)
+        elif protocol == 'opcua':
+            return EnhancedSimulatedOPCUAClient(config)
+        elif protocol == 'mqtt':
+            return EnhancedSimulatedMQTTClient(config)
+        elif protocol == 'rest':
+            return EnhancedSimulatedRESTClient(config)
+    else:
+        from 采集层.modbus_client import ModbusClient
+        from 采集层.opcua_client import OPCUAClient
+        from 采集层.mqtt_client import MQTTClient
+        from 采集层.rest_client import RESTDeviceClient
+
+        if protocol in ('modbus_tcp', 'modbus_rtu'):
+            return ModbusClient(config)
+        elif protocol == 'opcua':
+            return OPCUAClient(config)
+        elif protocol == 'mqtt':
+            return MQTTClient(config)
+        elif protocol == 'rest':
+            return RESTDeviceClient(config)
+        elif protocol == 'mc':
+            from 采集层.mc_client import MCClient
+            return MCClient(config)
+        elif protocol == 'fins':
+            from 采集层.fins_client import FINSClient
+            return FINSClient(config)
+
+    return None
+
+
+def _get_simulation_initializer():
+    """安全获取SimulationInitializer实例"""
+    try:
+        return getattr(current_app, 'simulation_initializer', None)
+    except Exception:
+        return None
+
+
+@devices_bp.route('/devices/presets', methods=['GET'])
+@_require_auth
+def get_simulation_presets():
+    """获取所有模拟设备预设列表"""
+    initializer = _get_simulation_initializer()
+    if initializer is None:
+        return jsonify({'success': False, 'message': '模拟初始化器未加载'}), 500
+
+    presets = initializer.get_presets()
+    categories = initializer.get_preset_categories()
+    return jsonify({'success': True, 'presets': presets, 'categories': categories})
+
+
+@devices_bp.route('/devices/presets/<preset_id>', methods=['GET'])
+@_require_auth
+def get_preset_detail(preset_id):
+    """获取单个预设详情"""
+    initializer = _get_simulation_initializer()
+    if initializer is None:
+        return jsonify({'success': False, 'message': '模拟初始化器未加载'}), 500
+
+    preset = initializer.get_preset_detail(preset_id)
+    if preset is None:
+        return jsonify({'success': False, 'message': f'预设 {preset_id} 不存在'}), 404
+
+    return jsonify({'success': True, 'preset': preset})
+
+
+@devices_bp.route('/devices/presets/add', methods=['POST'])
+@_require_engineer
+def add_preset_device():
+    """一键添加预设设备"""
+    data = request.get_json()
+    if not data:
+        return jsonify({'success': False, 'message': '请提供预设配置'}), 400
+
+    preset_id = data.get('preset_id')
+    if not preset_id:
+        return jsonify({'success': False, 'message': '缺少 preset_id'}), 400
+
+    custom_device_id = data.get('device_id')  # 可选
+
+    initializer = _get_simulation_initializer()
+    if initializer is None:
+        return jsonify({'success': False, 'message': '模拟初始化器未加载'}), 500
+
+    result = initializer.add_preset_device(preset_id, custom_device_id)
+    if result['success']:
+        get_auth_manager().log_operation(
+            request.current_user['username'], 'add_preset',
+            f"添加预设设备: {preset_id} -> {result.get('device_id', '')}")
+        # 启动采集
+        _start_device_collection(result.get('device_id', ''))
+    return jsonify(result)
+
+
+@devices_bp.route('/devices/presets/batch-add', methods=['POST'])
+@_require_engineer
+def batch_add_presets():
+    """批量添加预设设备"""
+    data = request.get_json()
+    if not data:
+        return jsonify({'success': False, 'message': '请提供预设列表'}), 400
+
+    preset_ids = data.get('preset_ids', [])
+    if not preset_ids:
+        return jsonify({'success': False, 'message': '缺少 preset_ids'}), 400
+
+    initializer = _get_simulation_initializer()
+    if initializer is None:
+        return jsonify({'success': False, 'message': '模拟初始化器未加载'}), 500
+
+    result = initializer.add_preset_batch(preset_ids)
+    if result['success']:
+        get_auth_manager().log_operation(
+            request.current_user['username'], 'batch_add_presets',
+            f"批量添加预设: {preset_ids}")
+        # 启动所有成功添加的设备的采集
+        for r in result.get('results', []):
+            if r.get('success') and r.get('device_id'):
+                _start_device_collection(r['device_id'])
+    return jsonify(result)
+
+
+@devices_bp.route('/devices/presets/add-all', methods=['POST'])
+@_require_engineer
+def add_all_presets():
+    """一键添加全部预设设备"""
+    initializer = _get_simulation_initializer()
+    if initializer is None:
+        return jsonify({'success': False, 'message': '模拟初始化器未加载'}), 500
+
+    presets = getattr(initializer, 'presets', [])
+    if not presets:
+        return jsonify({'success': False, 'message': '没有可用的预设设备配置，请检查 simulation_presets.yaml 文件'}), 400
+
+    all_preset_ids = [p['id'] for p in presets]
+    result = initializer.add_preset_batch(all_preset_ids)
+    if result['success']:
+        get_auth_manager().log_operation(
+            request.current_user['username'], 'add_all_presets',
+            f"添加全部预设: {result['message']}")
+        for r in result.get('results', []):
+            if r.get('success') and r.get('device_id'):
+                _start_device_collection(r['device_id'])
+    return jsonify(result)

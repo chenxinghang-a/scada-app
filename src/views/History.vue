@@ -321,6 +321,22 @@ onMounted(async () => {
     filter.device_id = queryDevice
     loadRegisters(queryDevice)
     loadRules(queryDevice)
+  } else if (devices.value.length) {
+    // 没有从路由带来设备时，默认选第一台在线设备 + 它的第一个参数，并直接查一次。
+    // 否则首屏永远是「选择设备 / 选择参数（可多选）」+「当前条件下没有历史数据」，
+    // 看起来就像历史查询功能坏了（2026-10-23 实测）。
+    const first = devices.value.find((d: any) => d.connected !== false) || devices.value[0]
+    const autoId = (first as any)?.device_id || (first as any)?.id
+    if (autoId) {
+      filter.device_id = autoId
+      await loadRegisters(autoId)
+      await loadRules(autoId)
+      const firstReg = registers.value.find(r => r.name)
+      if (firstReg) {
+        filter.register_names = [firstReg.name]
+        queryHistory()
+      }
+    }
   }
   if (chartRef.value) {
     chart = echarts.init(chartRef.value, scadaThemeName())
@@ -353,7 +369,18 @@ async function loadRegisters(deviceId: string) {
   try {
     const data = await devicesApi.getById(deviceId)
     if (seq !== registerSeq) return  // 已切换到其他设备，丢弃过期响应
-    registers.value = data.device?.registers || []
+    const dev: any = (data as any)?.device || data || {}
+    // 不同协议的「参数」存放在不同字段里：modbus → registers，
+    // mqtt → topics，opcua → nodes，rest → endpoints。
+    // 只读 registers 会让 MQTT/REST/OPCUA 设备在历史页**永远选不到参数**
+    // （下拉框停在「选择参数（可多选）」），历史查询对这类设备等于不可用。
+    const merged = [
+      ...(dev.registers || []),
+      ...(dev.topics || []),
+      ...(dev.nodes || []),
+      ...(dev.endpoints || []),
+    ].filter((r: any) => r && r.name)
+    registers.value = merged
   } catch (e: any) { console.warn('[History] 加载失败:', e?.message || e) }
 }
 

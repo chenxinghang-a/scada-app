@@ -1,0 +1,485 @@
+"""
+MQTT数据采集模块
+实现MQTT协议的数据采集功能
+"""
+
+import json
+import ssl
+import logging
+import threading
+from typing import Any, Callable
+from datetime import datetime
+
+logger = logging.getLogger(__name__)
+
+try:
+    import paho.mqtt.client as mqtt
+    MQTT_AVAILABLE = True
+except ImportError:
+    MQTT_AVAILABLE = False
+    logger.warning("paho-mqtt未安装，MQTT功能不可用。请运行: pip install paho-mqtt")
+
+
+class MQTTClient:
+    """
+    MQTT数据采集客户端
+    支持订阅多个主题，解析JSON数据并转发到数据库
+
+    构造函数统一接受config字典，与其他协议客户端接口一致。
+    config格式:
+        {
+            'id': 'mqtt_device_01',
+            'name': 'MQTT IoT传感器',
+            'protocol': 'mqtt',
+            'host': 'localhost',
+            'port': 1883,
+            'username': None,
+            'password': None,
+            'topics': [
+                {'topic': 'factory/temperature', 'qos': 1, 'name': 'temperature', 'unit': '°C'}
+            ]
+        }
+
+    数据回调签名: callback(device_id, register_name, value, unit)
+        - 与OPCUA/REST客户端回调签名一致
+    """
+
+    def __init__(self, config: dict[str, Any] | None = None, **kwargs):
+        """
+        初始化MQTT客户端
+
+        Args:
+            config: 设备配置字典（推荐方式，与其他协议一致）
+                    支持TLS配置键: tls_enabled, ca_cert, client_cert, client_key, tls_insecure
+            **kwargs: 兼容旧的独立参数方式 (broker_host, broker_port, username, password)
+        """
+        if not MQTT_AVAILABLE:
+            raise ImportError("paho-mqtt未安装，请运行: pip install paho-mqtt")
+
+        # 统一从config提取参数
+        if config:
+            self.config = config
+            self.device_id = config.get('id', 'mqtt_device')
+            self.device_name = config.get('name', 'MQTT设备')
+            self.broker_host = config.get('host', 'localhost')
+            self.broker_port = config.get('port', 1883)
+            username = config.get('username')
+            password = config.get('password')
+            self.topics_config = config.get('topics', [])
+            # TLS参数
+            self.tls_enabled = config.get('tls_enabled', False)
+            self.ca_cert = config.get('ca_cert')
+            self.client_cert = config.get('client_cert')
+            self.client_key = config.get('client_key')
+            self.tls_insecure = config.get('tls_insecure', False)
+        else:
+            # 兼容旧的独立参数方式
+            self.config = kwargs
+            self.device_id = kwargs.get('client_id', 'mqtt_device')
+            self.device_name = kwargs.get('client_id', 'MQTT设备')
+            self.broker_host = kwargs.get('broker_host', 'localhost')
+            self.broker_port = kwargs.get('broker_port', 1883)
+            username = kwargs.get('username')
+            password = kwargs.get('password')
+            self.topics_config = []
+            # TLS参数
+            self.tls_enabled = kwargs.get('tls_enabled', False)
+            self.ca_cert = kwargs.get('ca_cert')
+            self.client_cert = kwargs.get('client_cert')
+            self.client_key = kwargs.get('client_key')
+            self.tls_insecure = kwargs.get('tls_insecure', False)
+
+        self.client_id = f'scada_{self.device_id}'
+
+        # 创建MQTT客户端（兼容 paho-mqtt v1.x 和 v2.x）
+        try:
+            self.client = mqtt.Client(client_id=self.client_id, protocol=mqtt.MQTTv311,
+                                       clean_session=False)
+        except TypeError:
+            # paho-mqtt v2.x: clean_session -> clean_start, 参数位置变更
+            self.client = mqtt.Client(callback_api_version=mqtt.CallbackAPIVersion.VERSION1,
+                                       client_id=self.client_id, protocol=mqtt.MQTTv311,
+                                       clean_session=False)
+
+        # 设置认证
+        if username:
+            self.client.username_pw_set(username, password)
+
+        # LWT（遗嘱消息）：设备离线时 Broker 自动发布
+        lwt_topic = f'scada/{self.device_id}/status'
+        lwt_payload = json.dumps({'device_id': self.device_id, 'status': 'offline',
+                                   'timestamp': datetime.now().isoformat()})
+        self.client.will_set(lwt_topic, lwt_payload, qos=1, retain=True)
+
+        # 自动重连延迟（指数退避：1s → 2s → 4s → ... → 60s）
+        self.client.reconnect_delay_set(min_delay=1, max_delay=60)
+
+        # 设置回调
+        self.client.on_connect = self._on_connect
+        self.client.on_disconnect = self._on_disconnect
+        self.client.on_message = self._on_message
+        self.client.on_subscribe = self._on_subscribe
+
+        # 数据回调函数
+        self._data_callbacks: list[Callable[..., Any]] = []
+
+        # 订阅主题列表: {topic: qos}
+        self._subscriptions: dict[str, int] = {}
+
+        # 最新数据缓存（与模拟客户端行为一致）
+        self.latest_data: dict[str, dict[str, Any]] = {}
+
+        # 连接状态
+        self.connected = False
+        self._lock = threading.Lock()
+
+        # 统计信息
+        self.stats: dict[str, Any] = {
+            'messages_received': 0,
+            'messages_parsed': 0,
+            'parse_errors': 0,
+            'connected_since': None,
+            'last_message_time': None
+        }
+
+        logger.info(f"MQTT客户端初始化: {self.broker_host}:{self.broker_port} [{self.device_id}]")
+
+    def add_data_callback(self, callback: Callable[..., Any]):
+        """添加数据回调函数（签名: callback(device_id, name, value, unit)）"""
+        self._data_callbacks.append(callback)
+
+    def connect(self) -> bool:
+        """
+        连接到MQTT Broker
+
+        注意: paho-mqtt的connect()只发起TCP连接，MQTT握手在loop_start()的后台线程中完成。
+        连接成功后on_connect回调才会设置self.connected=True。
+
+        Returns:
+            bool: connect()调用是否成功（不代表MQTT握手完成）
+        """
+        try:
+            # TLS/SSL配置
+            if self.tls_enabled:
+                tls_context = ssl.create_default_context()
+
+                if self.ca_cert:
+                    tls_context.load_verify_locations(self.ca_cert)
+                else:
+                    tls_context.check_hostname = False
+                    tls_context.verify_mode = ssl.CERT_NONE
+
+                if self.client_cert and self.client_key:
+                    tls_context.load_cert_chain(self.client_cert, self.client_key)
+
+                if self.tls_insecure:
+                    tls_context.check_hostname = False
+                    tls_context.verify_mode = ssl.CERT_NONE
+
+                self.client.tls_set_context(tls_context)
+                logger.info("MQTT TLS已启用")
+
+            # 把 device_config 里的 topics 登记进订阅表。
+            #
+            # **这里必须登记，否则配了 topics 也永远收不到数据。**
+            # paho 的 connect() 只发起 TCP 连接，真正的 MQTT 握手在 loop_start()
+            # 的后台线程里完成，所以此刻 self.connected 仍是 False —— 直接调用
+            # subscribe() 只会把主题记进 _subscriptions 而不发送 SUBSCRIBE。
+            # 真正的订阅动作发生在 _on_connect 回调里（它按 _subscriptions 补发）。
+            # 原实现两处都没做：DataCollector._setup_push_device 只调用
+            # add_data_callback() + connect()，从没调用过 subscribe()，
+            # 于是 MQTT 设备"连上了但零数据"，且没有任何报错。
+            self._register_configured_topics()
+
+            logger.info(f"正在连接MQTT Broker: {self.broker_host}:{self.broker_port}")
+            self.client.connect(self.broker_host, self.broker_port, keepalive=60)
+            self.client.loop_start()
+            return True
+        except Exception as e:
+            logger.error(f"MQTT连接失败: {e}")
+            self.stats['last_error'] = str(e)
+            return False
+
+    def _register_configured_topics(self) -> int:
+        """把 ``config['topics']`` 登记到本地订阅表，供 ``_on_connect`` 自动订阅。
+
+        幂等：重复调用不会重复计数，已登记的主题会被更新为最新 QoS。
+
+        Returns:
+            int: 本次新登记（此前不在订阅表中）的主题数
+        """
+        added = 0
+        for topic_config in self.topics_config or []:
+            if not isinstance(topic_config, dict):
+                logger.warning(f"无法识别的 topic 配置（已跳过）: {topic_config!r}")
+                continue
+            topic = topic_config.get('topic', '')
+            if not topic:
+                continue
+            qos = topic_config.get('qos', 1)
+            if topic not in self._subscriptions:
+                added += 1
+            self._subscriptions[topic] = qos
+
+        if added:
+            logger.info(
+                f"已登记 {added} 个待订阅主题（连接建立后自动订阅）: "
+                f"{list(self._subscriptions.keys())}"
+            )
+        elif self._subscriptions:
+            logger.debug(
+                f"主题已登记，无需重复: {list(self._subscriptions.keys())}"
+            )
+        return added
+
+    def disconnect(self):
+        """断开MQTT连接"""
+        try:
+            self.client.loop_stop()
+            self.client.disconnect()
+            logger.info("MQTT连接已断开")
+        except Exception as e:
+            logger.error(f"MQTT断开失败: {e}")
+        finally:
+            # 无论底层 loop_stop/disconnect 是否报错，状态都必须收敛为"未连接"。
+            # 原实现把 self.connected = False 放在 try 内：一旦 loop_stop 抛异常，
+            # 状态就停留在 True，上层会继续往可能已经死掉的连接 publish。
+            self.connected = False
+
+    def subscribe(self, topic: str, qos: int = 1) -> bool:
+        """订阅主题"""
+        self._subscriptions[topic] = qos
+
+        if self.connected:
+            result, mid = self.client.subscribe(topic, qos)
+            if result == mqtt.MQTT_ERR_SUCCESS:
+                logger.info(f"已订阅主题: {topic} (QoS: {qos})")
+                return True
+            else:
+                logger.error(f"订阅失败: {topic}, 错误码: {result}")
+                return False
+        else:
+            logger.info(f"主题已记录，连接后自动订阅: {topic}")
+            return True
+
+    def unsubscribe(self, topic: str):
+        """取消订阅"""
+        if topic in self._subscriptions:
+            del self._subscriptions[topic]
+
+        if self.connected:
+            self.client.unsubscribe(topic)
+            logger.info(f"已取消订阅: {topic}")
+
+    def publish(self, topic: str, payload: dict[str, Any], qos: int = 1) -> bool:
+        """发布消息"""
+        if not self.connected:
+            logger.warning("MQTT未连接，无法发布")
+            return False
+
+        try:
+            message = json.dumps(payload, ensure_ascii=False)
+            result = self.client.publish(topic, message, qos=qos)
+            return result.rc == mqtt.MQTT_ERR_SUCCESS
+        except Exception as e:
+            logger.error(f"MQTT发布失败: {e}")
+            return False
+
+    def get_latest_data(self) -> dict[str, dict[str, Any]]:
+        """获取最新数据缓存"""
+        return dict(self.latest_data)
+
+    def get_stats(self) -> dict[str, Any]:
+        """获取统计信息（与其他协议客户端接口统一）"""
+        return {
+            'device_id': self.device_id,
+            'device_name': self.device_name,
+            'connected': self.connected,
+            'broker': f'{self.broker_host}:{self.broker_port}',
+            'client_id': self.client_id,
+            'subscriptions': list(self._subscriptions.keys()),
+            **self.stats
+        }
+
+    def get_status(self) -> dict[str, Any]:
+        """获取客户端状态"""
+        return {
+            'connected': self.connected,
+            'broker': f'{self.broker_host}:{self.broker_port}',
+            'client_id': self.client_id,
+            'subscriptions': list(self._subscriptions.keys()),
+            'stats': self.stats.copy()
+        }
+
+    # ---- paho-mqtt 回调 ----
+
+    def _on_connect(self, client, userdata, flags, rc):
+        """连接成功回调"""
+        if rc == 0:
+            self.connected = True
+            self.stats['connected_since'] = datetime.now().isoformat()
+            logger.info(f"MQTT连接成功: {self.broker_host}:{self.broker_port}")
+
+            # 发布上线状态（retained）
+            status_topic = f'scada/{self.device_id}/status'
+            status_payload = json.dumps({'device_id': self.device_id, 'status': 'online',
+                                          'timestamp': datetime.now().isoformat()})
+            client.publish(status_topic, status_payload, qos=1, retain=True)
+
+            # 自动订阅已记录的主题（QoS 1）
+            for topic, qos in self._subscriptions.items():
+                client.subscribe(topic, qos)
+                logger.info(f"自动订阅: {topic} (QoS {qos})")
+        else:
+            logger.error(f"MQTT连接失败，返回码: {rc}")
+
+    def _on_disconnect(self, client, userdata, rc):
+        """断开连接回调"""
+        self.connected = False
+        if rc != 0:
+            logger.warning(f"MQTT意外断开，返回码: {rc}")
+        else:
+            logger.info("MQTT已断开连接")
+
+    def _on_message(self, client, userdata, msg):
+        """消息接收回调"""
+        try:
+            self.stats['messages_received'] += 1
+            self.stats['last_message_time'] = datetime.now().isoformat()
+
+            topic = msg.topic
+            payload = msg.payload.decode('utf-8')
+
+            try:
+                data = json.loads(payload)
+                self.stats['messages_parsed'] += 1
+                self._process_message(topic, data)
+            except json.JSONDecodeError:
+                self._process_raw_message(topic, payload)
+
+        except Exception as e:
+            logger.error(f"处理MQTT消息失败: {e}")
+            self.stats['parse_errors'] += 1
+
+    def _on_subscribe(self, client, userdata, mid, granted_qos):
+        """订阅成功回调"""
+        logger.debug(f"订阅确认: mid={mid}, QoS={granted_qos}")
+
+    def _process_message(self, topic: str, data: dict[str, Any]):
+        """
+        处理JSON格式消息
+
+        支持的消息格式:
+        1. {"device_id": "xxx", "register": "temperature", "value": 25.5, "unit": "°C"}
+        2. {"temperature": 25.5, "pressure": 0.101}  (自动从topic提取device_id)
+        3. {"device_id": "xxx", "data": {"temperature": 25.5, "pressure": 0.101}}
+        """
+        # 格式1: 完整格式
+        if 'device_id' in data and 'register' in data:
+            device_id = data['device_id']
+            register_name = data['register']
+            value = float(data.get('value', 0))
+            unit = data.get('unit', '')
+            self._notify_callbacks(device_id, register_name, value, unit)
+
+        # 格式3: 嵌套数据格式
+        elif 'device_id' in data and 'data' in data:
+            device_id = data['device_id']
+            for register_name, value in data['data'].items():
+                if isinstance(value, (int, float)):
+                    self._notify_callbacks(device_id, register_name, float(value), '')
+
+        # 格式2: 简单键值对
+        else:
+            device_id = topic.split('/')[-1] if '/' in topic else topic
+            for register_name, value in data.items():
+                if isinstance(value, (int, float)):
+                    self._notify_callbacks(device_id, register_name, float(value), '')
+
+    def _process_raw_message(self, topic: str, payload: str):
+        """处理非JSON格式消息"""
+        try:
+            if '=' in payload:
+                parts = payload.split('=')
+                if len(parts) == 2:
+                    device_id = topic.split('/')[-1] if '/' in topic else topic
+                    register_name = parts[0].strip()
+                    value = float(parts[1].strip())
+                    self._notify_callbacks(device_id, register_name, value, '')
+            else:
+                value = float(payload.strip())
+                device_id = topic.split('/')[-1] if '/' in topic else topic
+                self._notify_callbacks(device_id, 'value', value, '')
+        except (ValueError, IndexError):
+            logger.debug(f"无法解析原始消息: {topic} = {payload}")
+
+    def _notify_callbacks(self, device_id: str, register_name: str, 
+                         value: float, unit: str):
+        """
+        通知所有回调函数
+        签名统一: callback(device_id, register_name, value, unit)
+        与OPCUA/REST客户端的DataCollector.on_data回调签名一致
+        """
+        # 更新数据缓存
+        self.latest_data[register_name] = {
+            'value': value,
+            'unit': unit,
+            'timestamp': datetime.now().isoformat()
+        }
+
+        for callback in self._data_callbacks:
+            try:
+                callback(device_id, register_name, value, unit)
+            except Exception as e:
+                logger.error(f"数据回调执行失败: {e}")
+
+
+class MQTTDeviceManager:
+    """
+    MQTT设备管理器
+    管理多个MQTT设备的数据采集
+    """
+
+    def __init__(self, config: dict[str, Any]):
+        self.config = config
+        self.client = None
+        self._running = False
+
+    def start(self, data_callback: Callable[..., Any]) -> bool:
+        """启动MQTT数据采集"""
+        try:
+            self.client = MQTTClient(self.config)
+            self.client.add_data_callback(data_callback)
+
+            # 订阅主题
+            topics = self.config.get('topics', [])
+            for topic_config in topics:
+                topic = topic_config.get('topic', '')
+                qos = topic_config.get('qos', 1)
+                if topic:
+                    self.client.subscribe(topic, qos)
+
+            if self.client.connect():
+                self._running = True
+                logger.info("MQTT设备管理器启动成功")
+                return True
+            else:
+                logger.error("MQTT设备管理器启动失败")
+                return False
+
+        except Exception as e:
+            logger.error(f"MQTT设备管理器启动失败: {e}")
+            return False
+
+    def stop(self):
+        """停止MQTT数据采集"""
+        if self.client:
+            self.client.disconnect()
+            self._running = False
+            logger.info("MQTT设备管理器已停止")
+
+    def get_status(self) -> dict[str, Any]:
+        """获取状态"""
+        if self.client:
+            return self.client.get_status()
+        return {'connected': False, 'broker': 'N/A'}

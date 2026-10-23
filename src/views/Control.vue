@@ -337,6 +337,16 @@ let statusTimer: ReturnType<typeof setInterval>
 
 onMounted(async () => {
   await loadDevices()
+  // 默认选中第一台「有可写参数」的设备：否则首屏是空的下拉 + 空的写入区，
+  // 用户不知道要先选设备，看起来像控制功能没做（2026-10-23 实测）。
+  if (!regForm.device_id && devices.value.length) {
+    const preferred = devices.value.find((d: any) => (d.register_count || 0) > 0) || devices.value[0]
+    const autoId = (preferred as any)?.device_id || (preferred as any)?.id
+    if (autoId) {
+      regForm.device_id = autoId
+      await onDeviceChange(autoId)
+    }
+  }
   loadSafetyStatus()
   loadLogs()
   statusTimer = setInterval(loadSafetyStatus, 10000)

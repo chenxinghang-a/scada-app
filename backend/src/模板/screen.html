@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<!-- 数据大屏：深色底 + 超大数值 + 三列栅格
+     深色由 data-theme / data-bs-theme 作用域复用 design-tokens.css 的深色令牌值 -->
+<html lang="zh-CN" data-theme="dark" data-bs-theme="dark">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width,initial-scale=1">
+    <meta name="color-scheme" content="dark">
+    <title>工业SCADA系统 - 数据大屏</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/design-tokens.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/screen.css') }}">
+    <script src="https://cdn.jsdelivr.net/npm/echarts@5.4.0/dist/echarts.min.js"></script>
+    <script src="https://cdn.socket.io/4.5.0/socket.io.min.js"></script>
+</head>
+<body>
+    <!-- 顶部标题栏 -->
+    <header class="screen-header">
+        <div class="header-left">
+            <span class="header-time metric-value metric-value--lg" id="header-time">--:--:--</span>
+            <span class="header-date" id="header-date">----/--/--</span>
+        </div>
+        <h1 class="header-title">工业数据采集与监控系统</h1>
+        <div class="header-right">
+            <span class="header-status" id="header-status">
+                <span class="status-dot status-dot--success"></span> 系统运行中
+            </span>
+            <a href="/dashboard" class="header-link">管理后台</a>
+        </div>
+    </header>
+
+    <!-- 主内容区：三列栅格 -->
+    <div class="screen-body">
+        <!-- 左列 -->
+        <div class="screen-col screen-col--left">
+            <!-- 设备状态概览 -->
+            <div class="panel xpanel">
+                <div class="panel__header">设备状态概览</div>
+                <div class="panel__body">
+                    <div class="kpi-row" id="device-kpi">
+                        <div class="kpi-item">
+                            <div class="metric-value metric-value--lg kpi-value--total" id="kpi-total">0</div>
+                            <div class="kpi-label">设备总数</div>
+                        </div>
+                        <div class="kpi-item">
+                            <div class="metric-value metric-value--lg kpi-value--online" id="kpi-online">0</div>
+                            <div class="kpi-label">在线</div>
+                        </div>
+                        <div class="kpi-item">
+                            <div class="metric-value metric-value--lg kpi-value--offline" id="kpi-offline">0</div>
+                            <div class="kpi-label">离线</div>
+                        </div>
+                        <div class="kpi-item">
+                            <div class="metric-value metric-value--lg kpi-value--alarm" id="kpi-alarm">0</div>
+                            <div class="kpi-label">报警</div>
+                        </div>
+                    </div>
+                    <div class="panel-chart" id="device-status-chart"></div>
+                </div>
+            </div>
+
+            <!-- OEE 综合效率 -->
+            <div class="panel xpanel">
+                <div class="panel__header">OEE 综合效率</div>
+                <div class="panel__body">
+                    <div class="panel-chart" id="oee-chart"></div>
+                </div>
+            </div>
+
+            <!-- 能源消耗 -->
+            <div class="panel xpanel">
+                <div class="panel__header">能源消耗分布</div>
+                <div class="panel__body">
+                    <div class="panel-chart" id="energy-chart"></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 中列 -->
+        <div class="screen-col screen-col--center">
+            <!-- 顶部 KPI 卡片 -->
+            <div class="kpi-cards">
+                <div class="kpi-card">
+                    <div class="kpi-card-icon"><i class="icon-db"></i></div>
+                    <div class="kpi-card-body">
+                        <div class="metric-value metric-value--lg" id="kpi-collections">0</div>
+                        <div class="kpi-card-label">今日采集 (条)</div>
+                    </div>
+                </div>
+                <div class="kpi-card">
+                    <div class="kpi-card-icon"><i class="icon-speed"></i></div>
+                    <div class="kpi-card-body">
+                        <div class="metric-value metric-value--lg" id="kpi-rate">0</div>
+                        <div class="kpi-card-label">采集频率 (条/分)</div>
+                    </div>
+                </div>
+                <div class="kpi-card">
+                    <div class="kpi-card-icon"><i class="icon-check"></i></div>
+                    <div class="kpi-card-body">
+                        <div class="metric-value metric-value--lg" id="kpi-uptime">-</div>
+                        <div class="kpi-card-label">运行时间</div>
+                    </div>
+                </div>
+                <div class="kpi-card">
+                    <div class="kpi-card-icon"><i class="icon-quality"></i></div>
+                    <div class="kpi-card-body">
+                        <div class="metric-value metric-value--lg" id="kpi-quality">-</div>
+                        <div class="kpi-card-label">数据质量</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 主趋势图 -->
+            <div class="panel xpanel">
+                <div class="panel__header">
+                    实时数据趋势
+                    <select id="trend-device-select" class="screen-select"></select>
+                </div>
+                <div class="panel__body">
+                    <div class="panel-chart" id="trend-chart"></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 右列 -->
+        <div class="screen-col screen-col--right">
+            <!-- 报警滚动 -->
+            <div class="panel xpanel">
+                <div class="panel__header">
+                    实时报警
+                    <span class="tag tag--danger" id="alarm-count-badge">0</span>
+                </div>
+                <div class="panel__body">
+                    <div class="alarm-list" id="alarm-list">
+                        <div class="alarm-empty">暂无报警</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- SPC 控制图 -->
+            <div class="panel xpanel">
+                <div class="panel__header">SPC 质量监控</div>
+                <div class="panel__body">
+                    <div class="panel-chart" id="spc-chart"></div>
+                </div>
+            </div>
+
+            <!-- 设备健康度 -->
+            <div class="panel xpanel">
+                <div class="panel__header">设备健康度</div>
+                <div class="panel__body">
+                    <div class="panel-chart" id="health-chart"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="{{ url_for('static', filename='js/screen.js') }}"></script>
+</body>
+</html>

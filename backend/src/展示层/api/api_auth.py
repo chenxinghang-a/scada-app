@@ -1,0 +1,266 @@
+"""
+认证相关API
+用户登录/注册/令牌/密码/用户管理/操作日志
+"""
+
+import logging
+from functools import wraps
+from flask import Blueprint, jsonify, request
+
+from 用户层.auth import jwt_required, role_required
+from ._common import get_auth_manager, api_error_handler, clamp_limit
+
+logger = logging.getLogger(__name__)
+
+auth_bp = Blueprint('api_auth', __name__, url_prefix='/api')
+
+# 向后兼容别名
+_require_auth = jwt_required
+_require_admin = role_required('admin')
+
+
+# ==================== 认证相关API ====================
+
+@auth_bp.route('/auth/login', methods=['POST'])
+@api_error_handler
+def login():
+    """用户登录"""
+    data = request.get_json()
+    if not data:
+        return jsonify({'success': False, 'message': '请提供登录信息'}), 400
+
+    username = data.get('username', '').strip()
+    password = data.get('password', '')
+
+    if not username or not password:
+        return jsonify({'success': False, 'message': '用户名和密码不能为空'}), 400
+
+    auth_manager = get_auth_manager()
+    ip_address = request.remote_addr
+    result = auth_manager.login(username, password, ip_address)
+
+    if not result or not result.get('success'):
+        return jsonify(result or {'success': False, 'message': '登录失败'}), 401
+
+    # 构建响应并在服务端设置cookie（GB/T 33008: 令牌安全传递）
+    from flask import make_response
+    # 首次登录需强制改密：返回403，令牌仍在响应体中供前端调用改密接口
+    must_change = result.get('status') == 'must_change_password'
+    if must_change:
+        # 兼容前端：同时返回 must_change_password 字段和 status 字段
+        result['must_change_password'] = True
+    resp = make_response(jsonify(result), 403 if must_change else 200)
+
+    token = result.get('token', '')
+    if token:
+        from config import SecurityConfig
+        secure_flag = SecurityConfig.TLS_ENABLED
+        resp.set_cookie('token', token, path='/', samesite='Strict', httponly=True, secure=secure_flag)
+    return resp
+
+
+@auth_bp.route('/auth/logout', methods=['POST'])
+@jwt_required
+def logout():
+    """服务端登出 - 记录登出时间 + 撤销令牌 (GB/T 33008 + GB/T 35718)"""
+    try:
+        user = getattr(request, 'current_user', {})
+        username = user.get('username', 'unknown')
+
+        auth_manager = get_auth_manager()
+
+        # GB/T 35718: 撤销当前JWT令牌
+        auth_header = request.headers.get('Authorization', '')
+        revoked = True
+        if auth_header.startswith('Bearer '):
+            token = auth_header[7:]
+            # 撤销结果必须检查：此前忽略返回值，落库失败也照样回 "已登出"，
+            # 客户端以为令牌死了，其实还能继续用（静默假成功）。
+            revoked = auth_manager.blacklist_token(token, 'logout')
+            if not revoked:
+                logger.error("登出时撤销令牌失败，令牌仍可继续使用 user=%s", username)
+
+        # 记录登出
+        auth_manager.log_operation(
+            username=username,
+            action='logout',
+            target='session',
+            ip_address=request.remote_addr
+        )
+
+        if not revoked:
+            return jsonify({
+                'success': False,
+                'message': '登出失败：令牌未能撤销，请重试',
+            }), 500
+        return jsonify({'success': True, 'message': '已登出'})
+    except Exception as e:
+        logger.error(f"登出失败: {e}")
+        # 此前这里**硬编码返回 success:True** —— 登出异常时对外仍宣称"已登出"。
+        return jsonify({'success': False, 'message': '登出失败，请重试'}), 500
+
+
+@auth_bp.route('/auth/register', methods=['POST'])
+@api_error_handler
+def register():
+    """用户注册（仅管理员，或首个用户直接注册admin）"""
+    token = None
+    auth_header = request.headers.get('Authorization', '')
+    if auth_header.startswith('Bearer '):
+        token = auth_header[7:]
+
+    auth_manager = get_auth_manager()
+
+    # 无token时：检查是否是第一个用户（允许直接注册admin）
+    if not token:
+        users = auth_manager.get_users()
+        if len(users) > 0:
+            return jsonify({'success': False, 'message': '需要管理员权限'}), 403
+    else:
+        user = auth_manager.verify_token(token)
+        if not user or user['role'] != 'admin':
+            return jsonify({'success': False, 'message': '需要管理员权限'}), 403
+
+    data = request.get_json()
+    if not data:
+        return jsonify({'success': False, 'message': '请提供注册信息'}), 400
+
+    result = auth_manager.register(
+        username=data.get('username', '').strip(),
+        password=data.get('password', ''),
+        role=data.get('role', 'viewer'),
+        display_name=data.get('display_name'),
+        email=data.get('email'),
+        phone=data.get('phone')
+    )
+
+    return jsonify(result), (201 if result['success'] else 400)
+
+
+@auth_bp.route('/auth/verify', methods=['GET'])
+@_require_auth
+@api_error_handler
+def verify_token():
+    """验证令牌有效性"""
+    return jsonify({'valid': True, 'user': request.current_user})
+
+
+@auth_bp.route('/auth/refresh', methods=['POST'])
+@api_error_handler
+def refresh_token():
+    """刷新令牌"""
+    data = request.get_json()
+    if not data:
+        return jsonify({'success': False, 'message': '请提供刷新令牌'}), 400
+    rtoken = data.get('refresh_token')
+
+    if not rtoken:
+        return jsonify({'success': False, 'message': '请提供刷新令牌'}), 400
+
+    auth_manager = get_auth_manager()
+    result = auth_manager.refresh_token(rtoken)
+
+    if result:
+        return jsonify(result)
+    else:
+        return jsonify({'success': False, 'message': '刷新令牌无效'}), 401
+
+
+@auth_bp.route('/auth/change-password', methods=['POST'])
+@_require_auth
+@api_error_handler
+def change_password():
+    """修改密码"""
+    data = request.get_json()
+    if not data:
+        return jsonify({'success': False, 'message': '请提供改密信息'}), 400
+    auth_manager = get_auth_manager()
+    result = auth_manager.change_password(
+        username=request.current_user['username'],
+        old_password=data.get('old_password', ''),
+        new_password=data.get('new_password', '')
+    )
+    return jsonify(result or {'success': False, 'message': '操作失败'})
+
+
+@auth_bp.route('/auth/force-change-password', methods=['POST'])
+@api_error_handler
+def force_change_password():
+    """首次登录强制改密（不需要旧密码，需要有效token）"""
+    data = request.get_json()
+    if not data:
+        return jsonify({'success': False, 'message': '请提供改密信息'}), 400
+
+    username = data.get('username', '').strip()
+    new_password = data.get('new_password', '')
+
+    if not username or not new_password:
+        return jsonify({'success': False, 'message': '用户名和新密码不能为空'}), 400
+
+    # 验证token（从请求头或body中获取）
+    token = None
+    auth_header = request.headers.get('Authorization', '')
+    if auth_header.startswith('Bearer '):
+        token = auth_header[7:]
+    if not token:
+        token = data.get('token')
+
+    if not token:
+        return jsonify({'success': False, 'message': '请提供认证令牌'}), 401
+
+    auth_manager = get_auth_manager()
+    user = auth_manager.verify_token(token)
+    if not user or user['username'] != username:
+        return jsonify({'success': False, 'message': '令牌无效或用户名不匹配'}), 401
+
+    result = auth_manager.force_change_password(username, new_password)
+
+    if result['success']:
+        return jsonify(result), 200
+    return jsonify(result), 400
+
+
+@auth_bp.route('/auth/users', methods=['GET'])
+@_require_admin
+@api_error_handler
+def get_users():
+    """获取用户列表（仅管理员）"""
+    auth_manager = get_auth_manager()
+    return jsonify({'users': auth_manager.get_users()})
+
+
+@auth_bp.route('/auth/users/<username>', methods=['PUT'])
+@_require_admin
+@api_error_handler
+def update_user(username):
+    """更新用户信息（仅管理员）"""
+    data = request.get_json()
+    if not data:
+        return jsonify({'success': False, 'message': '请提供更新数据'}), 400
+    # 字段白名单过滤，防止越权修改
+    allowed = {'display_name', 'email', 'phone', 'role', 'is_active'}
+    filtered = {k: v for k, v in data.items() if k in allowed}
+    auth_manager = get_auth_manager()
+    return jsonify(auth_manager.update_user(username, **filtered))
+
+
+@auth_bp.route('/auth/users/<username>', methods=['DELETE'])
+@_require_admin
+@api_error_handler
+def delete_user(username):
+    """删除用户（仅管理员）"""
+    auth_manager = get_auth_manager()
+    return jsonify(auth_manager.delete_user(username))
+
+
+@auth_bp.route('/auth/logs', methods=['GET'])
+@_require_admin
+@api_error_handler
+def get_operation_logs():
+    """获取操作日志（仅管理员）"""
+    auth_manager = get_auth_manager()
+    username = request.args.get('username')
+    # 兼容前端 page/per_page 和后端 limit 两种参数
+    per_page = request.args.get('per_page', type=int)
+    limit = clamp_limit(per_page or request.args.get('limit', 100, type=int), default=100, maximum=500)
+    return jsonify({'logs': auth_manager.get_operation_logs(username=username, limit=limit)})

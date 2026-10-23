@@ -12,7 +12,9 @@
                 <span v-for="(b, i) in HEALTH_BANDS" :key="b.label" class="band-bar__seg"
                   :style="{ background: 'var(' + b.token + ')', opacity: isBandOn(HEALTH_BANDS, overview.health, i) ? 1 : 0.2 }" />
               </div>
-              <div class="metric-label">{{ overview.health > 0 ? bandLabelOf(HEALTH_BANDS, overview.health) : '暂无数据' }}</div>
+              <!-- 健康评分靠实时采样累积，冷启动后约 1 分钟才有值；
+                   直接显示「暂无数据 / 0%」会让人以为功能没做 -->
+              <div class="metric-label">{{ overview.health > 0 ? bandLabelOf(HEALTH_BANDS, overview.health) : '采集中，约 1 分钟' }}</div>
             </div>
           </el-col>
           <el-col :span="6">
@@ -142,7 +144,7 @@
                   </el-table-column>
                   <el-table-column prop="updated_at" label="更新时间" />
                 </el-table>
-                <el-empty v-if="!hasHealth" description="暂无数据" :image-size="60" />
+                <el-empty v-if="!hasHealth" description="采集中，约 1 分钟后出结果" :image-size="60" />
               </div>
             </div>
           </el-col>

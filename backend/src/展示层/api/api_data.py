@@ -1,0 +1,148 @@
+"""
+数据查询与导出API
+实时数据/历史数据/数据导出
+"""
+
+import logging
+from functools import wraps
+from flask import Blueprint, jsonify, request, current_app
+from datetime import datetime, timedelta
+
+from 用户层.auth import jwt_required, permission_required
+from ._common import api_error_handler, api_error, clamp_limit
+from .error_codes import DATA_NOT_FOUND
+
+logger = logging.getLogger(__name__)
+
+data_bp = Blueprint('api_data', __name__, url_prefix='/api')
+
+_require_auth = jwt_required
+
+# 导出接口需要 export_data 权限（engineer 及以上）；viewer 只有 read，
+# 不应能把生产数据整体导出。permission_required 内部已含 jwt_required。
+_require_export = permission_required('export_data')
+
+
+def _parse_time(time_str, default):
+    """安全解析时间字符串，并统一归一化成「本地 naive」。
+
+    库里所有 timestamp 都以**本地 naive** 形式存（如 `2026-10-23 18:38:00`），
+    而前端 `new Date(x).toISOString()` 送来的是带 Z 的绝对时刻（UTC）。
+    直接把 aware 值丢给 SQLite，会按字符串比较 → 整体错位 8 小时，
+    表现为「选最近 1 小时永远查不到数据」（2026-10-23 实测：本地时间查得 13 条，
+    同样的窗口用 ISO/UTC 查得 0 条）。所以这里必须先把 aware 转回本地再去掉 tzinfo。
+    """
+    if not time_str:
+        return default
+    try:
+        dt = datetime.fromisoformat(time_str)
+    except (ValueError, TypeError):
+        return default
+    if dt.tzinfo is not None:
+        dt = dt.astimezone().replace(tzinfo=None)
+    return dt
+
+
+# ==================== 数据查询API ====================
+
+@data_bp.route('/data/realtime', methods=['GET'])
+@_require_auth
+@api_error_handler
+def get_realtime_data():
+    """获取实时数据（realtime_data 是 UPSERT 表，每设备每寄存器只有一行）"""
+    device_id = request.args.get('device_id')
+    # 不限制条数上限（realtime_data 数据量 = 设备数 × 寄存器数，通常 < 500），
+    # 但必须挡住 `?limit=999999999` 这种把整库往内存里搬的请求。
+    limit = clamp_limit(request.args.get('limit', 10000, type=int), default=10000, maximum=10000)
+    return jsonify({'data': current_app.database.get_realtime_data(device_id=device_id, limit=limit)})
+
+
+@data_bp.route('/data/latest/<device_id>', methods=['GET'])
+@_require_auth
+@api_error_handler
+def get_latest_data(device_id):
+    """获取设备最新数据"""
+    register_name = request.args.get('register_name')
+    data = current_app.database.get_latest_data(device_id=device_id, register_name=register_name)
+    if data:
+        return jsonify({'data': data})
+    return api_error('没有数据', 404, DATA_NOT_FOUND)
+
+
+@data_bp.route('/data/history/<device_id>/<register_name>', methods=['GET'])
+@_require_auth
+@api_error_handler
+def get_history_data(device_id, register_name):
+    """获取历史数据"""
+    start_time = request.args.get('start_time')
+    end_time = request.args.get('end_time')
+    interval = request.args.get('interval', '1min')
+
+    start_time = _parse_time(start_time, datetime.now() - timedelta(hours=1))
+    end_time = _parse_time(end_time, datetime.now())
+
+    # 前端传入 '*' 表示查询全部寄存器
+    if register_name == '*':
+        register_name = None
+
+    data = current_app.database.get_history_data(
+        device_id=device_id, register_name=register_name,
+        start_time=start_time, end_time=end_time, interval=interval)
+    return jsonify({'data': data})
+
+
+# ==================== 数据导出API ====================
+
+@data_bp.route('/export/device/<device_id>', methods=['POST'])
+@_require_auth
+@_require_export
+@api_error_handler
+def export_device_data(device_id):
+    """导出设备数据"""
+    from 存储层.data_export import DataExport
+
+    data = request.get_json() or {}
+    start_time_str = data.get('start_time')
+    end_time_str = data.get('end_time')
+
+    if not start_time_str or not end_time_str:
+        return jsonify({'success': False, 'message': '缺少start_time或end_time参数'}), 400
+
+    exporter = DataExport()
+    filepath = exporter.export_device_data(
+        database=current_app.database,
+        device_id=device_id,
+        start_time=_parse_time(start_time_str, datetime.now() - timedelta(hours=24)),
+        end_time=_parse_time(end_time_str, datetime.now()),
+        format=data.get('format', 'csv')
+    )
+
+    if filepath:
+        from pathlib import Path
+        from flask import send_file
+        return send_file(filepath, as_attachment=True, download_name=Path(filepath).name)
+    return jsonify({'success': False, 'message': '导出失败'}), 500
+
+
+@data_bp.route('/export/alarms', methods=['POST'])
+@_require_auth
+@_require_export
+@api_error_handler
+def export_alarms():
+    """导出报警记录"""
+    from 存储层.data_export import DataExport
+
+    data = request.get_json() or {}
+    exporter = DataExport()
+    filepath = exporter.export_alarm_records(
+        database=current_app.database,
+        start_time=_parse_time(data.get('start_time'), None),
+        end_time=_parse_time(data.get('end_time'), None),
+        format=data.get('format', 'csv')
+    )
+
+    if filepath:
+        from pathlib import Path
+        from flask import send_file
+        return send_file(filepath, as_attachment=True, download_name=Path(filepath).name)
+    return jsonify({'success': False, 'message': '没有报警记录可导出'}), 404

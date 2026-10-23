@@ -1,0 +1,352 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="color-scheme" content="light dark">
+    <title>{% block title %}工业数据采集与监控系统{% endblock %}</title>
+
+    <!-- 深浅色：跟随系统偏好，同时驱动设计令牌(data-theme)与 Tabler(data-bs-theme) -->
+    <script>
+        (function () {
+            var mq = window.matchMedia('(prefers-color-scheme: dark)');
+            function apply(dark) {
+                var root = document.documentElement;
+                root.setAttribute('data-theme', dark ? 'dark' : 'light');
+                root.setAttribute('data-bs-theme', dark ? 'dark' : 'light');
+            }
+            apply(mq.matches);
+            var onChange = function (e) { apply(e.matches); };
+            if (mq.addEventListener) { mq.addEventListener('change', onChange); }
+            else if (mq.addListener) { mq.addListener(onChange); }
+        })();
+    </script>
+
+    <!-- Tabler CSS (含 Bootstrap 5) -->
+    <link href="https://cdn.jsdelivr.net/npm/@tabler/core@1.0.0-beta17/dist/css/tabler.min.css" rel="stylesheet"
+          integrity="sha384-CJVEaj4Ct80KLnE227X9AGTd29gwQu/PnQwscWvlYNjHAOLmgysi3Poum3jOJ3WG"
+          crossorigin="anonymous">
+
+    <!-- Bootstrap Icons (保留，模板中已大量使用 bi- 类名) -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.0/font/bootstrap-icons.css" rel="stylesheet"
+          integrity="sha384-l4UPAMHGzl7zwogLW4nOwaU2XTk6oiM1jhCRQstZEndoIiA2I5bg6fST3wzBSRBD"
+          crossorigin="anonymous">
+
+    <!-- ECharts -->
+    <script src="https://cdn.jsdelivr.net/npm/echarts@5.4.0/dist/echarts.min.js"
+            integrity="sha384-FjyteSbPW7vs5Dr3jhvKKYWERyIHYjoBAlrdMOAyfa538w74KFPNjsQoNXR4mPYt"
+            crossorigin="anonymous"></script>
+
+    <!-- Socket.IO -->
+    <script src="https://cdn.socket.io/4.5.0/socket.io.min.js"
+            integrity="sha384-7EyYLQZgWBi67fBtVxw60/OWl1kjsfrPFcaU0pp0nAh+i8FD068QogUvg85Ewy1k"
+            crossorigin="anonymous"></script>
+    
+    <!-- 自定义样式 -->
+    <link href="{{ url_for('static', filename='css/design-tokens.css') }}" rel="stylesheet">
+    <link href="{{ url_for('static', filename='css/style.css') }}" rel="stylesheet">
+    
+    {% block extra_css %}{% endblock %}
+</head>
+<body>
+    <!-- 导航栏（颜色/字号全部来自 design-tokens.css，深浅色随 data-bs-theme 自动切换） -->
+    <nav class="navbar navbar-expand-lg app-navbar">
+        <div class="container-fluid">
+            <a class="navbar-brand" href="/">
+                <i class="bi bi-gear-fill"></i> 工业SCADA系统
+            </a>
+            
+            <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
+                <span class="navbar-toggler-icon"></span>
+            </button>
+            
+            <div class="collapse navbar-collapse" id="navbarNav">
+                <ul class="navbar-nav">
+                    <li class="nav-item">
+                        <a class="nav-link {% if request.path == '/dashboard' %}active{% endif %}" href="/dashboard">
+                            <i class="bi bi-speedometer2"></i> 仪表盘
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link {% if request.path == '/devices' %}active{% endif %}" href="/devices">
+                            <i class="bi bi-hdd-rack"></i> 设备管理
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link {% if request.path == '/control' %}active{% endif %}" href="/control">
+                            <i class="bi bi-joystick"></i> 设备控制
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link {% if request.path == '/history' %}active{% endif %}" href="/history">
+                            <i class="bi bi-graph-up"></i> 历史数据
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link {% if request.path == '/alarms' %}active{% endif %}" href="/alarms">
+                            <i class="bi bi-bell"></i> 报警管理
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link {% if request.path == '/alarm-output' %}active{% endif %}" href="/alarm-output">
+                            <i class="bi bi-lightning-charge"></i> 报警输出
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link {% if request.path == '/industry40' %}active{% endif %}" href="/industry40">
+                            <i class="bi bi-cpu"></i> 工业4.0
+                        </a>
+                    </li>
+                    <!-- 隐藏图表分析导航入口
+                    <li class="nav-item">
+                        <a class="nav-link {% if request.path == '/charts' %}active{% endif %}" href="/charts">
+                            <i class="bi bi-graph-up"></i> 图表分析
+                        </a>
+                    </li>
+                    -->
+                    <li class="nav-item">
+                        <a class="nav-link {% if request.path == '/config' %}active{% endif %}" href="/config">
+                            <i class="bi bi-sliders"></i> 系统配置
+                        </a>
+                    </li>
+                </ul>
+                
+                <!-- 系统状态指示器 -->
+                <ul class="navbar-nav ms-auto">
+                    <li class="nav-item">
+                        <span class="nav-link" id="sim-mode-indicator" title="当前运行模式">
+                            <i class="bi bi-cpu"></i> <span id="sim-mode-text">-</span>
+                        </span>
+                    </li>
+                    <li class="nav-item">
+                        <span class="nav-link" id="system-status">
+                            <i class="bi bi-circle-fill text-success"></i> 系统正常
+                        </span>
+                    </li>
+                    <li class="nav-item">
+                        <span class="nav-link" id="alarm-count">
+                            <i class="bi bi-bell-fill text-warning"></i> <span id="active-alarms">0</span>
+                        </span>
+                    </li>
+                    <!-- 用户管理（独立链接，避免dropdown兼容问题） -->
+                    <li class="nav-item">
+                        <a class="nav-link" href="/users" title="用户管理">
+                            <i class="bi bi-people"></i> <span id="nav-username">用户</span>
+                        </a>
+                    </li>
+                    <!-- 用户操作菜单 -->
+                    <li class="nav-item dropdown">
+                        <a class="nav-link dropdown-toggle" href="#" role="button" data-bs-toggle="dropdown">
+                            <i class="bi bi-person-circle"></i> <span id="nav-role">-</span>
+                        </a>
+                        <ul class="dropdown-menu dropdown-menu-end">
+                            <li><a class="dropdown-item" href="#" onclick="changePassword()"><i class="bi bi-key me-2"></i>修改密码</a></li>
+                            <li><hr class="dropdown-divider"></li>
+                            <li><a class="dropdown-item text-danger" href="#" onclick="logout()"><i class="bi bi-box-arrow-right me-2"></i>退出登录</a></li>
+                        </ul>
+                    </li>
+                </ul>
+            </div>
+        </div>
+    </nav>
+
+    <!-- 报警条（固定在导航栏下方，不弹窗不打断操作；样式见 style.css .alarm-banner） -->
+    <div id="alarm-banner" class="alarm-banner" onclick="window.location.href='/alarms'">
+        <div class="d-flex align-items-center justify-content-between">
+            <div>
+                <i class="bi bi-exclamation-triangle-fill text-warning me-2"></i>
+                <span id="alarm-banner-text">有新的报警</span>
+            </div>
+            <div class="d-flex align-items-center gap-2">
+                <span class="tag tag--danger" id="alarm-banner-crit" style="display:none">紧急 0</span>
+                <span class="tag tag--warning" id="alarm-banner-warn" style="display:none">警告 0</span>
+                <span class="tag tag--offline" id="alarm-banner-count">0</span>
+                <button class="btn btn-sm btn-outline-secondary" onclick="event.stopPropagation();document.getElementById('alarm-banner').style.display='none';if(typeof AlarmDedupManager!=='undefined')AlarmDedupManager.recordDismiss(window._lastAlarmData||{})" title="关闭">×</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 主内容区 -->
+    <main class="container-fluid mt-3">
+        <!-- 面包屑导航 -->
+        <nav aria-label="breadcrumb" class="mb-3">
+            <ol class="breadcrumb">
+                <li class="breadcrumb-item"><a href="/"><i class="bi bi-house"></i> 首页</a></li>
+                {% block breadcrumb %}{% endblock %}
+            </ol>
+        </nav>
+        
+        {% block content %}{% endblock %}
+    </main>
+    
+    <!-- 页脚 -->
+    <footer class="footer mt-auto py-3 app-footer">
+        <div class="container text-center">
+            <span class="app-footer__text">工业数据采集与监控系统 v2.1 | 基于Python开发</span>
+        </div>
+    </footer>
+
+    <!-- WebSocket连接状态指示器（颜色由 main.js 按连接状态写入） -->
+    <span id="ws-status" class="ws-status">●</span>
+    
+    <!-- Bootstrap JS (Tabler 兼容) -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"
+            integrity="sha384-geWF76RCwLtnZ8qwWowPQNguL3RmwHVBC9FhGdlKrxdiJJigb/j/68SIy3Te4Bkz"
+            crossorigin="anonymous"></script>
+    <!-- Tabler JS -->
+    <script src="https://cdn.jsdelivr.net/npm/@tabler/core@1.0.0-beta17/dist/js/tabler.min.js"
+            integrity="sha384-T6OMbt8r+r3HjTdJpzzDPsHmC7p02uL6hmbQmp5rQoWbj0J+4FB6oeibwL8fGZIo"
+            crossorigin="anonymous"></script>
+    
+    <!-- 自定义JS -->
+    <script src="{{ url_for('static', filename='js/main.js') }}"></script>
+    
+    <!-- 认证和用户信息脚本 -->
+    <script>
+        // 检查登录状态
+        function checkAuth() {
+            const token = localStorage.getItem('auth_token');
+            if (!token) {
+                window.location.href = '/login';
+                return false;
+            }
+            
+            // 验证token
+            fetch('/api/auth/verify', {
+                headers: { 'Authorization': `Bearer ${token}` }
+            })
+            .then(r => r.json())
+            .then(data => {
+                if (!data.valid) {
+                    localStorage.removeItem('auth_token');
+                    localStorage.removeItem('scada_user');
+                    window.location.href = '/login';
+                }
+            })
+            .catch(() => {});
+            
+            return true;
+        }
+        
+        // 更新导航栏用户信息
+        function updateNavUserInfo() {
+            const userStr = localStorage.getItem('scada_user');
+            if (userStr) {
+                try {
+                    const user = JSON.parse(userStr);
+                    document.getElementById('nav-username').textContent = user.display_name || user.username;
+                    document.getElementById('nav-role').textContent = user.role_name || user.role;
+                } catch(e) {}
+            }
+        }
+        
+        // 获取认证头
+        function getAuthHeaders() {
+            const token = localStorage.getItem('auth_token');
+            return token ? { 'Authorization': `Bearer ${token}` } : {};
+        }
+        
+        // 退出登录
+        function logout() {
+            // Notify server (GB/T 33008: 登出记录)
+            const token = localStorage.getItem('auth_token');
+            if (token) {
+                fetch('/api/auth/logout', {
+                    method: 'POST',
+                    headers: {'Authorization': 'Bearer ' + token}
+                }).catch(() => {});  // Ignore errors
+            }
+
+            // Clear local data
+            localStorage.removeItem('auth_token');
+            localStorage.removeItem('scada_user');
+            localStorage.removeItem('scada_refresh_token');
+            // 清除cookie（服务端页面认证用）
+            document.cookie = 'token=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT; SameSite=Strict';
+            window.location.href = '/login';
+        }
+        
+        // 修改密码
+        function changePassword() {
+            const oldPwd = prompt('请输入旧密码:');
+            if (!oldPwd) return;
+            const newPwd = prompt('请输入新密码(至少6位):');
+            if (!newPwd || newPwd.length < 6) {
+                alert('密码长度至少6位');
+                return;
+            }
+            
+            fetch('/api/auth/change-password', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    ...getAuthHeaders()
+                },
+                body: JSON.stringify({ old_password: oldPwd, new_password: newPwd })
+            })
+            .then(r => r.json())
+            .then(data => {
+                alert(data.message);
+                if (data.success) {
+                    logout();
+                }
+            });
+        }
+        
+        // 更新模拟模式指示器
+        function updateSimModeIndicator() {
+            fetch('/api/system/simulation-mode', { headers: getAuthHeaders() })
+                .then(r => {
+                    if (!r.ok) throw new Error('请求失败');
+                    return r.json();
+                })
+                .then(data => {
+                    const indicator = document.getElementById('sim-mode-indicator');
+                    const text = document.getElementById('sim-mode-text');
+                    if (indicator && text) {
+                        if (data.simulation_mode) {
+                            // 模拟模式：显示提示
+                            text.textContent = '模拟模式';
+                            indicator.className = 'nav-link nav-sim-mode';
+                            indicator.title = '当前为模拟模式（使用仿真数据）';
+                            indicator.style.display = '';
+                        } else {
+                            // 真实模式：隐藏标识，不干扰操作
+                            indicator.style.display = 'none';
+                        }
+                    }
+                })
+                .catch(() => {});
+        }
+        
+
+        
+        // 简短提示框
+        function showToast(message, type) {
+            const toast = document.createElement('div');
+            toast.className = `alert alert-${type === 'success' ? 'success' : 'danger'} position-fixed top-0 end-0 m-3`;
+            toast.style.zIndex = '9999';
+            toast.style.minWidth = '300px';
+            toast.textContent = message;
+            document.body.appendChild(toast);
+            setTimeout(() => toast.remove(), 3000);
+        }
+        
+        // 页面加载时检查认证
+        document.addEventListener('DOMContentLoaded', function() {
+            checkAuth();
+            updateNavUserInfo();
+            updateSimModeIndicator();
+
+            // 兜底：确保Bootstrap dropdown正常工作（Tabler/Bootstrap共存兼容）
+            document.querySelectorAll('[data-bs-toggle="dropdown"]').forEach(function(el) {
+                if (!bootstrap.Dropdown.getInstance(el)) {
+                    new bootstrap.Dropdown(el);
+                }
+            });
+        });
+    </script>
+    
+    {% block extra_js %}{% endblock %}
+</body>
+</html>

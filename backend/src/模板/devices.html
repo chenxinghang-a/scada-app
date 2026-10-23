@@ -1,0 +1,1780 @@
+{% extends "base.html" %}
+
+{% block title %}设备管理 - 工业数据采集与监控系统{% endblock %}
+
+{% block extra_css %}
+<style>
+/* ==================== 设备管理页 ==================== */
+.page-head {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: var(--space-4);
+    flex-wrap: wrap;
+    margin-bottom: var(--space-4);
+}
+.page-head__title {
+    font-size: var(--font-xl);
+    font-weight: var(--weight-semibold);
+    color: var(--text-primary);
+    margin-bottom: var(--space-1);
+}
+.page-head__desc {
+    font-size: var(--font-sm);
+    color: var(--text-muted);
+    margin: 0;
+}
+/* 正文/标签字号下限：12px（原页面大量 10-11px 已清理） */
+.page-head__desc, .cell-sub, .form-text, .modal .form-text, #deviceForm small { font-size: var(--font-xs); }
+
+/* ---------- 工具栏 ---------- */
+.page-actions { display: flex; gap: var(--space-2); flex-wrap: wrap; }
+
+/* ---------- 表格：表头与行高统一 ---------- */
+.device-table { margin-bottom: 0; }
+.device-table thead th {
+    padding: var(--space-3) var(--space-3);
+    font-size: var(--font-xs);
+    font-weight: var(--weight-semibold);
+    color: var(--text-muted);
+    background: var(--bg-sunken);
+    border-bottom: 1px solid var(--border-strong);
+    white-space: nowrap;
+    vertical-align: middle;
+}
+.device-table tbody td {
+    padding: var(--space-3) var(--space-3);
+    font-size: var(--font-sm);
+    color: var(--text-primary);
+    border-bottom: 1px solid var(--border-base);
+    vertical-align: middle;
+}
+.device-table tbody tr:last-child td { border-bottom: 0; }
+.device-table tbody tr:hover td { background: var(--bg-hover); }
+/* 数值列：右对齐 + 等宽 */
+.device-table .col-num {
+    text-align: right;
+    font-family: var(--font-mono);
+    font-variant-numeric: tabular-nums;
+}
+.mono { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+.cell-title { font-weight: var(--weight-medium); color: var(--text-primary); }
+.cell-sub { color: var(--text-muted); }
+.addr { font-size: var(--font-xs); font-family: var(--font-mono); color: var(--text-secondary); }
+
+/* 中性标签：协议/型号等非状态信息，不使用语义色 */
+.tag--neutral {
+    background: var(--bg-sunken);
+    color: var(--text-secondary);
+    border: 1px solid var(--border-base);
+}
+.tag--mono { font-family: var(--font-mono); letter-spacing: 0.02em; }
+
+/* ---------- 操作按钮分组 ---------- */
+.cell-actions { display: flex; align-items: center; justify-content: flex-end; gap: var(--space-2); flex-wrap: wrap; }
+.action-group { display: inline-flex; align-items: center; gap: var(--space-1); }
+.action-group--danger { padding-left: var(--space-2); border-left: 1px solid var(--border-base); }
+.btn-icon {
+    width: 32px;
+    height: 32px;
+    padding: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: var(--font-sm);
+}
+/* 危险操作：统一使用 --color-danger */
+.btn-danger-token {
+    background: var(--color-danger);
+    border: 1px solid var(--color-danger);
+    color: var(--text-inverse);
+}
+.btn-danger-token:hover, .btn-danger-token:focus {
+    background: var(--color-danger);
+    border-color: var(--color-danger);
+    color: var(--text-inverse);
+    filter: brightness(0.92);
+}
+.btn-danger-outline-token {
+    background: transparent;
+    border: 1px solid var(--color-danger);
+    color: var(--color-danger);
+}
+.btn-danger-outline-token:hover, .btn-danger-outline-token:focus {
+    background: var(--color-danger-soft);
+    border-color: var(--color-danger);
+    color: var(--color-danger);
+}
+
+/* ---------- 空态 / 加载态 ---------- */
+.state-box { padding: var(--space-8) var(--space-4); text-align: center; }
+.state-box--inline { padding: var(--space-4); }
+.state-box__icon { display: block; font-size: 32px; color: var(--text-disabled); margin-bottom: var(--space-2); }
+.state-box__title { font-size: var(--font-base); color: var(--text-secondary); margin-bottom: var(--space-1); }
+.state-box__hint { font-size: var(--font-xs); color: var(--text-muted); }
+.state-box .spinner-border { color: var(--color-brand); }
+
+/* ---------- 弹窗表单 ---------- */
+.modal-content { border: 1px solid var(--border-base); border-radius: var(--radius-lg); background: var(--bg-surface); }
+.modal-header {
+    padding: var(--space-3) var(--space-4);
+    border-bottom: 1px solid var(--border-base);
+}
+.modal-header--warning { background: var(--color-warning-soft); color: var(--color-warning); }
+.modal-header--warning .modal-title { color: var(--color-warning); }
+.modal-title { font-size: var(--font-lg); font-weight: var(--weight-semibold); }
+.modal-body { padding: var(--space-4); }
+.modal-footer {
+    padding: var(--space-3) var(--space-4);
+    border-top: 1px solid var(--border-base);
+    gap: var(--space-2);
+}
+.modal .form-label {
+    font-size: var(--font-sm);
+    font-weight: var(--weight-medium);
+    color: var(--text-secondary);
+    margin-bottom: var(--space-1);
+}
+.modal .form-control, .modal .form-select { font-size: var(--font-sm); }
+.modal hr { border-color: var(--border-base); margin: var(--space-4) 0; }
+.modal h6 { color: var(--text-primary); font-weight: var(--weight-semibold); }
+.form-section-title {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-3);
+    font-size: var(--font-sm);
+    font-weight: var(--weight-semibold);
+    color: var(--text-primary);
+    margin: var(--space-4) 0 var(--space-3);
+    padding-bottom: var(--space-2);
+    border-bottom: 1px solid var(--border-base);
+}
+
+/* 数据点行：保持 .card 类（JS 依赖 .card 做收集与删除） */
+.protocol-fields .data-row {
+    background: var(--bg-sunken);
+    border: 1px solid var(--border-base);
+    border-left: 3px solid var(--color-brand);
+    border-radius: var(--radius-md);
+}
+.protocol-fields .data-row .field-label {
+    display: block;
+    font-size: var(--font-xs);
+    color: var(--text-muted);
+    margin-bottom: var(--space-1);
+}
+.protocol-fields .data-row .card-body { padding: var(--space-2) var(--space-3); }
+
+/* ---------- 预设 / 模板卡片 ---------- */
+.preset-card, .template-card {
+    border: 1px solid var(--border-base);
+    border-radius: var(--radius-md);
+    background: var(--bg-surface);
+    transition: border-color var(--duration-fast) var(--ease-out),
+                box-shadow var(--duration-fast) var(--ease-out);
+}
+.template-card:hover { border-color: var(--color-brand); box-shadow: var(--focus-ring); }
+.preset-card:hover { border-color: var(--color-success); box-shadow: var(--focus-ring); }
+.preset-card .card-title, .template-card .card-title { font-size: var(--font-base); color: var(--text-primary); }
+
+/* ---------- 浮动提示 ---------- */
+.alert-floating { box-shadow: var(--shadow-lg); font-size: var(--font-sm); }
+</style>
+{% endblock %}
+
+{% block breadcrumb %}
+<li class="breadcrumb-item active">设备管理</li>
+{% endblock %}
+
+{% block content %}
+<div class="page-head">
+    <div>
+        <h2 class="page-head__title"><i class="bi bi-hdd-rack me-2"></i>设备管理</h2>
+        <p class="page-head__desc">添加、编辑和监控工业设备（支持 Modbus / OPC UA / MQTT / REST）</p>
+    </div>
+    <div class="page-actions">
+        <button class="btn btn-success" onclick="showPresetsPanel()">
+            <i class="bi bi-grid-3x3-gap me-1"></i>预设设备
+        </button>
+        <button class="btn btn-primary" onclick="showAddDeviceModal()">
+            <i class="bi bi-plus-circle me-1"></i>自定义添加
+        </button>
+        <button class="btn btn-outline-secondary" onclick="loadDevices()">
+            <i class="bi bi-arrow-clockwise me-1"></i>刷新
+        </button>
+    </div>
+</div>
+
+<!-- 预设设备面板（默认隐藏） -->
+<div class="panel mb-4" id="presets-panel" style="display:none;">
+    <div class="panel__header">
+        <span><i class="bi bi-grid-3x3-gap me-2"></i>模拟设备预设 — 一键添加</span>
+        <div class="page-actions">
+            <button class="btn btn-sm btn-success" onclick="addAllPresets()">
+                <i class="bi bi-lightning me-1"></i>一键全部添加
+            </button>
+            <button class="btn btn-sm btn-outline-secondary btn-icon" onclick="hidePresetsPanel()" title="关闭" aria-label="关闭">
+                <i class="bi bi-x-lg"></i>
+            </button>
+        </div>
+    </div>
+    <div class="panel__body">
+        <!-- 分类标签 -->
+        <ul class="nav nav-pills mb-3" id="preset-category-tabs">
+            <li class="nav-item">
+                <button class="nav-link active" data-category="all" onclick="filterPresets('all')">全部</button>
+            </li>
+        </ul>
+        <!-- 预设卡片网格 -->
+        <div class="row" id="presets-grid">
+            <div class="col-12">
+                <div class="state-box state-box--inline"><span class="spinner-border spinner-border-sm me-2"></span>加载中…</div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 设备列表 -->
+<div class="panel">
+    <div class="panel__header">
+        <span><i class="bi bi-list-ul me-2"></i>设备列表</span>
+        <span class="tag tag--offline" id="devices-count">加载中…</span>
+    </div>
+    <div class="panel__body p-0">
+        <div class="table-responsive">
+            <table class="table table-hover device-table">
+                <thead>
+                    <tr>
+                        <th>设备ID</th>
+                        <th>设备名称</th>
+                        <th>协议</th>
+                        <th>地址</th>
+                        <th>状态</th>
+                        <th class="col-num">数据点</th>
+                        <th class="text-end">操作</th>
+                    </tr>
+                </thead>
+                <tbody id="devices-table-body">
+                    <tr>
+                        <td colspan="7">
+                            <div class="state-box"><span class="spinner-border me-2"></span>加载中…</div>
+                        </td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<!-- 添加/编辑设备模态框 -->
+<div class="modal fade" id="deviceModal" tabindex="-1">
+    <div class="modal-dialog modal-xl">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="deviceModalTitle">添加设备</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <form id="deviceForm">
+                    <input type="hidden" id="device-id-old" value="">
+                    
+                    <!-- 基本信息 -->
+                    <div class="form-section-title"><span><i class="bi bi-info-circle me-2"></i>基本信息</span></div>
+                    <div class="row mb-3">
+                        <div class="col-md-4">
+                            <label class="form-label">设备ID <span class="text-danger">*</span></label>
+                            <input type="text" class="form-control mono" id="device-id" required 
+                                   placeholder="如: temp_sensor_01" pattern="[a-zA-Z0-9_]+">
+                            <small class="text-muted">仅支持字母、数字和下划线</small>
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label">设备名称 <span class="text-danger">*</span></label>
+                            <input type="text" class="form-control" id="device-name" required
+                                   placeholder="如: 温度传感器1号">
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label">通信协议 <span class="text-danger">*</span></label>
+                            <select class="form-select" id="device-protocol" onchange="onProtocolChange()">
+                                <option value="modbus_tcp">Modbus TCP</option>
+                                <option value="modbus_rtu">Modbus RTU</option>
+                                <option value="opcua">OPC UA</option>
+                                <option value="mqtt">MQTT</option>
+                                <option value="rest">REST HTTP</option>
+                            </select>
+                        </div>
+                    </div>
+                    
+                    <div class="row mb-3">
+                        <div class="col-md-12">
+                            <label class="form-label">设备描述</label>
+                            <input type="text" class="form-control" id="device-description"
+                                   placeholder="如: 车间A温度监测点">
+                        </div>
+                    </div>
+
+                    <!-- 设备分类 -->
+                    <div class="row mb-3">
+                        <div class="col-md-6">
+                            <label class="form-label">设备分类</label>
+                            <select class="form-select" id="device_category" name="device_category">
+                                <option value="instrument">仪表/传感器（无启停）</option>
+                                <option value="mechanical">机械类（可停止/启动）</option>
+                                <option value="safety">安全设备（灯/蜂鸣器/继电器）</option>
+                            </select>
+                            <div class="form-text">机械类设备在设备管理中显示停止/启动按钮，E-STOP 时机械数据归零</div>
+                        </div>
+                    </div>
+
+                    <!-- 通用字段：采集间隔 + 启用状态 -->
+                    <div class="form-section-title"><span><i class="bi bi-sliders me-2"></i>采集与启用</span></div>
+                    <div class="row mb-3">
+                        <div class="col-md-6">
+                            <label class="form-label">采集间隔(秒)</label>
+                            <input type="number" class="form-control mono" id="device-interval"
+                                   value="5" min="1" max="3600">
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label">启用状态</label>
+                            <select class="form-select" id="device-enabled">
+                                <option value="true" selected>启用</option>
+                                <option value="false">禁用</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <!-- ==================== Modbus TCP/RTU 专属字段 ==================== -->
+                    <div id="modbus-fields" class="protocol-fields">
+                        <div class="form-section-title"><span><i class="bi bi-ethernet me-2"></i>Modbus 连接与寄存器</span></div>
+                        <div class="row mb-3">
+                            <div class="col-md-3">
+                                <label class="form-label">IP地址/串口 <span class="text-danger">*</span></label>
+                                <input type="text" class="form-control mono" id="device-host"
+                                       placeholder="192.168.1.100">
+                            </div>
+                            <div class="col-md-3">
+                                <label class="form-label">端口 <span class="text-danger">*</span></label>
+                                <input type="number" class="form-control mono" id="device-port"
+                                       value="502" min="1" max="65535">
+                            </div>
+                            <div class="col-md-3">
+                                <label class="form-label">从站地址</label>
+                                <input type="number" class="form-control mono" id="device-slave-id"
+                                       value="1" min="1" max="247">
+                            </div>
+                            <div class="col-md-3" id="modbus-rtu-extra" style="display:none;">
+                                <label class="form-label">波特率</label>
+                                <select class="form-select mono" id="device-baudrate">
+                                    <option value="9600">9600</option>
+                                    <option value="19200">19200</option>
+                                    <option value="38400">38400</option>
+                                    <option value="57600">57600</option>
+                                    <option value="115200" selected>115200</option>
+                                </select>
+                            </div>
+                        </div>
+                        
+                        <div class="form-section-title">
+                            <span>寄存器配置</span>
+                            <button type="button" class="btn btn-sm btn-outline-primary" onclick="addRegisterRow()">
+                                <i class="bi bi-plus"></i> 添加寄存器
+                            </button>
+                        </div>
+                        
+                        <div id="registers-container"></div>
+                        <div class="state-box state-box--inline" id="no-registers-hint">
+                            <div class="state-box__title"><i class="bi bi-info-circle me-2"></i>尚未配置寄存器</div>
+                            <div class="state-box__hint">点击上方「添加寄存器」，或使用模板快速配置</div>
+                        </div>
+                    </div>
+
+                    <!-- ==================== OPC UA 专属字段 ==================== -->
+                    <div id="opcua-fields" class="protocol-fields" style="display:none;">
+                        <div class="form-section-title"><span><i class="bi bi-diagram-3 me-2"></i>OPC UA 连接与节点</span></div>
+                        <div class="row mb-3">
+                            <div class="col-md-6">
+                                <label class="form-label">Endpoint URL <span class="text-danger">*</span></label>
+                                <input type="text" class="form-control mono" id="opcua-endpoint"
+                                       placeholder="opc.tcp://192.168.1.50:4840">
+                            </div>
+                            <div class="col-md-3">
+                                <label class="form-label">安全模式</label>
+                                <select class="form-select" id="opcua-security-mode">
+                                    <option value="None" selected>None</option>
+                                    <option value="Sign">Sign</option>
+                                    <option value="SignAndEncrypt">SignAndEncrypt</option>
+                                </select>
+                            </div>
+                            <div class="col-md-3">
+                                <label class="form-label">认证方式</label>
+                                <select class="form-select" id="opcua-auth-type" onchange="toggleOpcuaAuth()">
+                                    <option value="anonymous" selected>匿名</option>
+                                    <option value="username">用户名/密码</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div class="row mb-3" id="opcua-auth-row" style="display:none;">
+                            <div class="col-md-6">
+                                <label class="form-label">用户名</label>
+                                <input type="text" class="form-control" id="opcua-username" placeholder="operator">
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label">密码</label>
+                                <input type="password" class="form-control" id="opcua-password" placeholder="••••••">
+                            </div>
+                        </div>
+                        
+                        <div class="form-section-title">
+                            <span>节点配置</span>
+                            <button type="button" class="btn btn-sm btn-outline-primary" onclick="addNodeRow()">
+                                <i class="bi bi-plus"></i> 添加节点
+                            </button>
+                        </div>
+                        
+                        <div id="nodes-container"></div>
+                        <div class="state-box state-box--inline" id="no-nodes-hint">
+                            <div class="state-box__title"><i class="bi bi-info-circle me-2"></i>尚未配置节点</div>
+                            <div class="state-box__hint">点击上方「添加节点」补充 OPC UA 节点</div>
+                        </div>
+                    </div>
+
+                    <!-- ==================== MQTT 专属字段 ==================== -->
+                    <div id="mqtt-fields" class="protocol-fields" style="display:none;">
+                        <div class="form-section-title"><span><i class="bi bi-broadcast me-2"></i>MQTT 连接与主题</span></div>
+                        <div class="row mb-3">
+                            <div class="col-md-3">
+                                <label class="form-label">Broker地址 <span class="text-danger">*</span></label>
+                                <input type="text" class="form-control mono" id="mqtt-host"
+                                       placeholder="192.168.1.200">
+                            </div>
+                            <div class="col-md-3">
+                                <label class="form-label">端口 <span class="text-danger">*</span></label>
+                                <input type="number" class="form-control mono" id="mqtt-port"
+                                       value="1883" min="1" max="65535">
+                            </div>
+                            <div class="col-md-3">
+                                <label class="form-label">用户名</label>
+                                <input type="text" class="form-control" id="mqtt-username" placeholder="可选">
+                            </div>
+                            <div class="col-md-3">
+                                <label class="form-label">密码</label>
+                                <input type="password" class="form-control" id="mqtt-password" placeholder="可选">
+                            </div>
+                        </div>
+                        
+                        <div class="form-section-title">
+                            <span>主题订阅</span>
+                            <button type="button" class="btn btn-sm btn-outline-primary" onclick="addTopicRow()">
+                                <i class="bi bi-plus"></i> 添加主题
+                            </button>
+                        </div>
+                        
+                        <div id="topics-container"></div>
+                        <div class="state-box state-box--inline" id="no-topics-hint">
+                            <div class="state-box__title"><i class="bi bi-info-circle me-2"></i>尚未配置订阅主题</div>
+                            <div class="state-box__hint">点击上方「添加主题」订阅 MQTT 数据点</div>
+                        </div>
+                    </div>
+
+                    <!-- ==================== REST HTTP 专属字段 ==================== -->
+                    <div id="rest-fields" class="protocol-fields" style="display:none;">
+                        <div class="form-section-title"><span><i class="bi bi-cloud-arrow-down me-2"></i>REST 连接与端点</span></div>
+                        <div class="row mb-3">
+                            <div class="col-md-4">
+                                <label class="form-label">Base URL <span class="text-danger">*</span></label>
+                                <input type="text" class="form-control mono" id="rest-base-url"
+                                       placeholder="http://192.168.1.250/api">
+                            </div>
+                            <div class="col-md-2">
+                                <label class="form-label">轮询间隔(秒)</label>
+                                <input type="number" class="form-control mono" id="rest-poll-interval"
+                                       value="10" min="1" max="3600">
+                            </div>
+                            <div class="col-md-3">
+                                <label class="form-label">认证方式</label>
+                                <select class="form-select" id="rest-auth-type" onchange="toggleRestAuth()">
+                                    <option value="none" selected>无认证</option>
+                                    <option value="bearer">Bearer Token</option>
+                                    <option value="basic">Basic Auth</option>
+                                    <option value="api_key">API Key</option>
+                                </select>
+                            </div>
+                            <div class="col-md-3" id="rest-token-col">
+                                <label class="form-label" id="rest-auth-label">Token</label>
+                                <input type="text" class="form-control mono" id="rest-auth-token" placeholder="Bearer Token">
+                            </div>
+                        </div>
+                        <div class="row mb-3" id="rest-basic-auth-row" style="display:none;">
+                            <div class="col-md-6">
+                                <label class="form-label">用户名</label>
+                                <input type="text" class="form-control" id="rest-auth-username" placeholder="admin">
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label">密码</label>
+                                <input type="password" class="form-control" id="rest-auth-password" placeholder="••••••">
+                            </div>
+                        </div>
+                        
+                        <div class="form-section-title">
+                            <span>API端点</span>
+                            <button type="button" class="btn btn-sm btn-outline-primary" onclick="addEndpointRow()">
+                                <i class="bi bi-plus"></i> 添加端点
+                            </button>
+                        </div>
+                        
+                        <div id="endpoints-container"></div>
+                        <div class="state-box state-box--inline" id="no-endpoints-hint">
+                            <div class="state-box__title"><i class="bi bi-info-circle me-2"></i>尚未配置 API 端点</div>
+                            <div class="state-box__hint">点击上方「添加端点」补充 REST 数据源</div>
+                        </div>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-outline-info" onclick="showTemplatesModal()">
+                    <i class="bi bi-file-earmark-code me-1"></i>使用模板
+                </button>
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+                <button type="button" class="btn btn-primary" onclick="saveDevice()">
+                    <i class="bi bi-check-lg me-1"></i>保存
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 模板选择模态框 -->
+<div class="modal fade" id="templatesModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">选择设备模板</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div class="row" id="templates-container">
+                    <!-- 模板卡片将在这里动态加载 -->
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 连接测试结果模态框 -->
+<div class="modal fade" id="testResultModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">连接测试结果</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body" id="test-result-content">
+                <!-- 测试结果将在这里显示 -->
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">关闭</button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+// 设备列表缓存
+let devicesList = [];
+// 编辑态下采集周期的初始显示值。设备状态接口不返回 collection_interval，
+// 表单里显示的是兜底值 5；保存时若用户没动过这一栏就不回传，避免把真实周期
+// 悄悄改成 5（null 表示新增设备，正常回传）。
+let editIntervalDisplayed = null;
+
+// 页面加载时获取设备列表
+document.addEventListener('DOMContentLoaded', function() {
+    loadDevices();
+});
+
+// ==================== 协议切换逻辑 ====================
+
+function onProtocolChange() {
+    const protocol = document.getElementById('device-protocol').value;
+    
+    // 隐藏所有协议专属区域
+    document.querySelectorAll('.protocol-fields').forEach(el => el.style.display = 'none');
+    
+    // 根据协议显示对应区域
+    if (protocol === 'modbus_tcp' || protocol === 'modbus_rtu') {
+        document.getElementById('modbus-fields').style.display = 'block';
+        // Modbus RTU 显示波特率、隐藏端口
+        document.getElementById('modbus-rtu-extra').style.display = protocol === 'modbus_rtu' ? 'block' : 'none';
+    } else if (protocol === 'opcua') {
+        document.getElementById('opcua-fields').style.display = 'block';
+    } else if (protocol === 'mqtt') {
+        document.getElementById('mqtt-fields').style.display = 'block';
+    } else if (protocol === 'rest') {
+        document.getElementById('rest-fields').style.display = 'block';
+    }
+}
+
+// OPC UA 认证切换
+function toggleOpcuaAuth() {
+    const authType = document.getElementById('opcua-auth-type').value;
+    document.getElementById('opcua-auth-row').style.display = authType === 'username' ? 'flex' : 'none';
+}
+
+// REST 认证切换
+function toggleRestAuth() {
+    const authType = document.getElementById('rest-auth-type').value;
+    const tokenCol = document.getElementById('rest-token-col');
+    const basicRow = document.getElementById('rest-basic-auth-row');
+    const authLabel = document.getElementById('rest-auth-label');
+    
+    if (authType === 'none') {
+        tokenCol.style.display = 'none';
+        basicRow.style.display = 'none';
+    } else if (authType === 'basic') {
+        tokenCol.style.display = 'none';
+        basicRow.style.display = 'flex';
+    } else {
+        tokenCol.style.display = 'block';
+        basicRow.style.display = 'none';
+        if (authType === 'bearer') {
+            authLabel.textContent = 'Bearer Token';
+            document.getElementById('rest-auth-token').placeholder = 'Bearer Token';
+        } else {
+            authLabel.textContent = 'API Key';
+            document.getElementById('rest-auth-token').placeholder = 'API Key';
+        }
+    }
+}
+
+// ==================== 设备列表加载 & 渲染 ====================
+
+// 加载态：表体
+function renderTableLoading() {
+    const tbody = document.getElementById('devices-table-body');
+    if (!tbody) return;
+    tbody.innerHTML = `
+        <tr>
+            <td colspan="7">
+                <div class="state-box"><span class="spinner-border me-2"></span>加载中…</div>
+            </td>
+        </tr>
+    `;
+    const countEl = document.getElementById('devices-count');
+    if (countEl) countEl.textContent = '加载中…';
+}
+
+// 空态：表体
+function renderTableEmpty() {
+    const tbody = document.getElementById('devices-table-body');
+    if (!tbody) return;
+    tbody.innerHTML = `
+        <tr>
+            <td colspan="7">
+                <div class="state-box">
+                    <i class="bi bi-inbox state-box__icon"></i>
+                    <div class="state-box__title">暂无设备</div>
+                    <div class="state-box__hint">点击右上角「预设设备」一键添加，或「自定义添加」手工配置</div>
+                </div>
+            </td>
+        </tr>
+    `;
+}
+
+async function loadDevices() {
+    renderTableLoading();
+    try {
+        const response = await fetch('/api/devices', {
+            headers: getAuthHeaders()
+        });
+        const data = await response.json();
+        
+        if (data.devices) {
+            devicesList = data.devices;
+            renderDevicesTable(data.devices);
+        } else {
+            devicesList = [];
+            renderTableEmpty();
+        }
+    } catch (error) {
+        console.error('加载设备列表失败:', error);
+        renderTableEmpty();
+        showAlert('加载设备列表失败', 'danger');
+    }
+}
+
+function getDeviceAddress(device) {
+    const p = device.protocol || 'modbus_tcp';
+    if (p === 'modbus_tcp' || p === 'modbus_rtu') {
+        return `${device.host || '-'}:${device.port || '-'}`;
+    } else if (p === 'opcua') {
+        return device.endpoint || '-';
+    } else if (p === 'mqtt') {
+        return `${device.host || '-'}:${device.port || '-'}`;
+    } else if (p === 'rest') {
+        return device.base_url || '-';
+    }
+    return '-';
+}
+
+function getDataPointCount(device) {
+    const p = device.protocol || 'modbus_tcp';
+    if (p === 'modbus_tcp' || p === 'modbus_rtu') {
+        return device.registers ? device.registers.length : 0;
+    } else if (p === 'opcua') {
+        return device.nodes ? device.nodes.length : 0;
+    } else if (p === 'mqtt') {
+        return device.topics ? device.topics.length : 0;
+    } else if (p === 'rest') {
+        return device.endpoints ? device.endpoints.length : 0;
+    }
+    return 0;
+}
+
+function renderDevicesTable(devices) {
+    const tbody = document.getElementById('devices-table-body');
+    const countEl = document.getElementById('devices-count');
+    if (countEl) countEl.textContent = `${devices.length} 台设备`;
+    
+    if (devices.length === 0) {
+        renderTableEmpty();
+        return;
+    }
+    
+    tbody.innerHTML = devices.map(device => {
+        const protocol = device.protocol || 'modbus_tcp';
+        const isMechanical = device.device_category === 'mechanical';
+        const stopped = !!device.stopped;
+        const online = !!device.connected;
+        const disabled = device.enabled === false;
+
+        // 状态 → 语义标签（停止=危险 / 在线=正常 / 禁用=离线 / 其它=警告）
+        let statusTag, statusDot, statusText;
+        if (stopped) {
+            statusTag = 'tag--danger'; statusDot = 'status-dot--danger'; statusText = '已停止';
+        } else if (online) {
+            statusTag = 'tag--success'; statusDot = 'status-dot--success'; statusText = '在线';
+        } else if (disabled) {
+            statusTag = 'tag--offline'; statusDot = 'status-dot--offline'; statusText = '已禁用';
+        } else {
+            statusTag = 'tag--warning'; statusDot = 'status-dot--warning'; statusText = '离线';
+        }
+
+        return `
+        <tr>
+            <td><code class="mono">${device.device_id}</code></td>
+            <td>
+                <div class="cell-title">${device.name}</div>
+                <div class="cell-sub">${device.description || '—'}</div>
+            </td>
+            <td><span class="tag tag--neutral tag--mono">${protocol.toUpperCase()}</span></td>
+            <td><span class="addr">${getDeviceAddress(device)}</span></td>
+            <td><span class="tag ${statusTag}"><span class="status-dot ${statusDot}"></span>${statusText}</span></td>
+            <td class="col-num">${getDataPointCount(device)}</td>
+            <td class="text-end">
+                <div class="cell-actions">
+                    <div class="action-group">
+                        <button class="btn btn-outline-secondary btn-icon" onclick="testDevice('${device.device_id}')" title="测试连接" aria-label="测试连接">
+                            <i class="bi bi-wifi"></i>
+                        </button>
+                        <button class="btn btn-outline-secondary btn-icon" onclick="editDevice('${device.device_id}')" title="编辑设备" aria-label="编辑设备">
+                            <i class="bi bi-pencil"></i>
+                        </button>
+                        <button class="btn btn-outline-info btn-icon" onclick="viewDeviceData('${device.device_id}')" title="查看数据" aria-label="查看数据" style="display:none">
+                            <i class="bi bi-graph-up"></i>
+                        </button>
+                    </div>
+                    <div class="action-group">
+                        ${isMechanical && !stopped ?
+                        `<button class="btn btn-danger-outline-token btn-icon" onclick="stopDevice('${device.device_id}')" title="停止设备（需二次确认）" aria-label="停止设备">
+                            <i class="bi bi-stop-circle"></i>
+                        </button>` : ''}
+                        ${isMechanical && stopped ?
+                        `<button class="btn btn-outline-success btn-icon" onclick="startDevice('${device.device_id}')" title="启动设备" aria-label="启动设备">
+                            <i class="bi bi-play-circle"></i>
+                        </button>` : ''}
+                        <button class="btn btn-outline-warning btn-icon" onclick="showFaultInjectionModal('${device.device_id}')" title="故障注入（测试用）" aria-label="故障注入">
+                            <i class="bi bi-exclamation-triangle"></i>
+                        </button>
+                    </div>
+                    <div class="action-group action-group--danger">
+                        <button class="btn btn-danger-token btn-icon" onclick="deleteDevice('${device.device_id}')" title="删除设备（不可恢复，需二次确认）" aria-label="删除设备">
+                            <i class="bi bi-trash"></i>
+                        </button>
+                    </div>
+                </div>
+            </td>
+        </tr>
+        `;
+    }).join('');
+}
+
+// ==================== 添加/编辑设备 ====================
+
+function resetAllProtocolFields() {
+    document.getElementById('registers-container').innerHTML = '';
+    document.getElementById('nodes-container').innerHTML = '';
+    document.getElementById('topics-container').innerHTML = '';
+    document.getElementById('endpoints-container').innerHTML = '';
+    document.getElementById('no-registers-hint').style.display = 'block';
+    document.getElementById('no-nodes-hint').style.display = 'block';
+    document.getElementById('no-topics-hint').style.display = 'block';
+    document.getElementById('no-endpoints-hint').style.display = 'block';
+}
+
+function showAddDeviceModal() {
+    document.getElementById('deviceModalTitle').textContent = '添加设备';
+    document.getElementById('device-id-old').value = '';
+    document.getElementById('deviceForm').reset();
+    document.getElementById('device-id').disabled = false;
+    
+    // 默认值
+    document.getElementById('device-port').value = '502';
+    document.getElementById('device-slave-id').value = '1';
+    document.getElementById('device-interval').value = '5';
+    document.getElementById('device-enabled').value = 'true';
+    document.getElementById('mqtt-port').value = '1883';
+    document.getElementById('rest-poll-interval').value = '10';
+    editIntervalDisplayed = null;   // 新增设备：采集周期按输入框实际值回传
+    
+    resetAllProtocolFields();
+    onProtocolChange();
+    
+    const modal = new bootstrap.Modal(document.getElementById('deviceModal'));
+    modal.show();
+}
+
+function editDevice(deviceId) {
+    const device = devicesList.find(d => d.device_id === deviceId);
+    if (!device) return;
+    
+    document.getElementById('deviceModalTitle').textContent = '编辑设备';
+    document.getElementById('device-id-old').value = deviceId;
+    document.getElementById('device-id').value = deviceId;
+    document.getElementById('device-id').disabled = true;
+    document.getElementById('device-name').value = device.name || '';
+    document.getElementById('device-description').value = device.description || '';
+    document.getElementById('device-protocol').value = device.protocol || 'modbus_tcp';
+    document.getElementById('device-interval').value = device.collection_interval || 5;
+    editIntervalDisplayed = document.getElementById('device-interval').value;
+    document.getElementById('device-enabled').value = device.enabled !== false ? 'true' : 'false';
+    
+    resetAllProtocolFields();
+    onProtocolChange();
+    
+    const protocol = device.protocol || 'modbus_tcp';
+    
+    if (protocol === 'modbus_tcp' || protocol === 'modbus_rtu') {
+        document.getElementById('device-host').value = device.host || '';
+        document.getElementById('device-port').value = device.port || 502;
+        document.getElementById('device-slave-id').value = device.slave_id || 1;
+        if (protocol === 'modbus_rtu') {
+            document.getElementById('device-baudrate').value = device.baudrate || 115200;
+        }
+        if (device.registers && device.registers.length > 0) {
+            device.registers.forEach(reg => addRegisterRow(reg));
+            document.getElementById('no-registers-hint').style.display = 'none';
+        }
+    } else if (protocol === 'opcua') {
+        document.getElementById('opcua-endpoint').value = device.endpoint || '';
+        document.getElementById('opcua-security-mode').value = device.security_mode || 'None';
+        if (device.username) {
+            document.getElementById('opcua-auth-type').value = 'username';
+            document.getElementById('opcua-username').value = device.username || '';
+            document.getElementById('opcua-password').value = device.password || '';
+        } else {
+            document.getElementById('opcua-auth-type').value = 'anonymous';
+        }
+        toggleOpcuaAuth();
+        if (device.nodes && device.nodes.length > 0) {
+            device.nodes.forEach(node => addNodeRow(node));
+            document.getElementById('no-nodes-hint').style.display = 'none';
+        }
+    } else if (protocol === 'mqtt') {
+        document.getElementById('mqtt-host').value = device.host || '';
+        document.getElementById('mqtt-port').value = device.port || 1883;
+        document.getElementById('mqtt-username').value = device.username || '';
+        document.getElementById('mqtt-password').value = device.password || '';
+        if (device.topics && device.topics.length > 0) {
+            device.topics.forEach(topic => addTopicRow(topic));
+            document.getElementById('no-topics-hint').style.display = 'none';
+        }
+    } else if (protocol === 'rest') {
+        document.getElementById('rest-base-url').value = device.base_url || '';
+        document.getElementById('rest-poll-interval').value = device.poll_interval || 10;
+        document.getElementById('rest-auth-type').value = device.auth_type || 'none';
+        if (device.auth_type === 'bearer' || device.auth_type === 'api_key') {
+            document.getElementById('rest-auth-token').value = device.auth_token || '';
+        } else if (device.auth_type === 'basic') {
+            document.getElementById('rest-auth-username').value = device.auth_username || '';
+            document.getElementById('rest-auth-password').value = device.auth_password || '';
+        }
+        toggleRestAuth();
+        if (device.endpoints && device.endpoints.length > 0) {
+            device.endpoints.forEach(ep => addEndpointRow(ep));
+            document.getElementById('no-endpoints-hint').style.display = 'none';
+        }
+    }
+    
+    const modal = new bootstrap.Modal(document.getElementById('deviceModal'));
+    modal.show();
+}
+
+// ==================== 数据点行添加函数 ====================
+
+// Modbus 寄存器行（保持 .card 类：collectDataPoints / 删除按钮依赖）
+function addRegisterRow(reg = null) {
+    const container = document.getElementById('registers-container');
+    
+    const row = document.createElement('div');
+    row.className = 'card data-row mb-2';
+    row.innerHTML = `
+        <div class="card-body">
+            <div class="row g-2 align-items-end">
+                <div class="col-md-2">
+                    <label class="field-label">名称</label>
+                    <input type="text" class="form-control form-control-sm" placeholder="名称" 
+                           value="${reg ? reg.name : ''}" data-field="name" required>
+                </div>
+                <div class="col-md-2">
+                    <label class="field-label">描述</label>
+                    <input type="text" class="form-control form-control-sm" placeholder="描述" 
+                           value="${reg ? reg.description : ''}" data-field="description">
+                </div>
+                <div class="col-md-1">
+                    <label class="field-label">地址</label>
+                    <input type="number" class="form-control form-control-sm mono" placeholder="地址" 
+                           value="${reg ? reg.address : 0}" data-field="address" min="0">
+                </div>
+                <div class="col-md-1">
+                    <label class="field-label">长度</label>
+                    <input type="number" class="form-control form-control-sm mono" placeholder="长度" 
+                           value="${reg ? reg.length : 1}" data-field="length" min="1">
+                </div>
+                <div class="col-md-2">
+                    <label class="field-label">数据类型</label>
+                    <select class="form-select form-select-sm mono" data-field="data_type">
+                        <option value="float32" ${reg && reg.data_type === 'float32' ? 'selected' : ''}>Float32</option>
+                        <option value="float64" ${reg && reg.data_type === 'float64' ? 'selected' : ''}>Float64</option>
+                        <option value="uint16" ${reg && reg.data_type === 'uint16' ? 'selected' : ''}>UInt16</option>
+                        <option value="int16" ${reg && reg.data_type === 'int16' ? 'selected' : ''}>Int16</option>
+                        <option value="uint32" ${reg && reg.data_type === 'uint32' ? 'selected' : ''}>UInt32</option>
+                    </select>
+                </div>
+                <div class="col-md-1">
+                    <label class="field-label">缩放</label>
+                    <input type="number" class="form-control form-control-sm mono" placeholder="缩放" 
+                           value="${reg ? reg.scale : 1}" data-field="scale" step="0.001">
+                </div>
+                <div class="col-md-2">
+                    <label class="field-label">单位</label>
+                    <input type="text" class="form-control form-control-sm" placeholder="单位" 
+                           value="${reg ? reg.unit : ''}" data-field="unit">
+                </div>
+                <div class="col-md-1 text-end">
+                    <button type="button" class="btn btn-sm btn-danger-outline-token btn-icon" title="移除该寄存器" aria-label="移除该寄存器"
+                            onclick="this.closest('.card').remove()">
+                        <i class="bi bi-x"></i>
+                    </button>
+                </div>
+            </div>
+        </div>
+    `;
+    
+    container.appendChild(row);
+    document.getElementById('no-registers-hint').style.display = 'none';
+}
+
+// OPC UA 节点行
+function addNodeRow(node = null) {
+    const container = document.getElementById('nodes-container');
+    
+    const row = document.createElement('div');
+    row.className = 'card data-row mb-2';
+    row.innerHTML = `
+        <div class="card-body">
+            <div class="row g-2 align-items-end">
+                <div class="col-md-4">
+                    <label class="field-label">节点ID</label>
+                    <input type="text" class="form-control form-control-sm mono" placeholder="节点ID (如 ns=3;s=Temperature)" 
+                           value="${node ? node.node_id : ''}" data-field="node_id" required>
+                </div>
+                <div class="col-md-2">
+                    <label class="field-label">名称</label>
+                    <input type="text" class="form-control form-control-sm" placeholder="名称" 
+                           value="${node ? node.name : ''}" data-field="name" required>
+                </div>
+                <div class="col-md-3">
+                    <label class="field-label">描述</label>
+                    <input type="text" class="form-control form-control-sm" placeholder="描述" 
+                           value="${node ? (node.description || '') : ''}" data-field="description">
+                </div>
+                <div class="col-md-2">
+                    <label class="field-label">单位</label>
+                    <input type="text" class="form-control form-control-sm" placeholder="单位" 
+                           value="${node ? node.unit : ''}" data-field="unit">
+                </div>
+                <div class="col-md-1 text-end">
+                    <button type="button" class="btn btn-sm btn-danger-outline-token btn-icon" title="移除该节点" aria-label="移除该节点"
+                            onclick="this.closest('.card').remove()">
+                        <i class="bi bi-x"></i>
+                    </button>
+                </div>
+            </div>
+        </div>
+    `;
+    
+    container.appendChild(row);
+    document.getElementById('no-nodes-hint').style.display = 'none';
+}
+
+// MQTT 主题行
+function addTopicRow(topic = null) {
+    const container = document.getElementById('topics-container');
+    
+    const row = document.createElement('div');
+    row.className = 'card data-row mb-2';
+    row.innerHTML = `
+        <div class="card-body">
+            <div class="row g-2 align-items-end">
+                <div class="col-md-4">
+                    <label class="field-label">主题</label>
+                    <input type="text" class="form-control form-control-sm mono" placeholder="主题 (如 factory/workshop_a/temp)" 
+                           value="${topic ? topic.topic : ''}" data-field="topic" required>
+                </div>
+                <div class="col-md-2">
+                    <label class="field-label">名称</label>
+                    <input type="text" class="form-control form-control-sm" placeholder="名称" 
+                           value="${topic ? topic.name : ''}" data-field="name" required>
+                </div>
+                <div class="col-md-2">
+                    <label class="field-label">JSON路径</label>
+                    <input type="text" class="form-control form-control-sm mono" placeholder="JSON路径" 
+                           value="${topic ? (topic.json_path || 'value') : 'value'}" data-field="json_path">
+                </div>
+                <div class="col-md-2">
+                    <label class="field-label">单位</label>
+                    <input type="text" class="form-control form-control-sm" placeholder="单位" 
+                           value="${topic ? topic.unit : ''}" data-field="unit">
+                </div>
+                <div class="col-md-1 text-end">
+                    <button type="button" class="btn btn-sm btn-danger-outline-token btn-icon" title="移除该主题" aria-label="移除该主题"
+                            onclick="this.closest('.card').remove()">
+                        <i class="bi bi-x"></i>
+                    </button>
+                </div>
+            </div>
+        </div>
+    `;
+    
+    container.appendChild(row);
+    document.getElementById('no-topics-hint').style.display = 'none';
+}
+
+// REST 端点行
+function addEndpointRow(ep = null) {
+    const container = document.getElementById('endpoints-container');
+    
+    const row = document.createElement('div');
+    row.className = 'card data-row mb-2';
+    row.innerHTML = `
+        <div class="card-body">
+            <div class="row g-2 align-items-end">
+                <div class="col-md-3">
+                    <label class="field-label">路径</label>
+                    <input type="text" class="form-control form-control-sm mono" placeholder="路径 (如 /sensors/temp)" 
+                           value="${ep ? ep.path : ''}" data-field="path" required>
+                </div>
+                <div class="col-md-2">
+                    <label class="field-label">名称</label>
+                    <input type="text" class="form-control form-control-sm" placeholder="名称" 
+                           value="${ep ? ep.name : ''}" data-field="name" required>
+                </div>
+                <div class="col-md-1">
+                    <label class="field-label">方法</label>
+                    <select class="form-select form-select-sm mono" data-field="method">
+                        <option value="GET" ${!ep || ep.method === 'GET' ? 'selected' : ''}>GET</option>
+                        <option value="POST" ${ep && ep.method === 'POST' ? 'selected' : ''}>POST</option>
+                    </select>
+                </div>
+                <div class="col-md-2">
+                    <label class="field-label">JSON路径</label>
+                    <input type="text" class="form-control form-control-sm mono" placeholder="JSON路径" 
+                           value="${ep ? (ep.json_path || 'value') : 'value'}" data-field="json_path">
+                </div>
+                <div class="col-md-2">
+                    <label class="field-label">单位</label>
+                    <input type="text" class="form-control form-control-sm" placeholder="单位" 
+                           value="${ep ? ep.unit : ''}" data-field="unit">
+                </div>
+                <div class="col-md-1 text-end">
+                    <button type="button" class="btn btn-sm btn-danger-outline-token btn-icon" title="移除该端点" aria-label="移除该端点"
+                            onclick="this.closest('.card').remove()">
+                        <i class="bi bi-x"></i>
+                    </button>
+                </div>
+            </div>
+        </div>
+    `;
+    
+    container.appendChild(row);
+    document.getElementById('no-endpoints-hint').style.display = 'none';
+}
+
+// ==================== 保存设备 ====================
+
+function collectDataPoints(containerSelector) {
+    const items = [];
+    document.querySelectorAll(containerSelector + ' .card').forEach(card => {
+        const item = {};
+        card.querySelectorAll('[data-field]').forEach(input => {
+            const field = input.dataset.field;
+            let value = input.value;
+            if (['address', 'length'].includes(field)) {
+                value = parseInt(value) || 0;
+            } else if (field === 'scale') {
+                value = parseFloat(value) || 1;
+            }
+            item[field] = value;
+        });
+        // 至少有 name 或 topic/node_id/path 才算有效
+        if (item.name || item.topic || item.node_id || item.path) {
+            items.push(item);
+        }
+    });
+    return items;
+}
+
+async function saveDevice() {
+    const deviceId = document.getElementById('device-id').value.trim();
+    const deviceIdOld = document.getElementById('device-id-old').value;
+    const isEdit = !!deviceIdOld;
+    
+    if (!deviceId) {
+        showAlert('请输入设备ID', 'warning');
+        return;
+    }
+    
+    const name = document.getElementById('device-name').value.trim();
+    if (!name) {
+        showAlert('请输入设备名称', 'warning');
+        return;
+    }
+    
+    const protocol = document.getElementById('device-protocol').value;
+    
+    // 根据协议构建配置
+    const intervalInput = document.getElementById('device-interval').value;
+    const deviceConfig = {
+        id: deviceId,
+        name: name,
+        description: document.getElementById('device-description').value.trim(),
+        protocol: protocol,
+        enabled: document.getElementById('device-enabled').value === 'true'
+    };
+    // 编辑态且用户未改动采集周期 → 不回传该字段，保留设备原有周期
+    if (!isEdit || intervalInput !== editIntervalDisplayed) {
+        deviceConfig.collection_interval = parseInt(intervalInput) || 5;
+    }
+    
+    if (protocol === 'modbus_tcp' || protocol === 'modbus_rtu') {
+        const host = document.getElementById('device-host').value.trim();
+        if (!host) { showAlert('请输入IP地址/串口', 'warning'); return; }
+        deviceConfig.host = host;
+        deviceConfig.port = parseInt(document.getElementById('device-port').value) || 502;
+        deviceConfig.slave_id = parseInt(document.getElementById('device-slave-id').value) || 1;
+        deviceConfig.registers = collectDataPoints('#registers-container');
+        if (protocol === 'modbus_rtu') {
+            deviceConfig.baudrate = parseInt(document.getElementById('device-baudrate').value) || 115200;
+        }
+    } else if (protocol === 'opcua') {
+        const endpoint = document.getElementById('opcua-endpoint').value.trim();
+        if (!endpoint) { showAlert('请输入 OPC UA Endpoint URL', 'warning'); return; }
+        deviceConfig.endpoint = endpoint;
+        deviceConfig.security_mode = document.getElementById('opcua-security-mode').value;
+        const authType = document.getElementById('opcua-auth-type').value;
+        if (authType === 'username') {
+            deviceConfig.username = document.getElementById('opcua-username').value.trim();
+            deviceConfig.password = document.getElementById('opcua-password').value;
+        }
+        deviceConfig.nodes = collectDataPoints('#nodes-container');
+        if (deviceConfig.nodes.length === 0) { showAlert('请至少添加一个 OPC UA 节点', 'warning'); return; }
+    } else if (protocol === 'mqtt') {
+        const host = document.getElementById('mqtt-host').value.trim();
+        if (!host) { showAlert('请输入 MQTT Broker 地址', 'warning'); return; }
+        deviceConfig.host = host;
+        deviceConfig.port = parseInt(document.getElementById('mqtt-port').value) || 1883;
+        const username = document.getElementById('mqtt-username').value.trim();
+        const password = document.getElementById('mqtt-password').value;
+        if (username) {
+            deviceConfig.username = username;
+            deviceConfig.password = password;
+        }
+        deviceConfig.topics = collectDataPoints('#topics-container');
+        if (deviceConfig.topics.length === 0) { showAlert('请至少添加一个 MQTT 主题', 'warning'); return; }
+    } else if (protocol === 'rest') {
+        const baseUrl = document.getElementById('rest-base-url').value.trim();
+        if (!baseUrl) { showAlert('请输入 REST Base URL', 'warning'); return; }
+        deviceConfig.base_url = baseUrl;
+        deviceConfig.poll_interval = parseInt(document.getElementById('rest-poll-interval').value) || 10;
+        const authType = document.getElementById('rest-auth-type').value;
+        if (authType !== 'none') {
+            deviceConfig.auth_type = authType;
+            if (authType === 'bearer' || authType === 'api_key') {
+                deviceConfig.auth_token = document.getElementById('rest-auth-token').value.trim();
+            } else if (authType === 'basic') {
+                deviceConfig.auth_username = document.getElementById('rest-auth-username').value.trim();
+                deviceConfig.auth_password = document.getElementById('rest-auth-password').value;
+            }
+        }
+        deviceConfig.endpoints = collectDataPoints('#endpoints-container');
+        if (deviceConfig.endpoints.length === 0) { showAlert('请至少添加一个 REST 端点', 'warning'); return; }
+    }
+    
+    try {
+        const url = isEdit ? `/api/devices/${deviceIdOld}` : '/api/devices';
+        const method = isEdit ? 'PUT' : 'POST';
+        
+        const response = await fetch(url, {
+            method: method,
+            headers: {
+                'Content-Type': 'application/json',
+                ...getAuthHeaders()
+            },
+            body: JSON.stringify(deviceConfig)
+        });
+        
+        if (!response.ok) {
+            const errorText = await response.text().catch(() => '未知错误');
+            showAlert(`保存失败 (${response.status}): ${errorText}`, 'danger');
+            return;
+        }
+        
+        const result = await response.json();
+        
+        if (result.success) {
+            showAlert(result.message, 'success');
+            bootstrap.Modal.getInstance(document.getElementById('deviceModal')).hide();
+            loadDevices();
+        } else {
+            showAlert(result.message || '保存失败', 'danger');
+        }
+    } catch (error) {
+        console.error('保存设备失败:', error);
+        showAlert('保存失败: ' + error.message, 'danger');
+    }
+}
+
+// ==================== 查看数据 & 删除 & 测试 ====================
+
+function viewDeviceData(deviceId) {
+    // 跳转到历史数据页面并预选设备（/charts 路由已下线，跳过去会 404）
+    window.location.href = `/history?device=${encodeURIComponent(deviceId)}`;
+}
+
+async function deleteDevice(deviceId) {
+    if (!confirm(`删除设备 "${deviceId}"？\n\n该操作不可恢复：设备及其采集配置将被一并移除。\n请确认已了解影响后再继续。`)) {
+        return;
+    }
+    
+    try {
+        const response = await fetch(`/api/devices/${deviceId}`, {
+            method: 'DELETE',
+            headers: getAuthHeaders()
+        });
+        
+        if (!response.ok) {
+            const errorText = await response.text().catch(() => '未知错误');
+            showAlert(`删除失败 (${response.status}): ${errorText}`, 'danger');
+            return;
+        }
+        
+        const result = await response.json();
+        
+        if (result.success) {
+            showAlert(result.message, 'success');
+            loadDevices();
+        } else {
+            showAlert(result.message || '删除失败', 'danger');
+        }
+    } catch (error) {
+        console.error('删除设备失败:', error);
+        showAlert('删除失败: ' + error.message, 'danger');
+    }
+}
+
+
+async function stopDevice(deviceId) {
+    if (!confirm(`停止设备 "${deviceId}"？\n\n设备将停止运行，机械类设备数据将归零。`)) return;
+    try {
+        const r = await fetch(`/api/devices/${deviceId}/stop`, { method: 'POST', headers: getAuthHeaders() });
+        const d = await r.json();
+        // 后端停启接口固定返回 message="设备 X 已停止/已启动"（即使 success=false 也如此），
+        // 只看 message 会把失败提示成成功，必须以 success 判定
+        if (d.success) {
+            showAlert(d.message || '已停止', 'warning');
+            loadDevices();
+        } else {
+            showAlert(d.error || d.message || '停止失败', 'danger');
+        }
+    } catch(e) { showAlert('停止失败: ' + e.message, 'danger'); }
+}
+
+async function startDevice(deviceId) {
+    try {
+        const r = await fetch(`/api/devices/${deviceId}/start`, { method: 'POST', headers: getAuthHeaders() });
+        const d = await r.json();
+        if (d.success) {
+            showAlert(d.message || '已启动', 'success');
+            loadDevices();
+        } else {
+            showAlert(d.error || d.message || '启动失败', 'danger');
+        }
+    } catch(e) { showAlert('启动失败: ' + e.message, 'danger'); }
+}
+
+
+async function testDevice(deviceId) {
+    showAlert('正在测试连接...', 'info');
+    
+    try {
+        const response = await fetch(`/api/devices/${deviceId}/test`, {
+            method: 'POST',
+            headers: getAuthHeaders()
+        });
+        
+        const result = await response.json();
+        
+        const content = document.getElementById('test-result-content');
+        let sampleHtml = '';
+        
+        if (result.sample_data) {
+            const sd = result.sample_data;
+            sampleHtml = `
+                <div class="alert alert-info mt-3">
+                    <strong>示例数据：</strong><br>
+                    ${sd.register ? '寄存器: ' + sd.register : ''}
+                    ${sd.node ? '节点: ' + sd.node : ''}
+                    ${sd.endpoint ? '端点: ' + sd.endpoint : ''}<br>
+                    值: <span class="mono">${sd.value}</span> <span class="metric-unit">${sd.unit || ''}</span>
+                </div>
+            `;
+        }
+        
+        content.innerHTML = `
+            <div class="text-center mb-3">
+                <i class="bi ${result.success ? 'bi-check-circle text-success' : 'bi-x-circle text-danger'}" 
+                   style="font-size: 48px;"></i>
+            </div>
+            <h5 class="text-center ${result.success ? 'text-success' : 'text-danger'}">
+                ${result.success ? '连接成功' : '连接失败'}
+            </h5>
+            <p class="text-center">${result.message}</p>
+            ${result.protocol ? '<p class="text-center"><span class="tag tag--neutral tag--mono">' + result.protocol + '</span></p>' : ''}
+            ${sampleHtml}
+            ${result.warning ? `
+                <div class="alert alert-warning">
+                    <i class="bi bi-exclamation-triangle me-1"></i>${result.warning}
+                </div>
+            ` : ''}
+        `;
+        
+        const modal = new bootstrap.Modal(document.getElementById('testResultModal'));
+        modal.show();
+        
+    } catch (error) {
+        console.error('测试连接失败:', error);
+        showAlert('测试连接失败: ' + error.message, 'danger');
+    }
+}
+
+// ==================== 模板 ====================
+
+async function showTemplatesModal() {
+    try {
+        const response = await fetch('/api/devices/templates', {
+            headers: getAuthHeaders()
+        });
+        const data = await response.json();
+        
+        const container = document.getElementById('templates-container');
+        container.innerHTML = data.templates.map(template => `
+            <div class="col-md-6 mb-3">
+                <div class="card h-100 template-card" onclick="applyTemplate('${template.id}')" style="cursor: pointer;">
+                    <div class="card-body">
+                        <h6 class="card-title">
+                            <i class="bi bi-cpu me-2"></i>${template.name}
+                        </h6>
+                        <p class="card-text cell-sub mb-2">${template.description}</p>
+                        <div class="mb-2 d-flex align-items-center gap-2 flex-wrap">
+                            <span class="tag tag--neutral tag--mono">${template.protocol}</span>
+                            ${template.port ? '<span class="tag tag--neutral mono">端口 ' + template.port + '</span>' : ''}
+                            ${template.endpoint ? '<span class="cell-sub mono">' + template.endpoint + '</span>' : ''}
+                        </div>
+                        <div class="cell-sub">
+                            ${template.registers ? '寄存器: ' + template.registers.map(r => r.name).join(', ') : ''}
+                            ${template.nodes ? '节点: ' + template.nodes.map(n => n.name).join(', ') : ''}
+                            ${template.topics ? '主题: ' + template.topics.map(t => t.name).join(', ') : ''}
+                            ${template.endpoints ? '端点: ' + template.endpoints.map(e => e.name).join(', ') : ''}
+                        </div>
+                    </div>
+                </div>
+            </div>
+        `).join('');
+        
+        const modal = new bootstrap.Modal(document.getElementById('templatesModal'));
+        modal.show();
+        
+    } catch (error) {
+        console.error('加载模板失败:', error);
+        showAlert('加载模板失败', 'danger');
+    }
+}
+
+async function applyTemplate(templateId) {
+    try {
+        const response = await fetch('/api/devices/templates', {
+            headers: getAuthHeaders()
+        });
+        const data = await response.json();
+        
+        const template = data.templates.find(t => t.id === templateId);
+        if (!template) return;
+        
+        bootstrap.Modal.getInstance(document.getElementById('templatesModal')).hide();
+        
+        // 设置协议
+        document.getElementById('device-protocol').value = template.protocol || 'modbus_tcp';
+        onProtocolChange();
+        
+        const protocol = template.protocol || 'modbus_tcp';
+        
+        if (protocol === 'modbus_tcp' || protocol === 'modbus_rtu') {
+            document.getElementById('device-port').value = template.port || 502;
+            const container = document.getElementById('registers-container');
+            container.innerHTML = '';
+            if (template.registers) {
+                template.registers.forEach(reg => addRegisterRow(reg));
+                document.getElementById('no-registers-hint').style.display = 'none';
+            }
+        } else if (protocol === 'opcua') {
+            if (template.endpoint) {
+                document.getElementById('opcua-endpoint').value = template.endpoint;
+            }
+            const container = document.getElementById('nodes-container');
+            container.innerHTML = '';
+            if (template.nodes) {
+                template.nodes.forEach(node => addNodeRow(node));
+                document.getElementById('no-nodes-hint').style.display = 'none';
+            }
+        } else if (protocol === 'mqtt') {
+            document.getElementById('mqtt-port').value = template.port || 1883;
+            const container = document.getElementById('topics-container');
+            container.innerHTML = '';
+            if (template.topics) {
+                template.topics.forEach(topic => addTopicRow(topic));
+                document.getElementById('no-topics-hint').style.display = 'none';
+            }
+        } else if (protocol === 'rest') {
+            if (template.base_url) {
+                document.getElementById('rest-base-url').value = template.base_url;
+            }
+            const container = document.getElementById('endpoints-container');
+            container.innerHTML = '';
+            if (template.endpoints) {
+                template.endpoints.forEach(ep => addEndpointRow(ep));
+                document.getElementById('no-endpoints-hint').style.display = 'none';
+            }
+        }
+        
+        showAlert(`已应用模板: ${template.name}`, 'success');
+        
+    } catch (error) {
+        console.error('应用模板失败:', error);
+        showAlert('应用模板失败', 'danger');
+    }
+}
+
+// ==================== 预设设备管理 ====================
+
+let presetsCache = [];
+let presetCategoriesCache = [];
+
+function showPresetsPanel() {
+    document.getElementById('presets-panel').style.display = 'block';
+    loadPresets();
+}
+
+function hidePresetsPanel() {
+    document.getElementById('presets-panel').style.display = 'none';
+}
+
+async function loadPresets() {
+    try {
+        const response = await fetch('/api/devices/presets', { headers: getAuthHeaders() });
+        const data = await response.json();
+
+        if (!data.success) {
+            showAlert(data.message || '加载预设失败', 'danger');
+            return;
+        }
+
+        presetsCache = data.presets || [];
+        presetCategoriesCache = data.categories || [];
+
+        renderCategoryTabs(presetCategoriesCache);
+        renderPresets(presetsCache);
+    } catch (error) {
+        console.error('加载预设失败:', error);
+        showAlert('加载预设失败', 'danger');
+    }
+}
+
+function renderCategoryTabs(categories) {
+    const container = document.getElementById('preset-category-tabs');
+    let html = '<li class="nav-item"><button class="nav-link active" data-category="all" onclick="filterPresets(\'all\')">全部</button></li>';
+
+    const categoryIcons = {};
+    categories.forEach(c => { categoryIcons[c.id] = c.icon || 'bi-circle'; });
+
+    const usedCategories = [...new Set(presetsCache.map(p => p.category))];
+    usedCategories.forEach(cat => {
+        const catInfo = categories.find(c => c.id === cat);
+        const name = catInfo ? catInfo.name : cat;
+        const icon = categoryIcons[cat] || 'bi-circle';
+        html += `<li class="nav-item"><button class="nav-link" data-category="${cat}" onclick="filterPresets('${cat}')"><i class="bi ${icon} me-1"></i>${name}</button></li>`;
+    });
+
+    container.innerHTML = html;
+}
+
+function filterPresets(category) {
+    // 更新标签激活状态
+    document.querySelectorAll('#preset-category-tabs .nav-link').forEach(btn => {
+        btn.classList.toggle('active', btn.dataset.category === category);
+    });
+
+    const filtered = category === 'all' ? presetsCache : presetsCache.filter(p => p.category === category);
+    renderPresets(filtered);
+}
+
+function renderPresets(presets) {
+    const grid = document.getElementById('presets-grid');
+
+    if (!presets || presets.length === 0) {
+        grid.innerHTML = `
+            <div class="col-12">
+                <div class="state-box state-box--inline">
+                    <i class="bi bi-inbox state-box__icon"></i>
+                    <div class="state-box__title">暂无可用预设</div>
+                </div>
+            </div>`;
+        return;
+    }
+
+    grid.innerHTML = presets.map(p => `
+        <div class="col-md-4 col-lg-3 mb-3">
+            <div class="card h-100 preset-card">
+                <div class="card-body">
+                    <h6 class="card-title mb-1">${p.name}</h6>
+                    <p class="cell-sub mb-2">${p.description}</p>
+                    <div class="mb-2 d-flex align-items-center gap-2 flex-wrap">
+                        <span class="tag tag--neutral tag--mono">${p.protocol.toUpperCase()}</span>
+                        <code class="cell-sub">${p.device_id}</code>
+                    </div>
+                    <button class="btn btn-sm btn-outline-success w-100" onclick="addPreset('${p.preset_id}')">
+                        <i class="bi bi-plus-circle me-1"></i>添加
+                    </button>
+                </div>
+            </div>
+        </div>
+    `).join('');
+}
+
+async function addPreset(presetId) {
+    try {
+        const response = await fetch('/api/devices/presets/add', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
+            body: JSON.stringify({ preset_id: presetId })
+        });
+        if (!response.ok) {
+            const errorText = await response.text().catch(() => '未知错误');
+            showAlert(`添加失败 (${response.status}): ${errorText}`, 'danger');
+            return;
+        }
+        const result = await response.json();
+        if (result.success) {
+            showAlert(result.message, 'success');
+            loadDevices();
+        } else {
+            showAlert(result.message || '添加失败', 'danger');
+        }
+    } catch (error) {
+        console.error('添加预设失败:', error);
+        showAlert('添加失败: ' + error.message, 'danger');
+    }
+}
+
+async function addAllPresets() {
+    if (!confirm('确定要添加全部预设设备吗？')) return;
+
+    try {
+        const response = await fetch('/api/devices/presets/add-all', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...getAuthHeaders() }
+        });
+        if (!response.ok) {
+            const errorText = await response.text().catch(() => '未知错误');
+            showAlert(`添加全部失败 (${response.status}): ${errorText}`, 'danger');
+            return;
+        }
+        const result = await response.json();
+        if (result.success) {
+            showAlert(result.message, 'success');
+            loadDevices();
+        } else {
+            showAlert(result.message || '添加全部失败', 'danger');
+        }
+    } catch (error) {
+        console.error('添加全部预设失败:', error);
+        showAlert('添加全部失败: ' + error.message, 'danger');
+    }
+}
+
+// ==================== 工具函数 ====================
+
+function showAlert(message, type = 'info') {
+    const existingAlert = document.querySelector('.alert-floating');
+    if (existingAlert) {
+        existingAlert.remove();
+    }
+    
+    const alert = document.createElement('div');
+    alert.className = `alert alert-${type} alert-dismissible fade show alert-floating`;
+    alert.style.cssText = 'position: fixed; top: 80px; right: 20px; z-index: 9999; min-width: 300px;';
+    alert.innerHTML = `
+        ${message}
+        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+    `;
+    
+    document.body.appendChild(alert);
+    
+    setTimeout(() => {
+        if (alert.parentNode) {
+            alert.remove();
+        }
+    }, 3000);
+}
+
+// ==================== 故障注入 ====================
+
+// 显示故障注入模态框
+function showFaultInjectionModal(deviceId) {
+    // 创建模态框（如果不存在）
+    let modal = document.getElementById('faultInjectionModal');
+    if (!modal) {
+        modal = document.createElement('div');
+        modal.className = 'modal fade';
+        modal.id = 'faultInjectionModal';
+        modal.tabIndex = -1;
+        modal.innerHTML = `
+            <div class="modal-dialog">
+                <div class="modal-content">
+                    <div class="modal-header modal-header--warning">
+                        <h5 class="modal-title"><i class="bi bi-exclamation-triangle me-2"></i>故障注入测试</h5>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                    </div>
+                    <div class="modal-body">
+                        <div class="alert alert-warning">
+                            <i class="bi bi-info-circle me-1"></i>
+                            <strong>警告：</strong>此功能会向设备写入模拟故障状态，仅用于测试，请勿在生产运行期间使用。
+                        </div>
+                        <form id="faultInjectionForm">
+                            <input type="hidden" id="fault-device-id">
+                            <div class="mb-3">
+                                <label class="form-label">设备</label>
+                                <input type="text" class="form-control mono" id="fault-device-name" readonly>
+                            </div>
+                            <div class="mb-3">
+                                <label class="form-label">故障类型</label>
+                                <select class="form-select" id="fault-type">
+                                    <option value="sensor_drift">传感器漂移</option>
+                                    <option value="overheating">过热故障</option>
+                                    <option value="pressure_leak">压力泄漏</option>
+                                    <option value="motor_wear">电机磨损</option>
+                                    <option value="communication">通信故障</option>
+                                    <option value="power_fluctuation">电源波动</option>
+                                </select>
+                            </div>
+                            <div class="mb-3">
+                                <label class="form-label">严重程度: <span id="severity-value" class="mono">0.5</span></label>
+                                <input type="range" class="form-range" id="fault-severity" min="0.1" max="1.0" step="0.1" value="0.5"
+                                       oninput="document.getElementById('severity-value').textContent = this.value">
+                                <div class="d-flex justify-content-between">
+                                    <small class="text-muted">轻微 (0.1)</small>
+                                    <small class="text-muted">严重 (1.0)</small>
+                                </div>
+                            </div>
+                        </form>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+                        <button type="button" class="btn btn-danger-token" onclick="injectFault()">
+                            <i class="bi bi-exclamation-triangle me-1"></i>确认注入故障
+                        </button>
+                    </div>
+                </div>
+            </div>
+        `;
+        document.body.appendChild(modal);
+    }
+
+    // 设置设备信息
+    document.getElementById('fault-device-id').value = deviceId;
+    document.getElementById('fault-device-name').value = deviceId;
+
+    // 显示模态框
+    const bsModal = new bootstrap.Modal(modal);
+    bsModal.show();
+}
+
+// 执行故障注入
+async function injectFault() {
+    const deviceId = document.getElementById('fault-device-id').value;
+    const faultType = document.getElementById('fault-type').value;
+    const severity = parseFloat(document.getElementById('fault-severity').value);
+
+    try {
+        const response = await fetch(`/api/devices/${deviceId}/inject-fault`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                ...getAuthHeaders()
+            },
+            body: JSON.stringify({
+                fault_type: faultType,
+                severity: severity
+            })
+        });
+
+        const result = await response.json();
+
+        if (result.success) {
+            showAlert(`故障注入成功: ${faultType} (严重度: ${severity})`, 'warning');
+
+            // 关闭模态框
+            const modal = bootstrap.Modal.getInstance(document.getElementById('faultInjectionModal'));
+            modal.hide();
+
+            // 刷新设备列表
+            loadDevices();
+        } else {
+            showAlert(result.error || '故障注入失败', 'danger');
+        }
+    } catch (error) {
+        showAlert('故障注入失败: ' + error.message, 'danger');
+    }
+}
+</script>
+{% endblock %}

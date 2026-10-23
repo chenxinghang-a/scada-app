@@ -1,0 +1,1245 @@
+{% extends "base.html" %}
+
+{% block title %}报警输出与广播控制 - 工业SCADA系统{% endblock %}
+
+{% block extra_css %}
+<style>
+/* ==================== 报警输出页（声光/广播） ==================== */
+
+/* ---------- 顶部状态栏 ---------- */
+.status-bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-3);
+    flex-wrap: wrap;
+    padding: var(--space-2) var(--space-4);
+}
+.status-bar__item { display: inline-flex; align-items: center; gap: var(--space-2); font-size: var(--font-sm); color: var(--text-secondary); }
+.status-bar__label { font-weight: var(--weight-medium); color: var(--text-muted); }
+.mono { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+
+/* ---------- 灯塔示意图 ---------- */
+.light-tower {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: var(--space-2) 0;
+}
+/* 灯体：三段堆叠，亮=语义色实心，灭=下沉底色+边框 */
+.light-tower__stack {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    padding: var(--space-1);
+    background: var(--bg-sunken);
+    border: 1px solid var(--border-strong);
+    border-radius: var(--radius-md);
+}
+.light-lamp {
+    width: 116px;
+    height: 42px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: var(--radius-sm);
+    border: 1px solid var(--border-strong);
+    background: var(--bg-sunken);
+    color: var(--text-muted);
+    font-size: var(--font-xs);
+    font-weight: var(--weight-medium);
+    letter-spacing: 0.08em;
+    transition: background-color var(--duration-fast) var(--ease-out),
+                color var(--duration-fast) var(--ease-out);
+}
+.light-lamp.off {
+    background: var(--bg-sunken);
+    color: var(--text-muted);
+    border-color: var(--border-strong);
+}
+.light-lamp.red.on { background: var(--color-danger); color: var(--text-inverse); border-color: var(--color-danger); }
+.light-lamp.yellow.on { background: var(--color-warning); color: var(--text-inverse); border-color: var(--color-warning); }
+.light-lamp.green.on { background: var(--color-success); color: var(--text-inverse); border-color: var(--color-success); }
+/* 报警活动强调：仅用描边环，不做闪烁/呼吸动画 */
+.light-lamp.flashing { outline: 3px solid var(--color-warning); outline-offset: 2px; }
+.light-lamp.fast-flash { outline: 3px solid var(--color-danger); outline-offset: 2px; }
+
+.light-tower__pole { width: 10px; height: 16px; background: var(--border-strong); }
+.light-tower__base { width: 76px; height: 8px; background: var(--border-base); border-radius: var(--radius-sm); }
+.light-tower__caption { font-size: var(--font-xs); color: var(--text-muted); margin-top: var(--space-2); }
+
+.buzzer-block {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    margin-top: var(--space-3);
+    padding: var(--space-2) var(--space-3);
+    border: 1px solid var(--border-base);
+    border-radius: var(--radius-md);
+    background: var(--bg-sunken);
+}
+.buzzer-icon { font-size: 24px; color: var(--text-disabled); }
+.buzzer-icon--alarm { color: var(--color-danger); }
+.buzzer-icon--warning { color: var(--color-warning); }
+.buzzer-block__state { font-size: var(--font-xs); color: var(--text-secondary); }
+
+/* 当前等级：色条 + 标签（色条表达等级，取代整行闪烁） */
+.level-row { display: flex; align-items: center; gap: var(--space-2); }
+.level-row .level-bar { min-height: 24px; }
+.level-bar--normal { background: var(--color-success); }
+.tag--lg { font-size: var(--font-sm); padding: var(--space-1) var(--space-3); }
+
+/* ---------- 分区（广播区） ---------- */
+.zone {
+    padding: var(--space-3);
+    border: 1px solid var(--border-base);
+    border-radius: var(--radius-md);
+    background: var(--bg-sunken);
+    margin-bottom: var(--space-3);
+}
+.zone__title {
+    font-size: var(--font-xs);
+    font-weight: var(--weight-semibold);
+    color: var(--text-muted);
+    letter-spacing: 0.02em;
+    margin-bottom: var(--space-2);
+}
+.zone .form-label { font-size: var(--font-sm); font-weight: var(--weight-medium); color: var(--text-secondary); margin-bottom: var(--space-1); }
+.preset-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-2); }
+@media (max-width: 575.98px) { .preset-grid { grid-template-columns: 1fr; } }
+
+/* ---------- 广播历史 ---------- */
+.broadcast-item {
+    padding: var(--space-2) var(--space-3);
+    border-left: 3px solid var(--border-strong);
+    background: var(--bg-surface);
+    border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+    margin-bottom: var(--space-2);
+    font-size: var(--font-sm);
+}
+.broadcast-item.critical { border-left-color: var(--color-danger); }
+.broadcast-item.warning { border-left-color: var(--color-warning); }
+.broadcast-item.info { border-left-color: var(--color-info); }
+.broadcast-item__meta { font-size: var(--font-xs); color: var(--text-muted); }
+.broadcast-item__text { color: var(--text-primary); margin-top: 2px; }
+
+/* ---------- 规则表格 ---------- */
+.rules-table { margin-bottom: 0; }
+.rules-table thead th {
+    padding: var(--space-2) var(--space-3);
+    font-size: var(--font-xs);
+    font-weight: var(--weight-semibold);
+    color: var(--text-muted);
+    background: var(--bg-sunken);
+    border-bottom: 1px solid var(--border-strong);
+    white-space: nowrap;
+}
+.rules-table tbody td {
+    padding: var(--space-2) var(--space-3);
+    font-size: var(--font-sm);
+    color: var(--text-primary);
+    border-bottom: 1px solid var(--border-base);
+    vertical-align: middle;
+}
+.rules-table tbody tr:last-child td { border-bottom: 0; }
+.rules-table .col-num {
+    text-align: right;
+    font-family: var(--font-mono);
+    font-variant-numeric: tabular-nums;
+}
+.stat-cell { text-align: center; }
+.stat-cell .metric-label { display: block; margin-top: var(--space-1); }
+
+/* ---------- 手动控制 ---------- */
+.manual-note { font-size: var(--font-xs); color: var(--text-muted); }
+#btn-red, #btn-yellow, #btn-green, #btn-buzzer { font-size: var(--font-sm); }
+
+/* ---------- 空态 / 加载态 ---------- */
+.state-box { padding: var(--space-6) var(--space-4); text-align: center; }
+.state-box--inline { padding: var(--space-3); }
+.state-box__icon { display: block; font-size: 24px; color: var(--text-disabled); margin-bottom: var(--space-1); }
+.state-box__title { font-size: var(--font-sm); color: var(--text-secondary); }
+.state-box .spinner-border { color: var(--color-brand); }
+
+/* ---------- 弹窗 ---------- */
+.modal-content { border: 1px solid var(--border-base); border-radius: var(--radius-lg); background: var(--bg-surface); }
+.modal-header { padding: var(--space-3) var(--space-4); border-bottom: 1px solid var(--border-base); }
+.modal-title { font-size: var(--font-lg); font-weight: var(--weight-semibold); }
+.modal-body { padding: var(--space-4); }
+.modal-footer { padding: var(--space-3) var(--space-4); border-top: 1px solid var(--border-base); gap: var(--space-2); }
+.modal .form-label { font-size: var(--font-sm); font-weight: var(--weight-medium); color: var(--text-secondary); margin-bottom: var(--space-1); }
+
+/* ---------- 按钮 loading 态 ---------- */
+.btn[disabled] { cursor: not-allowed; opacity: 0.7; }
+</style>
+{% endblock %}
+
+{% block content %}
+<!-- 顶部状态栏 -->
+<div class="panel mb-3">
+    <div class="status-bar">
+        <span class="status-bar__item">
+            <i class="bi bi-lightning-charge-fill" style="color:var(--color-warning)"></i>
+            <span class="status-bar__label">报警输出状态：</span>
+            <span id="output-status-text" class="tag tag--offline">加载中…</span>
+        </span>
+        <span class="status-bar__item">
+            <i class="bi bi-megaphone" style="color:var(--color-info)"></i>
+            <span class="status-bar__label">广播系统：</span>
+            <span id="broadcast-status-text" class="tag tag--offline">加载中…</span>
+        </span>
+        <span class="d-flex align-items-center gap-2">
+            <button class="btn btn-sm btn-outline-secondary" id="btn-sound-toggle" onclick="toggleSound()" title="浏览器报警音">
+                <i class="bi bi-volume-up-fill"></i> 报警音开
+            </button>
+            <button class="btn btn-sm btn-outline-secondary" onclick="loadAll()">
+                <i class="bi bi-arrow-clockwise"></i> 刷新
+            </button>
+        </span>
+    </div>
+</div>
+
+<div class="row g-3">
+    <!-- 左栏：报警灯塔 -->
+    <div class="col-lg-4">
+        <div class="panel mb-3">
+            <div class="panel__header">
+                <span><i class="bi bi-lightbulb me-2"></i>现场声光报警器</span>
+                <span class="tag tag--offline" id="lamp-mode-tag">按等级自动</span>
+            </div>
+            <div class="panel__body">
+                <div class="row g-3 align-items-start">
+                    <div class="col-sm-6">
+                        <!-- 灯塔示意图：红/黄/绿三段 + 蜂鸣器 -->
+                        <div class="light-tower">
+                            <div class="light-tower__stack">
+                                <div class="light-lamp red off" id="lamp-red">红灯</div>
+                                <div class="light-lamp yellow off" id="lamp-yellow">黄灯</div>
+                                <div class="light-lamp green on" id="lamp-green">绿灯</div>
+                            </div>
+                            <div class="light-tower__pole"></div>
+                            <div class="light-tower__base"></div>
+                            <div class="light-tower__caption">灯体：实心＝点亮 / 下沉＝熄灭</div>
+                            <div class="buzzer-block">
+                                <i class="bi bi-volume-up-fill buzzer-icon" id="buzzer-icon"></i>
+                                <span class="buzzer-block__state">蜂鸣器：<span id="buzzer-state">静音</span></span>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-sm-6">
+                        <div class="mb-3">
+                            <div class="metric-label">当前等级</div>
+                            <div class="level-row mt-1">
+                                <span class="level-bar" id="alarm-level-bar" style="display:none"></span>
+                                <span id="alarm-level-display" class="tag tag--success tag--lg">正常</span>
+                            </div>
+                        </div>
+                        <div class="mb-3">
+                            <div class="metric-label">报警信息</div>
+                            <div id="alarm-message-display" class="small text-break">-</div>
+                        </div>
+                        <div class="mb-3">
+                            <div class="metric-label">持续时间起算</div>
+                            <div id="alarm-since-display" class="small mono">-</div>
+                        </div>
+                        <div class="d-grid gap-2">
+                            <button class="btn btn-outline-warning btn-sm" id="btn-ack" onclick="acknowledgeOutput()">
+                                <i class="bi bi-volume-mute"></i> 消音
+                            </button>
+                            <button class="btn btn-outline-success btn-sm" id="btn-reset-output" onclick="resetOutput()">
+                                <i class="bi bi-arrow-counterclockwise"></i> 复位
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 手动控制面板 -->
+        <div class="panel mb-3">
+            <div class="panel__header">
+                <span><i class="bi bi-sliders me-2"></i>手动控制面板</span>
+                <span class="tag tag--offline">手动会接管自动控制</span>
+            </div>
+            <div class="panel__body">
+                <div class="manual-note mb-3">
+                    <i class="bi bi-info-circle me-1"></i>点击切换开/关；手动模式会接管报警自动控制。
+                </div>
+                <div class="row g-2 mb-3">
+                    <div class="col-4">
+                        <button class="btn btn-outline-danger w-100" id="btn-red" onclick="manualLight('red')">
+                            <i class="bi bi-circle"></i> 红灯 OFF
+                        </button>
+                    </div>
+                    <div class="col-4">
+                        <button class="btn btn-outline-warning w-100" id="btn-yellow" onclick="manualLight('yellow')">
+                            <i class="bi bi-circle"></i> 黄灯 OFF
+                        </button>
+                    </div>
+                    <div class="col-4">
+                        <button class="btn btn-success w-100" id="btn-green" onclick="manualLight('green')">
+                            <i class="bi bi-circle-fill"></i> 绿灯 ON
+                        </button>
+                    </div>
+                </div>
+                <div class="row g-2 mb-3">
+                    <div class="col-6">
+                        <button class="btn btn-outline-secondary w-100" id="btn-buzzer" onclick="manualToggleBuzzer()">
+                            <i class="bi bi-volume-mute"></i> 蜂鸣器 OFF
+                        </button>
+                    </div>
+                    <div class="col-6">
+                        <div class="input-group input-group-sm">
+                            <span class="input-group-text">持续(秒)</span>
+                            <input type="number" id="manual-duration" class="form-control mono" value="0" min="0" max="60">
+                        </div>
+                    </div>
+                </div>
+                <hr>
+                <div class="d-grid gap-2">
+                    <button class="btn btn-outline-secondary btn-sm" onclick="manualAllOff()">
+                        <i class="bi bi-x-circle"></i> 全部关闭（恢复绿灯正常）
+                    </button>
+                    <button class="btn btn-outline-primary btn-sm" onclick="manualTest()">
+                        <i class="bi bi-lightning"></i> 测试报警
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 中栏：广播系统 -->
+    <div class="col-lg-4">
+        <div class="panel mb-3">
+            <div class="panel__header">
+                <span><i class="bi bi-megaphone me-2"></i>语音广播系统</span>
+                <span class="tag tag--offline" id="broadcast-zone-count">-</span>
+            </div>
+            <div class="panel__body">
+                <!-- 分区 1：区域与内容 -->
+                <div class="zone">
+                    <div class="zone__title">① 区域与内容</div>
+                    <div class="mb-3">
+                        <label class="form-label">广播区域</label>
+                        <select id="broadcast-area" class="form-select">
+                            <option value="all">全厂广播</option>
+                        </select>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">广播内容</label>
+                        <textarea id="broadcast-text" class="form-control" rows="3"
+                                  placeholder="输入要广播的内容..."></textarea>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">广播级别</label>
+                        <select id="broadcast-level" class="form-select">
+                            <option value="info">信息</option>
+                            <option value="warning">警告</option>
+                            <option value="critical">紧急</option>
+                        </select>
+                    </div>
+                    <button class="btn btn-primary w-100" id="btn-speak" onclick="speakBroadcast()">
+                        <i class="bi bi-megaphone-fill"></i> 广播喊话
+                    </button>
+                </div>
+
+                <!-- 分区 2：预设话术 -->
+                <div class="zone mb-0">
+                    <div class="zone__title">② 预设话术模板</div>
+                    <div class="preset-grid">
+                        <button class="btn btn-outline-danger btn-sm preset-speak" data-preset-key="alarm_critical"
+                                onclick="speakPreset('alarm_critical', '车间A发生严重报警，请立即处置')">
+                            紧急报警广播
+                        </button>
+                        <button class="btn btn-outline-warning btn-sm preset-speak" data-preset-key="alarm_warning"
+                                onclick="speakPreset('alarm_warning', '车间A出现告警，请关注')">
+                            警告提醒广播
+                        </button>
+                        <button class="btn btn-outline-danger btn-sm preset-speak" data-preset-key="evacuation"
+                                onclick="speakPreset('evacuation', '发生紧急状况，请沿疏散通道撤离')">
+                            紧急疏散广播
+                        </button>
+                        <button class="btn btn-outline-success btn-sm preset-speak" data-preset-key="all_clear"
+                                onclick="speakPreset('all_clear', '警报解除，恢复正常')">
+                            警报解除广播
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 分区 3：广播历史 -->
+        <div class="panel mb-3">
+            <div class="panel__header">
+                <span><i class="bi bi-clock-history me-2"></i>③ 广播历史</span>
+                <button class="btn btn-sm btn-outline-secondary" onclick="loadBroadcastHistory()" title="刷新广播历史">
+                    <i class="bi bi-arrow-clockwise"></i>
+                </button>
+            </div>
+            <div class="panel__body" style="max-height:320px;overflow-y:auto;">
+                <div id="broadcast-history">
+                    <div class="state-box state-box--inline text-muted text-center">
+                        <i class="bi bi-megaphone state-box__icon"></i>
+                        <div class="state-box__title">暂无广播记录</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 右栏：报警触发规则 -->
+    <div class="col-lg-4">
+        <div class="panel mb-3">
+            <div class="panel__header">
+                <span><i class="bi bi-gear me-2"></i>报警触发规则</span>
+                <button class="btn btn-sm btn-primary" data-bs-toggle="modal" data-bs-target="#ruleModal" onclick="openAddRule()">
+                    <i class="bi bi-plus"></i> 新增
+                </button>
+            </div>
+            <div class="panel__body p-0" style="max-height:660px;overflow-y:auto;">
+                <div id="rules-list">
+                    <div class="state-box state-box--inline"><span class="spinner-border spinner-border-sm me-2"></span>加载中…</div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 规则编辑弹窗 -->
+<div class="modal fade" id="ruleModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="ruleModalTitle">新增报警规则</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <input type="hidden" id="rule-edit-mode" value="add">
+                <input type="hidden" id="rule-original-id" value="">
+                <div class="mb-3">
+                    <label class="form-label">规则ID</label>
+                    <input type="text" id="rule-id" class="form-control mono" placeholder="如: temp_high_v2">
+                </div>
+                <div class="mb-3">
+                    <label class="form-label">规则名称</label>
+                    <input type="text" id="rule-name" class="form-control" placeholder="如: 温度过高">
+                </div>
+                <div class="mb-3">
+                    <label class="form-label">设备</label>
+                    <select id="rule-device" class="form-select"></select>
+                </div>
+                <div class="mb-3">
+                    <label class="form-label">监测参数</label>
+                    <select id="rule-register" class="form-select"></select>
+                </div>
+                <div class="row mb-3">
+                    <div class="col-6">
+                        <label class="form-label">触发条件</label>
+                        <select id="rule-condition" class="form-select">
+                            <option value="greater_than">大于 (>)</option>
+                            <option value="less_than">小于 (<)</option>
+                            <option value="greater_equal">大于等于 (>=)</option>
+                            <option value="less_equal">小于等于 (<=)</option>
+                            <option value="equal_to">等于 (=)</option>
+                        </select>
+                    </div>
+                    <div class="col-6">
+                        <label class="form-label">阈值</label>
+                        <input type="number" id="rule-threshold" class="form-control mono" step="0.01" placeholder="如: 32.0">
+                    </div>
+                </div>
+                <div class="row mb-3">
+                    <div class="col-6">
+                        <label class="form-label">报警级别</label>
+                        <select id="rule-level" class="form-select">
+                            <option value="critical">严重（红灯 + 蜂鸣器）</option>
+                            <option value="warning">警告（黄灯 + 蜂鸣器）</option>
+                            <option value="info">信息（仅记录）</option>
+                        </select>
+                    </div>
+                    <div class="col-6">
+                        <label class="form-label">广播区域</label>
+                        <select id="rule-area" class="form-select">
+                            <option value="all">全厂</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="mb-3">
+                    <label class="form-label">描述</label>
+                    <input type="text" id="rule-description" class="form-control" placeholder="可选">
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+                <button type="button" class="btn btn-primary" onclick="saveRule()">保存</button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+// ==================== 浏览器音频报警 ====================
+const AudioCtx = window.AudioContext || window.webkitAudioContext;
+let audioCtx = null;
+let soundEnabled = true;
+
+function ensureAudioCtx() {
+    if (!audioCtx) audioCtx = new AudioCtx();
+    if (audioCtx.state === 'suspended') audioCtx.resume();
+    return audioCtx;
+}
+
+function playAlarmSound(level) {
+    if (!soundEnabled) return;
+    try {
+        const ctx = ensureAudioCtx();
+        if (level === 'critical') {
+            // 严重报警：急促双音（3次）
+            for (let i = 0; i < 3; i++) {
+                const osc = ctx.createOscillator();
+                const gain = ctx.createGain();
+                osc.connect(gain);
+                gain.connect(ctx.destination);
+                osc.type = 'square';
+                osc.frequency.setValueAtTime(880, ctx.currentTime + i * 0.3);
+                osc.frequency.setValueAtTime(660, ctx.currentTime + i * 0.3 + 0.1);
+                gain.gain.setValueAtTime(0.3, ctx.currentTime + i * 0.3);
+                gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + i * 0.3 + 0.25);
+                osc.start(ctx.currentTime + i * 0.3);
+                osc.stop(ctx.currentTime + i * 0.3 + 0.25);
+            }
+        } else if (level === 'warning') {
+            // 警告：单音两声
+            for (let i = 0; i < 2; i++) {
+                const osc = ctx.createOscillator();
+                const gain = ctx.createGain();
+                osc.connect(gain);
+                gain.connect(ctx.destination);
+                osc.type = 'sine';
+                osc.frequency.value = 520;
+                gain.gain.setValueAtTime(0.25, ctx.currentTime + i * 0.4);
+                gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + i * 0.4 + 0.3);
+                osc.start(ctx.currentTime + i * 0.4);
+                osc.stop(ctx.currentTime + i * 0.4 + 0.3);
+            }
+        }
+    } catch(e) { console.warn('音频播放失败:', e); }
+}
+
+function toggleSound() {
+    soundEnabled = !soundEnabled;
+    const btn = document.getElementById('btn-sound-toggle');
+    if (soundEnabled) {
+        btn.innerHTML = '<i class="bi bi-volume-up-fill"></i> 报警音开';
+        btn.className = 'btn btn-sm btn-outline-secondary';
+    } else {
+        btn.innerHTML = '<i class="bi bi-volume-mute"></i> 报警音关';
+        btn.className = 'btn btn-sm btn-outline-secondary';
+    }
+}
+
+// ==================== WebSocket 实时监听 ====================
+let wsSocket = null;
+
+function initAlarmWebSocket() {
+    if (typeof io === 'undefined') return;
+    wsSocket = io();
+
+    wsSocket.on('connect', () => console.log('[报警输出] WebSocket已连接'));
+
+    // 实时报警事件 → 更新灯塔状态 + 用报警条（不弹窗）
+    wsSocket.on('alarm', (data) => {
+        console.log('[报警输出] 收到报警:', data);
+        loadAlarmOutputStatus();  // 立即刷新灯塔状态
+        // 使用全局报警条（base.html中的alarm-banner），不弹窗
+        if (typeof updateAlarmBanner === 'function') {
+            updateAlarmBanner(data);
+        }
+    });
+
+    // 实时广播事件 → 立即更新广播历史
+    wsSocket.on('broadcast', (data) => {
+        console.log('[报警输出] 收到广播:', data);
+        prependBroadcastHistory(data);
+    });
+}
+
+// showToast 已移除 — 报警统一使用顶部报警条（base.html alarm-banner），不弹窗
+
+// 广播级别 → 标签样式（呈现用）
+function levelTagClass(level) {
+    if (level === 'critical') return 'tag--danger';
+    if (level === 'warning') return 'tag--warning';
+    return 'tag--info';
+}
+
+// 实时插入广播历史（最新在前）
+function prependBroadcastHistory(broadcast) {
+    const container = document.getElementById('broadcast-history');
+    if (!container) return;
+    // 移除"暂无"提示
+    const empty = container.querySelector('.text-muted.text-center');
+    if (empty) empty.remove();
+    const level = broadcast.level || 'info';
+    const html = `
+        <div class="broadcast-item ${level}">
+            <div class="d-flex justify-content-between align-items-center gap-2">
+                <span class="broadcast-item__meta">
+                    <span class="tag ${levelTagClass(level)}">${level}</span>
+                    <strong class="ms-1">${broadcast.area || 'all'}</strong> | ${broadcast.source || 'system'}
+                </span>
+                <small class="text-muted mono">${new Date(broadcast.timestamp).toLocaleTimeString()}</small>
+            </div>
+            <div class="broadcast-item__text">${broadcast.text || ''}</div>
+        </div>
+    `;
+    container.insertAdjacentHTML('afterbegin', html);
+    // 限制最多30条
+    while (container.children.length > 30) container.lastChild.remove();
+}
+
+// ==================== 页面初始化 ====================
+document.addEventListener('DOMContentLoaded', function() {
+    initAlarmWebSocket();
+    loadAll();
+    // 首次点击页面时解锁音频上下文（浏览器策略要求用户交互后才能播放音频）
+    document.addEventListener('click', () => ensureAudioCtx(), { once: true });
+});
+
+async function loadAll() {
+    await Promise.all([
+        loadAlarmOutputStatus(),
+        loadBroadcastAreas(),
+        loadBroadcastHistory(),
+        loadAlarmRules(),
+        loadDevicesForSelect()
+    ]);
+}
+
+// 按钮 loading 态
+function setBtnLoading(btn, loading, label) {
+    if (!btn) return;
+    btn.disabled = loading;
+    btn.innerHTML = loading
+        ? '<span class="spinner-border spinner-border-sm me-2"></span>发送中…'
+        : label;
+}
+
+// ==================== 报警输出状态 ====================
+async function loadAlarmOutputStatus() {
+    try {
+        const r = await fetch('/api/alarm-output/status', { headers: getAuthHeaders() });
+        const data = await r.json();
+        renderAlarmOutput(data);
+    } catch(e) {
+        console.error('加载报警输出状态失败:', e);
+    }
+}
+
+// 等级色条（取代整行闪烁动画）
+function setLevelBar(level) {
+    const el = document.getElementById('alarm-level-bar');
+    if (!el) return;
+    if (!level) {
+        el.className = 'level-bar';
+        el.style.display = 'none';
+        return;
+    }
+    el.className = 'level-bar level-bar--' + level;
+    el.style.display = 'block';
+}
+
+function renderAlarmOutput(data) {
+    const output = data.alarm_output;
+    const broadcast = data.broadcast;
+
+    if (output) {
+        const st = output.state || {};
+        // 缓存当前灯状态，供手动控制toggle使用
+        cachedState = {
+            red: !!st.red,
+            yellow: !!st.yellow,
+            green: !!st.green,
+            buzzer: !!st.buzzer
+        };
+        updateManualButtons();
+        const isCritical = st.level === 'critical';
+        const isWarning = st.level === 'warning';
+
+        // 更新灯塔（灯体：实心=点亮 / 下沉=熄灭；活动状态用描边环强调）
+        updateLamp('lamp-red', st.red, isCritical ? 'fast-flash' : '');
+        updateLamp('lamp-yellow', st.yellow, isWarning ? 'flashing' : '');
+        updateLamp('lamp-green', st.green, '');
+
+        // 蜂鸣器（区分常响/提示/静音）—— 仅用颜色与文字表达，不做动画
+        const buzzerEl = document.getElementById('buzzer-icon');
+        const buzzerState = document.getElementById('buzzer-state');
+        if (st.buzzer && isCritical) {
+            buzzerEl.className = 'buzzer-icon buzzer-icon--alarm';
+            if (buzzerState) buzzerState.textContent = '常响';
+        } else if (st.buzzer && isWarning) {
+            buzzerEl.className = 'buzzer-icon buzzer-icon--warning';
+            if (buzzerState) buzzerState.textContent = '提示';
+        } else {
+            buzzerEl.className = 'buzzer-icon';
+            if (buzzerState) buzzerState.textContent = '静音';
+        }
+
+        // 状态文字 + 等级色条
+        const levelDisplay = document.getElementById('alarm-level-display');
+        if (isCritical) {
+            levelDisplay.textContent = '严重报警';
+            levelDisplay.className = 'tag tag--danger tag--lg';
+            setLevelBar('critical');
+        } else if (isWarning) {
+            levelDisplay.textContent = '警告';
+            levelDisplay.className = 'tag tag--warning tag--lg';
+            setLevelBar('warning');
+        } else if (st.level === 'manual') {
+            levelDisplay.textContent = '手动模式';
+            levelDisplay.className = 'tag tag--info tag--lg';
+            setLevelBar('info');
+        } else {
+            levelDisplay.textContent = '正常';
+            levelDisplay.className = 'tag tag--success tag--lg';
+            setLevelBar('normal');
+        }
+
+        // 模式标签：自动 / 手动接管
+        const modeTag = document.getElementById('lamp-mode-tag');
+        if (modeTag) {
+            const isManual = st.level === 'manual';
+            modeTag.textContent = isManual ? '手动接管' : '按等级自动';
+            modeTag.className = isManual ? 'tag tag--warning' : 'tag tag--offline';
+        }
+
+        document.getElementById('alarm-message-display').textContent = st.message || '-';
+        document.getElementById('alarm-since-display').textContent = st.since ? new Date(st.since).toLocaleString() : '-';
+
+        // 状态栏
+        document.getElementById('output-status-text').textContent = output.simulation ? '模拟模式' : '硬件模式';
+        document.getElementById('output-status-text').className = output.simulation ? 'tag tag--info' : 'tag tag--success';
+    }
+
+    if (broadcast) {
+        document.getElementById('broadcast-status-text').textContent = broadcast.simulation ? '模拟模式' : (broadcast.mqtt_connected ? 'MQTT已连接' : 'MQTT未连接');
+        document.getElementById('broadcast-status-text').className = broadcast.simulation ? 'tag tag--info' : (broadcast.mqtt_connected ? 'tag tag--success' : 'tag tag--warning');
+    }
+}
+
+function updateLamp(id, isOn, flashClass) {
+    const el = document.getElementById(id);
+    el.className = 'light-lamp';
+    const color = id.includes('red') ? 'red' : id.includes('yellow') ? 'yellow' : 'green';
+    el.classList.add(color);
+    el.classList.add(isOn ? 'on' : 'off');
+    if (flashClass && isOn) el.classList.add(flashClass);
+}
+
+// ==================== 消音/复位 ====================
+async function acknowledgeOutput() {
+    const btn = document.getElementById('btn-ack');
+    if (btn) btn.disabled = true;
+    try {
+        const r = await fetch('/api/alarm-output/acknowledge', {
+            method: 'POST', headers: { 'Content-Type': 'application/json', ...getAuthHeaders() }
+        });
+        const data = await r.json();
+        // 后端失败时（未启用等）会返回 success:false，必须以 success 判定，
+        // 不能只把 message 弹出来就算反馈（message 可能为空 → alert(undefined)）
+        if (data.success) {
+            alert(data.message || '已消音，指示灯保持');
+        } else {
+            alert('消音失败: ' + (data.error || data.message || 'HTTP ' + r.status));
+        }
+        loadAlarmOutputStatus();
+    } catch(e) { alert('消音操作失败: ' + e.message); }
+    finally { if (btn) btn.disabled = false; }
+}
+
+async function resetOutput() {
+    if (!confirm('确认复位报警输出？将恢复绿灯正常状态。')) return;
+    const btn = document.getElementById('btn-reset-output');
+    if (btn) btn.disabled = true;
+    try {
+        const r = await fetch('/api/alarm-output/reset', {
+            method: 'POST', headers: { 'Content-Type': 'application/json', ...getAuthHeaders() }
+        });
+        const data = await r.json();
+        if (data.success) {
+            alert(data.message || '报警输出已复位');
+        } else {
+            alert('复位失败: ' + (data.error || data.message || 'HTTP ' + r.status));
+        }
+        loadAlarmOutputStatus();
+    } catch(e) { alert('复位操作失败: ' + e.message); }
+    finally { if (btn) btn.disabled = false; }
+}
+
+// ==================== 手动控制 ====================
+// 当前灯状态缓存（从上次渲染结果获取）
+let cachedState = { red: false, yellow: false, green: true, buzzer: false };
+
+function updateManualButtons() {
+    // 红灯按钮
+    const btnRed = document.getElementById('btn-red');
+    btnRed.className = cachedState.red ? 'btn btn-danger w-100' : 'btn btn-outline-danger w-100';
+    btnRed.innerHTML = cachedState.red ? '<i class="bi bi-circle-fill"></i> 红灯 ON' : '<i class="bi bi-circle"></i> 红灯 OFF';
+
+    // 黄灯按钮
+    const btnYellow = document.getElementById('btn-yellow');
+    btnYellow.className = cachedState.yellow ? 'btn btn-warning w-100' : 'btn btn-outline-warning w-100';
+    btnYellow.innerHTML = cachedState.yellow ? '<i class="bi bi-circle-fill"></i> 黄灯 ON' : '<i class="bi bi-circle"></i> 黄灯 OFF';
+
+    // 绿灯按钮
+    const btnGreen = document.getElementById('btn-green');
+    btnGreen.className = cachedState.green ? 'btn btn-success w-100' : 'btn btn-outline-success w-100';
+    btnGreen.innerHTML = cachedState.green ? '<i class="bi bi-circle-fill"></i> 绿灯 ON' : '<i class="bi bi-circle"></i> 绿灯 OFF';
+
+    // 蜂鸣器按钮
+    const btnBuzzer = document.getElementById('btn-buzzer');
+    btnBuzzer.className = cachedState.buzzer ? 'btn btn-danger w-100' : 'btn btn-outline-secondary w-100';
+    btnBuzzer.innerHTML = cachedState.buzzer ? '<i class="bi bi-volume-up-fill"></i> 蜂鸣器 ON' : '<i class="bi bi-volume-mute"></i> 蜂鸣器 OFF';
+}
+
+async function manualLight(color) {
+    // toggle：取反当前状态
+    const newState = !cachedState[color];
+    const duration = parseInt(document.getElementById('manual-duration').value) || 0;
+    const params = { duration: duration };
+    params[color] = newState;
+    try {
+        const r = await fetch('/api/alarm-output/manual', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
+            body: JSON.stringify(params)
+        });
+        const data = await r.json();
+        if (data.state) {
+            cachedState = {
+                red: !!data.state.red,
+                yellow: !!data.state.yellow,
+                green: !!data.state.green,
+                buzzer: !!data.state.buzzer
+            };
+            updateManualButtons();
+        }
+    } catch(e) { console.error('手动控制失败:', e); }
+    loadAlarmOutputStatus();
+}
+
+async function manualToggleBuzzer() {
+    const newState = !cachedState.buzzer;
+    const duration = parseInt(document.getElementById('manual-duration').value) || 0;
+    try {
+        const r = await fetch('/api/alarm-output/manual', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
+            body: JSON.stringify({ buzzer: newState, duration: duration })
+        });
+        const data = await r.json();
+        if (data.state) {
+            cachedState = {
+                red: !!data.state.red,
+                yellow: !!data.state.yellow,
+                green: !!data.state.green,
+                buzzer: !!data.state.buzzer
+            };
+            updateManualButtons();
+        }
+    } catch(e) { console.error('手动控制失败:', e); }
+    loadAlarmOutputStatus();
+}
+
+async function manualAllOff() {
+    try {
+        await fetch('/api/alarm-output/manual', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
+            body: JSON.stringify({ red: false, yellow: false, green: true, buzzer: false })
+        });
+        cachedState = { red: false, yellow: false, green: true, buzzer: false };
+        updateManualButtons();
+    } catch(e) { console.error('操作失败:', e); }
+    loadAlarmOutputStatus();
+}
+
+async function manualTest() {
+    const duration = parseInt(document.getElementById('manual-duration').value) || 5;
+    try {
+        await fetch('/api/alarm-output/manual', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
+            body: JSON.stringify({ red: true, yellow: true, green: false, buzzer: true, duration: duration })
+        });
+        cachedState = { red: true, yellow: true, green: false, buzzer: true };
+        updateManualButtons();
+    } catch(e) { console.error('测试失败:', e); }
+    loadAlarmOutputStatus();
+}
+
+// ==================== 广播系统 ====================
+async function loadBroadcastAreas() {
+    try {
+        const r = await fetch('/api/broadcast/areas', { headers: getAuthHeaders() });
+        const data = await r.json();
+        const sel = document.getElementById('broadcast-area');
+        const ruleSel = document.getElementById('rule-area');
+        sel.innerHTML = '<option value="all">全厂广播</option>';
+        (data.areas || []).forEach(a => {
+            if (a !== 'all') {
+                sel.innerHTML += `<option value="${a}">${a}</option>`;
+                ruleSel.innerHTML += `<option value="${a}">${a}</option>`;
+            }
+        });
+        const cnt = document.getElementById('broadcast-zone-count');
+        if (cnt) cnt.textContent = (data.areas || []).length + ' 个区域';
+    } catch(e) {}
+}
+
+async function speakBroadcast() {
+    const text = document.getElementById('broadcast-text').value.trim();
+    if (!text) { alert('请输入广播内容'); return; }
+
+    const btn = document.getElementById('btn-speak');
+    const originalLabel = '<i class="bi bi-megaphone-fill"></i> 广播喊话';
+    setBtnLoading(btn, true, originalLabel);
+
+    try {
+        const r = await fetch('/api/broadcast/speak', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
+            body: JSON.stringify({
+                text: text,
+                level: document.getElementById('broadcast-level').value,
+                area: document.getElementById('broadcast-area').value
+            })
+        });
+        const data = await r.json();
+        if (data.success) {
+            document.getElementById('broadcast-text').value = '';
+            loadBroadcastHistory();
+        }
+        alert(data.message);
+    } catch(e) { alert('广播发送失败'); }
+    finally { setBtnLoading(btn, false, originalLabel); }
+}
+
+async function speakPreset(key, defaultMessage) {
+    const area = document.getElementById('broadcast-area').value;
+    const text = prompt('确认广播内容:', defaultMessage);
+    if (!text) return;
+
+    const btn = document.querySelector(`.preset-speak[data-preset-key="${key}"]`);
+    const originalLabel = btn ? btn.innerHTML : '';
+    setBtnLoading(btn, true, originalLabel);
+
+    try {
+        const r = await fetch('/api/broadcast/speak', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
+            body: JSON.stringify({ text: text, level: 'warning', area: area, source: 'preset' })
+        });
+        // 预设广播同样要判成功：失败静默会让操作员误以为广播已发出
+        const result = await r.json().catch(() => null);
+        if (!result || !result.success) {
+            alert('广播发送失败: ' + ((result && (result.error || result.message)) || 'HTTP ' + r.status));
+        }
+        loadBroadcastHistory();
+    } catch(e) { alert('广播发送失败: ' + e.message); }
+    finally { setBtnLoading(btn, false, originalLabel); }
+}
+
+async function loadBroadcastHistory() {
+    try {
+        const r = await fetch('/api/broadcast/history?limit=30', { headers: getAuthHeaders() });
+        const data = await r.json();
+        const container = document.getElementById('broadcast-history');
+        const history = data.history || [];
+
+        if (history.length === 0) {
+            container.innerHTML = `
+                <div class="state-box state-box--inline text-muted text-center">
+                    <i class="bi bi-megaphone state-box__icon"></i>
+                    <div class="state-box__title">暂无广播记录</div>
+                </div>`;
+            return;
+        }
+
+        container.innerHTML = history.map(h => `
+            <div class="broadcast-item ${h.level}">
+                <div class="d-flex justify-content-between align-items-center gap-2">
+                    <span class="broadcast-item__meta">
+                        <span class="tag ${levelTagClass(h.level)}">${h.level}</span>
+                        <strong class="ms-1">${h.area}</strong> | ${h.source}
+                    </span>
+                    <small class="text-muted mono">${new Date(h.timestamp).toLocaleTimeString()}</small>
+                </div>
+                <div class="broadcast-item__text">${h.text}</div>
+            </div>
+        `).join('');
+    } catch(e) {
+        // 广播历史加载失败给可见提示，避免面板停留在"加载中"
+        const c = document.getElementById('broadcast-history');
+        if (c) {
+            c.innerHTML = `
+                <div class="state-box state-box--inline">
+                    <i class="bi bi-exclamation-triangle state-box__icon"></i>
+                    <div class="state-box__title">广播历史加载失败</div>
+                </div>`;
+        }
+    }
+}
+
+// ==================== 报警触发规则 ====================
+let allDevices = {};
+
+async function loadDevicesForSelect() {
+    try {
+        const r = await fetch('/api/devices', { headers: getAuthHeaders() });
+        const data = await r.json();
+        const devices = Array.isArray(data.devices) ? data.devices : Object.values(data.devices || {});
+        if (devices.length === 0) {
+            const cnt = document.getElementById('broadcast-zone-count');
+            return;
+        }
+
+        // 用于规则编辑的设备下拉
+        const sel = document.getElementById('rule-device');
+        sel.innerHTML = '<option value="">选择设备</option>';
+        devices.forEach(d => {
+            // /api/devices 返回的设备只有 device_id 字段（无 id），取不到会把
+            // 选项值和缓存键都写成 "undefined"，规则编辑就无法选择设备
+            const devId = d.device_id || d.id;
+            allDevices[devId] = d;
+            sel.innerHTML += `<option value="${escapeHtml(devId)}">${escapeHtml(d.name || devId)} (${escapeHtml(d.protocol || '')})</option>`;
+        });
+
+        sel.onchange = function() {
+            loadRegistersForDevice(this.value);
+        };
+    } catch(e) {}
+}
+
+function loadRegistersForDevice(deviceId) {
+    const sel = document.getElementById('rule-register');
+    sel.innerHTML = '<option value="">选择参数</option>';
+
+    const device = allDevices[deviceId];
+    if (!device) return;
+
+    // 点位分布在 registers / nodes / topics / endpoints 四类。
+    // 不能用 `registers || nodes || ...` 短路：非 Modbus 设备 registers 是空数组
+    // （真值），会把后三类直接短路掉，参数下拉恒为空。
+    const points = [].concat(
+        device.registers || [], device.nodes || [],
+        device.topics || [], device.endpoints || []
+    );
+    const seen = {};
+    points.forEach(p => {
+        if (!p || typeof p !== 'object') return;
+        const name = p.name || p.topic || p.node_id || p.path;
+        if (!name || seen[name]) return;
+        seen[name] = true;
+        const label = p.description ? `${p.description} (${name})` : name;
+        sel.innerHTML += `<option value="${escapeHtml(name)}">${escapeHtml(label)}</option>`;
+    });
+}
+
+async function loadAlarmRules() {
+    try {
+        const r = await fetch('/api/alarms/statistics', { headers: getAuthHeaders() });
+        const data = await r.json();
+        const stats = data;
+
+        // 也加载规则列表（从yaml配置读取，通过API）
+        // 规则列表通过 statistics 的 total_rules 展示，但详细规则需要单独API
+        // 暂时用统计信息展示
+        renderRulesList(stats);
+    } catch(e) {
+        console.error('加载规则失败:', e);
+    }
+}
+
+function renderRulesList(stats) {
+    const container = document.getElementById('rules-list');
+    const totalRules = stats.total_rules || 0;
+    const enabledRules = stats.enabled_rules || 0;
+    const activeAlarms = stats.total_active_alarms || 0;
+
+    container.innerHTML = `
+        <div class="p-3">
+            <div class="row g-2 mb-3">
+                <div class="col-4 stat-cell">
+                    <div class="metric-value">${totalRules}</div>
+                    <span class="metric-label">总规则数</span>
+                </div>
+                <div class="col-4 stat-cell">
+                    <div class="metric-value" style="color:var(--color-success)">${enabledRules}</div>
+                    <span class="metric-label">已启用</span>
+                </div>
+                <div class="col-4 stat-cell">
+                    <div class="metric-value" style="color:var(--color-danger)">${activeAlarms}</div>
+                    <span class="metric-label">活动报警</span>
+                </div>
+            </div>
+            <h6 class="mb-2" style="font-size:var(--font-sm);color:var(--text-secondary)">当前规则触发记录</h6>
+            <div id="rules-detail-list">
+                <div class="state-box state-box--inline"><span class="spinner-border spinner-border-sm me-2"></span>加载中…</div>
+            </div>
+        </div>
+    `;
+
+    // 加载详细规则
+    loadRulesDetail();
+}
+
+async function loadRulesDetail() {
+    // 从 alarms.yaml 加载的规则通过后端API获取
+    // 目前后端没有直接的规则列表API，用已有数据展示
+    const container = document.getElementById('rules-detail-list');
+    try {
+        const r = await fetch('/api/alarms?limit=20', { headers: getAuthHeaders() });
+        const data = await r.json();
+        const alarms = data.alarms || [];
+
+        // 从报警记录提取已知规则
+        const ruleIds = new Set();
+        const rules = [];
+        alarms.forEach(a => {
+            if (!ruleIds.has(a.alarm_id)) {
+                ruleIds.add(a.alarm_id);
+                rules.push({
+                    id: a.alarm_id,
+                    device_id: a.device_id,
+                    register_name: a.register_name,
+                    level: a.alarm_level,
+                    message: a.alarm_message,
+                    threshold: a.threshold
+                });
+            }
+        });
+
+        if (rules.length === 0) {
+            container.innerHTML = `
+                <div class="state-box state-box--inline">
+                    <i class="bi bi-inbox state-box__icon"></i>
+                    <div class="state-box__title">暂无触发记录</div>
+                </div>`;
+            return;
+        }
+
+        // 配置类表格：数值列（阈值）右对齐 + 等宽
+        container.innerHTML = `
+            <table class="table rules-table">
+                <thead>
+                    <tr>
+                        <th>级别</th>
+                        <th>规则 / 设备</th>
+                        <th class="col-num">阈值</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    ${rules.map(item => `
+                        <tr>
+                            <td><span class="tag ${item.level === 'critical' ? 'tag--danger' : 'tag--warning'}">${item.level === 'critical' ? '严重' : '警告'}</span></td>
+                            <td>
+                                <div>${item.message || item.id}</div>
+                                <div class="text-muted" style="font-size:var(--font-xs)">${item.device_id} / ${item.register_name}</div>
+                            </td>
+                            <td class="col-num">${item.threshold}</td>
+                        </tr>
+                    `).join('')}
+                </tbody>
+            </table>
+        `;
+    } catch(e) {
+        container.innerHTML = `
+            <div class="state-box state-box--inline">
+                <i class="bi bi-exclamation-triangle state-box__icon"></i>
+                <div class="state-box__title">规则加载失败</div>
+            </div>`;
+    }
+}
+
+// ==================== 规则编辑 ====================
+function openAddRule() {
+    document.getElementById('ruleModalTitle').textContent = '新增报警规则';
+    document.getElementById('rule-edit-mode').value = 'add';
+    document.getElementById('rule-id').value = '';
+    document.getElementById('rule-id').readOnly = false;
+    document.getElementById('rule-name').value = '';
+    document.getElementById('rule-device').value = '';
+    document.getElementById('rule-register').innerHTML = '<option value="">选择参数</option>';
+    document.getElementById('rule-condition').value = 'greater_than';
+    document.getElementById('rule-threshold').value = '';
+    document.getElementById('rule-level').value = 'warning';
+    document.getElementById('rule-description').value = '';
+}
+
+function openEditRule(rule) {
+    document.getElementById('ruleModalTitle').textContent = '编辑报警规则';
+    document.getElementById('rule-edit-mode').value = 'edit';
+    document.getElementById('rule-original-id').value = rule.id;
+    document.getElementById('rule-id').value = rule.id;
+    document.getElementById('rule-id').readOnly = true;
+    document.getElementById('rule-name').value = rule.name || '';
+    document.getElementById('rule-device').value = rule.device_id || '';
+    loadRegistersForDevice(rule.device_id);
+    setTimeout(() => {
+        document.getElementById('rule-register').value = rule.register_name || '';
+    }, 300);
+    document.getElementById('rule-condition').value = rule.condition || 'greater_than';
+    document.getElementById('rule-threshold').value = rule.threshold || '';
+    document.getElementById('rule-level').value = rule.level || 'warning';
+    document.getElementById('rule-description').value = rule.description || '';
+}
+
+async function saveRule() {
+    const mode = document.getElementById('rule-edit-mode').value;
+    const ruleId = document.getElementById('rule-id').value.trim();
+    const ruleName = document.getElementById('rule-name').value.trim();
+    const deviceId = document.getElementById('rule-device').value;
+    const registerName = document.getElementById('rule-register').value;
+    const condition = document.getElementById('rule-condition').value;
+    const threshold = parseFloat(document.getElementById('rule-threshold').value);
+    const level = document.getElementById('rule-level').value;
+    const area = document.getElementById('rule-area').value;
+    const description = document.getElementById('rule-description').value;
+
+    if (!ruleId || !ruleName || !deviceId || !registerName || isNaN(threshold)) {
+        alert('请填写完整信息');
+        return;
+    }
+
+    const ruleConfig = {
+        id: ruleId,
+        name: ruleName,
+        description: description,
+        device_id: deviceId,
+        register_name: registerName,
+        condition: condition,
+        threshold: threshold,
+        level: level,
+        area: area,
+        enabled: true,
+        delay: 0
+    };
+
+    try {
+        // 目前后端暂无直接的规则CRUD API，提示用户手动编辑配置文件
+        alert(`规则已构建，请将以下YAML添加到 配置/alarms.yaml 的 alarm_rules 下：\n\n${JSON.stringify(ruleConfig, null, 2)}`);
+        bootstrap.Modal.getInstance(document.getElementById('ruleModal')).hide();
+    } catch(e) {
+        alert('保存失败: ' + e.message);
+    }
+}
+
+// ==================== 定时刷新 ====================
+setInterval(() => {
+    loadAlarmOutputStatus();
+}, 5000);
+</script>
+{% endblock %}
