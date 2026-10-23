@@ -7,7 +7,7 @@
           <el-col :span="6">
             <div class="panel metric-box">
               <div class="metric-label">平均健康评分</div>
-              <div class="metric-value" :style="{ color: healthVar(overview.health) }">{{ overview.health }}<span class="metric-unit">%</span></div>
+              <div class="metric-value" :style="{ color: healthVar(overview.health) }">{{ overview.health > 0 ? overview.health : '—' }}<span class="metric-unit" v-if="overview.health > 0">%</span></div>
               <div class="band-bar" v-if="overview.health > 0" role="img" aria-label="健康分档位">
                 <span v-for="(b, i) in HEALTH_BANDS" :key="b.label" class="band-bar__seg"
                   :style="{ background: 'var(' + b.token + ')', opacity: isBandOn(HEALTH_BANDS, overview.health, i) ? 1 : 0.2 }" />
@@ -928,14 +928,36 @@ function renderProcessFlow() {
   const devices = toList<OverviewNode>(data?.device_statuses || data?.devices || data?.oee?.devices)
   overviewNodes.value = devices
   if (!devices.length) { chart.clear(); return }
+
+  // 网格按设备数自适应。原先写死 4 列 × 160px：30 台设备要 8 行 960px，
+  // 容器只有两百多像素高 → ECharts 把整张图缩进容器，节点和标签糊成一团
+  // （实测截图里 22 个圆挤在中间，设备名完全叠在一起）。
+  // 现在列数取 √n、格子尺寸按容器实际宽高切分，节点大小随格子收缩。
+  const n = devices.length
+  const cols = Math.max(1, Math.ceil(Math.sqrt(n)))
+  const rows = Math.ceil(n / cols)
+  // 画布两侧各留 56px 给边缘列的标签（series.left/right 同值），否则首末列名字被裁
+  const PAD_X = 76
+  const PAD_Y = 24
+  const boxW = Math.max(120, (chart.getWidth() || 640) - PAD_X * 2)
+  const boxH = Math.max(80, (chart.getHeight() || 280) - PAD_Y)
+  const cellW = boxW / cols
+  const cellH = boxH / rows
+  const symbolSize = Math.max(16, Math.min(46, Math.min(cellW, cellH) * 0.46))
+  const dense = n > 12
+  const shortName = (s: string) => (s.length > 12 ? s.slice(0, 11) + '…' : s)
+
   const nodes = devices.map((d, i) => {
     const oee = Number(d.oee_percent)
     const offline = d.connected === false
+    const devName: string = d.device_id || d.name || `设备${i + 1}`
     return {
-      name: d.device_id || d.name || `设备${i+1}`,
-      x: (i % 4) * 160 + 80,
-      y: Math.floor(i / 4) * 120 + 60,
-      symbolSize: 50,
+      name: devName,
+      // graph 的 x/y 是相对整个 canvas 的，series.left 只影响组件包围盒、不会平移节点，
+      // 所以留白必须自己加到坐标上，否则首末列的设备名会被画布边缘裁掉
+      x: PAD_X + (i % cols) * cellW + cellW / 2,
+      y: PAD_Y / 2 + Math.floor(i / cols) * cellH + cellH / 2,
+      symbolSize,
       // 颜色语义：离线灰 > OEE 档位色；无 OEE 字段时退化为成功色
       itemStyle: {
         color: offline
@@ -943,8 +965,10 @@ function renderProcessFlow() {
           : Number.isFinite(oee) ? token(OEE_BANDS[bandIndexOf(OEE_BANDS, oee)].token) : token('--color-success'),
       },
       label: {
-        show: true, position: 'bottom', fontSize: 12, color: token('--text-secondary'),
-        formatter: Number.isFinite(oee) ? `${d.device_id || d.name || `设备${i+1}`}\nOEE ${oee}%` : (d.device_id || d.name || `设备${i+1}`),
+        show: true, position: 'bottom', fontSize: dense ? 9 : 12, color: token('--text-secondary'),
+        // 两侧列的名字会溢出画布被裁掉（"siemens_1500_01" 这种很长），截断到 12 字，
+        // 全名留给 tooltip。密集时只留设备名：再叠一行 OEE 会和相邻节点互相盖住。
+        formatter: !dense && Number.isFinite(oee) ? `${shortName(devName)}\nOEE ${oee}%` : shortName(devName),
       },
     }
   })
@@ -953,6 +977,7 @@ function renderProcessFlow() {
     tooltip: { trigger: 'item' },
     series: [{
       type: 'graph', layout: 'none', roam: true,
+      top: 6, bottom: 18, left: 76, right: 76,
       data: nodes, links,
       lineStyle: { color: token('--chart-1'), curveness: 0.1 },
       emphasis: { focus: 'adjacency' },
