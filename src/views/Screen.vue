@@ -98,6 +98,7 @@
         <section class="panel screen-panel">
           <h3 class="screen-panel__title">SPC 控制图</h3>
           <div ref="spcRef" class="chart-area"></div>
+          <div v-if="spcEmpty" class="screen-panel__empty">该批次设备暂无 SPC 数据（仅对配置了 spc 关键词的寄存器分析）</div>
         </section>
         <section class="panel screen-panel">
           <h3 class="screen-panel__title">设备健康度</h3>
@@ -112,7 +113,7 @@
 import { ref, reactive, onMounted, onUnmounted } from 'vue'
 import * as echarts from 'echarts'
 import { io } from 'socket.io-client'
-import { systemApi, alarmsApi, industry40Api, dataApi } from '@/api'
+import { systemApi, alarmsApi, industry40Api, dataApi, devicesApi } from '@/api'
 import { getAuthToken, getWsBaseUrl } from '@/api/request'
 import { registerScadaTheme } from '@/utils/echartsTheme'
 
@@ -242,7 +243,8 @@ async function loadData() {
           deviceValues[`${item.device_id}:${item.register_name}`] = parseFloat(item.value)
         }
       })
-      renderTrend(data.data)
+      pushTrendSamples(data.data)
+      renderTrend()
     }
   } catch (e: any) { console.warn('[Screen] 加载失败:', e?.message || e) }
   finally { loadingData = false }
@@ -263,27 +265,42 @@ async function loadI40() {
     if (health && typeof health === 'object' && Object.keys(health).length) renderHealthBar(Object.values(health))
     // 后端 /industry40/energy 返回扁平的能耗汇总（无 summary 外层）
     if (energy && typeof energy === 'object' && Object.keys(energy).length) renderEnergyBar(energy)
-    // SPC 控制图：用第一个设备的第一个寄存器数据渲染
+    // SPC 控制图：挑一台能取到寄存器的设备渲染
+    // ⚠️ 设备列表接口只返回摘要（register_count），**没有 registers 数组** ——
+    // 原来读 firstDev.registers 永远是空，兜底成 'temperature'，而那台设备未必有
+    // 这个寄存器，于是 SPC 面板长期空白。
     if (devices.value.length) {
-      const firstDev = devices.value[0]
-      const regs = firstDev.registers || []
-      const firstReg = regs[0]?.name || 'temperature'
       try {
-        const spcData = await industry40Api.getSPC(firstDev.device_id, firstReg) as any
-        if (disposed) return
-        // 后端 /api/industry40/spc/<d>/<r> 返回 {control_chart, capability}，
-        // control_chart = {xbar:{points,ucl,cl,lcl}, r_chart:{...}, violations}
-        const cc = spcData?.control_chart
-        const xbar = cc?.xbar || {}
-        if (xbar.points) {
-          renderSPCChart({
-            values: xbar.points,
-            ucl: xbar.ucl,
-            cl: xbar.cl,
-            lcl: xbar.lcl,
-          })
+        let rendered = false
+        for (const dev of devices.value.slice(0, 3)) {
+          const detail: any = await devicesApi.getById(dev.device_id).catch(() => null)
+          const full = detail?.device || detail
+          const regs = [
+            ...(full?.registers || []),
+            ...(full?.topics || []),
+            ...(full?.nodes || []),
+            ...(full?.endpoints || []),
+          ].filter((r: any) => r && r.name)
+          for (const r of regs.slice(0, 4)) {
+            const spcData = await industry40Api.getSPC(dev.device_id, r.name).catch(() => null) as any
+            if (disposed) return
+            const cc = spcData?.control_chart
+            const xbar = cc?.xbar || {}
+            if (Array.isArray(xbar.points) && xbar.points.length > 1) {
+              renderSPCChart({ values: xbar.points, ucl: xbar.ucl, cl: xbar.cl, lcl: xbar.lcl })
+              rendered = true
+              spcEmpty.value = false
+              break
+            }
+          }
+          if (rendered) break
         }
-      } catch (e: any) { console.warn('[Screen] 加载失败:', e?.message || e) }
+        if (!rendered) {
+          const c = ensureChart('spc', spcRef.value)
+          c?.clear()
+          spcEmpty.value = true
+        }
+      } catch (e: any) { console.warn('[Screen] SPC 加载失败:', e?.message || e) }
     }
   } catch (e: any) { console.warn('[Screen] 加载失败:', e?.message || e) }
   finally { loadingI40 = false }
@@ -331,7 +348,23 @@ function renderOEEGauge(devices: any[]) {
 function renderHealthBar(scores: any[]) {
   const chart = ensureChart('healthBar', healthBarRef.value)
   if (!chart) return
-  const top8 = scores.slice(0, 8)
+  // health_scores 的 key 是「设备:寄存器」——一台设备有十几个寄存器。
+  // 直接 slice(0,8) 会得到**同一台设备的 8 个寄存器**，大屏上就是 8 行同名设备
+  // （实测截图里 6 行全是 cnc_mazak_01）。先按 device_id 聚合成设备级平均分，再取前 8 台。
+  const byDev = new Map<string, { sum: number; n: number }>()
+  for (const s of scores) {
+    const id = s?.device_id
+    if (!id) continue
+    const cur = byDev.get(id) || { sum: 0, n: 0 }
+    cur.sum += Number(s.health_score) || 0
+    cur.n += 1
+    byDev.set(id, cur)
+  }
+  const top8 = Array.from(byDev.entries())
+    .map(([device_id, v]) => ({ device_id, health_score: v.n ? Number((v.sum / v.n).toFixed(1)) : 0 }))
+    .sort((a, b) => b.health_score - a.health_score)
+    .slice(0, 8)
+  if (!top8.length) { chart.clear(); return }
   chart.setOption({
     tooltip: { trigger: 'axis' },
     xAxis: { type: 'value', max: 100 },
@@ -391,16 +424,44 @@ function renderSPCChart(data: any) {
   }, true)
 }
 
-function renderTrend(data: any[]) {
+// 实时趋势要的是「一条线」，但 /data/realtime 是 UPSERT 表 —— 每个寄存器只有一行。
+// 直接拿它画 series，每个系列只有 1 个点，线画不出来，图表只剩坐标轴（实测截图如此）。
+// 在内存里滚动累积最近 TREND_WINDOW 次采样，横向就有曲线了。
+const spcEmpty = ref(false)
+
+const trendBuffer: Record<string, number[]> = {}
+const TREND_WINDOW = 40
+const TREND_SERIES = 4
+
+function pushTrendSamples(data: any[]) {
+  for (const item of data || []) {
+    const k = item?.register_name
+    const v = parseFloat(item?.value)
+    if (!k || !Number.isFinite(v)) continue
+    const arr = trendBuffer[k] || (trendBuffer[k] = [])
+    arr.push(v)
+    if (arr.length > TREND_WINDOW) arr.shift()
+  }
+}
+
+function renderTrend() {
   const chart = ensureChart('trend', trendRef.value)
   if (!chart) return
-  const grouped: Record<string, number[]> = {}
-  data.forEach(item => {
-    if (!grouped[item.register_name]) grouped[item.register_name] = []
-    grouped[item.register_name].push(parseFloat(item.value))
-  })
-  const keys = Object.keys(grouped).slice(0, 4)
-  const maxLen = Math.max(...keys.map(k => grouped[k].length), 1)
+  // 取样本最全的 4 个寄存器：数据点太少的系列画出来是断的，反而干扰阅读。
+  // 但优先挑**工艺量**（温度/压力/流量/转速…）—— 否则按样本数排序会把
+  // alarm_code / red_light 这类状态量排到前面，大屏上一根锯齿线毫无意义。
+  const PROCESS_RE = /temp|pressure|flow|speed|level|vibration|current|voltage|humidity|torque/i
+  const keys = Object.keys(trendBuffer)
+    .filter(k => (trendBuffer[k] || []).length > 1)
+    .sort((a, b) => {
+      const pa = PROCESS_RE.test(a) ? 1 : 0
+      const pb = PROCESS_RE.test(b) ? 1 : 0
+      if (pa !== pb) return pb - pa
+      return trendBuffer[b].length - trendBuffer[a].length
+    })
+    .slice(0, TREND_SERIES)
+  if (!keys.length) { chart.clear(); return }
+  const maxLen = Math.max(...keys.map(k => trendBuffer[k].length))
   const xData = Array.from({ length: maxLen }, (_, i) => i + 1)
   // setOption(..., true) 会重建图例，需带回用户已勾选的系列
   const prevLegend = (chart.getOption() as any)?.legend?.[0]?.selected
@@ -408,12 +469,12 @@ function renderTrend(data: any[]) {
     tooltip: { trigger: 'axis', axisPointer: { type: 'cross' } },
     legend: { top: 0, right: 0, type: 'scroll', selected: prevLegend && Object.keys(prevLegend).length ? prevLegend : undefined },
     grid: { left: 8, right: 16, top: 36, bottom: 8, containLabel: true },
-    xAxis: { type: 'category', data: xData },
+    xAxis: { type: 'category', data: xData, boundaryGap: false },
     yAxis: { type: 'value', scale: true },
     // 系列颜色由统一主题色板分配，页面不再自带颜色数组
     series: keys.map(k => ({
       name: k, type: 'line', smooth: true, symbol: 'none',
-      data: grouped[k],
+      data: trendBuffer[k],
     })),
   }, true)
 }
@@ -613,4 +674,9 @@ function handleResize() { Object.values(charts).forEach(c => c.resize()) }
   color: var(--text-muted);
 }
 .alarm-empty { padding: var(--space-4) 0; }
+
+.screen-panel__empty {
+  position: absolute; inset: auto 12px 12px 12px; text-align: center;
+  font-size: 12px; color: var(--text-tertiary, #8b949e); pointer-events: none;
+}
 </style>
