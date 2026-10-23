@@ -76,6 +76,16 @@ venv：`C:/Users/cxx/.workbuddy/binaries/python/envs/scada`（Python 3.13 + 后�
 
 ## 已知限制（模拟模式，未修）
 
+0. **状态类寄存器被模拟成连续浮点值，OEE 状态跟踪空转**（2026-10-23 实测）：
+   `robot_status` / `gripper_state` / `reactor_status` 每分钟产生 80+ 条
+   `OEE 设备状态码未定义（104.98）` 警告。根因是 OPC UA 节点没配 `data_type`，
+   模拟器按连续模拟量生成（配置里写的是「0=停止/1=运行/2=报警」）。
+   更麻烦的是**语义对不上**：设备侧 1=运行，而 `data_collector` 的
+   `status_map = {0:stopped, 1:idle, 2:running, 3:fault, ...}` ——
+   即使喂进合法值，「运行」也会被记成「空闲」，可用率偏低。
+   修法要么让模拟器按寄存器名产出离散整数、要么在配置里加 `status_map` 让采集器按设备解读，
+   两者都要动模拟器/配置的公共逻辑，**未擅自改**（现有 OEE 靠初始化预置值仍在合理区间）。
+
 1. **写入的值会被模拟数据覆盖**：模拟客户端把写入记在 `behavior_simulator._written_coils`，
    但采集链路按 Modbus 寄存器重新打包生成值，`/data/latest` 读到的仍是模拟器产出的值。
    写线圈 1 之后读回可能是 0，几秒后变成 `16256`（0x3F80 = float32 1.0 的高 16 位）——
