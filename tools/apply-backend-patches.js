@@ -287,5 +287,25 @@ patch('智能层/device_control.py',
             return result`,
   'replace', 'device_control 写前实时连接检查')
 
+// ---- 8. 去重指纹：别用 Authorization 前 50 字符 ----
+patch('core/request_dedup.py',
+  `    parts = [
+        request.method,
+        request.path,
+        request.headers.get('Authorization', '')[:50],
+    ]`,
+  `    # ⚠️ 原来取 Authorization[:50] —— JWT 的 header 段完全相同（{"alg":"HS256","typ":"JWT"}），
+    #    payload 开头也都是 {"username":"...，不同用户的 token 前 50 字符**可能一模一样**。
+    #    结果：A 用户刚提交的动作，B 用户在同一 2 秒窗口内提交同样请求会被判「重复提交」返回 409
+    #    （实测：四个角色依次调同一接口，后三个全 409，看起来像没权限，其实是去重误伤）。
+    #    改用完整 token 的摘要：长度固定、不会撞，也看不出令牌内容。
+    _auth = request.headers.get('Authorization', '')
+    parts = [
+        request.method,
+        request.path,
+        hashlib.sha256(_auth.encode()).hexdigest()[:16] if _auth else '',
+    ]`,
+  'replace', 'request_dedup 指纹不再截断 token')
+
 console.log(bad ? `\n有 ${bad} 处锚点未命中` : '\n全部补丁应用成功')
 process.exit(bad ? 1 : 0)
