@@ -38,6 +38,7 @@ venv：`C:/Users/cxx/.workbuddy/binaries/python/envs/scada`（Python 3.13 + 后�
 | 4 | `core/simulation_initializer.py` | `initialize_all()` 只打日志，配置加载的 30 台设备从不初始化 OEE/能源 | 遍历设备按预设参数初始化；产量与运行时间同口径（5.5–7.2h） |
 | 5 | `core/request_dedup.py` | Socket.IO polling 的 POST 指纹相同，2s 内被 409 拦 → 实时通道反复重连 | `skip_paths` 增加 `/socket.io` |
 | 6 | `用户层/auth.py` | 操作日志 `timestamp` 是 SQLite UTC，前端当本地显示 → 早 8 小时 | 返回前转本地带偏移 |
+| 7 | `智能层/device_control.py` | **设备控制完全不可用**：写操作一律被拒「通信断开」，而设备在线、数据在流 | 写前以 `device_manager.get_client().connected` 为准，不信过期缓存 |
 
 另：`配置/system.yaml` 的 CORS 白名单加 `localhost:5173`（dev server 用；生产走 `file://` 不受影响）。
 
@@ -52,6 +53,17 @@ venv：`C:/Users/cxx/.workbuddy/binaries/python/envs/scada`（Python 3.13 + 后�
 | 登出 | 200 `{"success":true}`（round 255 的修复在） |
 | Socket.IO | `Origin: file://` → 200 握手 |
 | 操作日志 | 返回带偏移 ISO，不再是裸 UTC |
+| 线圈写入 | 修复前 100% 被拒「设备 relay_output_01 通信断开」；修复后 `{"success":true,"verified":true}` |
+
+## 已知限制（模拟模式，未修）
+
+1. **写入的值会被模拟数据覆盖**：模拟客户端把写入记在 `behavior_simulator._written_coils`，
+   但采集链路按 Modbus 寄存器重新打包生成值，`/data/latest` 读到的仍是模拟器产出的值。
+   写线圈 1 之后读回可能是 0，几秒后变成 `16256`（0x3F80 = float32 1.0 的高 16 位）——
+   uint16 寄存器被 float 位型污染，属模拟器编解码问题。
+   **真实设备（Modbus RTU/TCP）不走这条路径，不受影响。**
+2. 模拟模式下写操作仍然会改设备状态（线圈 0 = 启停），只是数值回读不可信。
+
 
 ## 维护注意
 

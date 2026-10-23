@@ -257,5 +257,35 @@ patch('用户层/auth.py',
     def _generate_token(self, user: dict[str, Any]) -> str:`,
   'replace', 'operation_logs 时区')
 
+// ---- 7. 写操作前的设备连接检查：别信过期缓存 ----
+patch('智能层/device_control.py',
+  `        # 2. 设备健康检查
+        health = self._device_health.get(device_id, {})
+        if health.get('status') == 'disconnected':
+            result['allowed'] = False
+            result['reason'] = f'设备 {device_id} 通信断开，无法执行写操作'
+            return result`,
+  `        # 2. 设备健康检查
+        #
+        #    缓存里的 status 只在 _init_device_health() 里算过一次，而那次发生在
+        #    设备**连接之前** → 所有设备永远是 disconnected → 写操作一律被拒
+        #    （"通信断开，无法执行写操作"），而同一时刻 /control/status、实时数据、
+        #    设备列表全都显示在线。update_device_health() 虽然存在，但全仓库没有
+        #    任何调用方，所以这份缓存永远不会被刷新。
+        #    写闸门不能信可能过期的缓存：以设备管理器的实时连接状态为准。
+        health_status = self._device_health.get(device_id, {}).get('status')
+        if self.device_manager is not None:
+            try:
+                _client = self.device_manager.get_client(device_id)
+                if _client is not None:
+                    health_status = 'connected' if getattr(_client, 'connected', False) else 'disconnected'
+            except Exception as _e:
+                logger.warning("写前读取设备 %s 实时连接状态失败，沿用缓存: %s", device_id, _e)
+        if health_status == 'disconnected':
+            result['allowed'] = False
+            result['reason'] = f'设备 {device_id} 通信断开，无法执行写操作'
+            return result`,
+  'replace', 'device_control 写前实时连接检查')
+
 console.log(bad ? `\n有 ${bad} 处锚点未命中` : '\n全部补丁应用成功')
 process.exit(bad ? 1 : 0)
