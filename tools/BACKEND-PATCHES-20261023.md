@@ -41,6 +41,7 @@ venv：`C:/Users/cxx/.workbuddy/binaries/python/envs/scada`（Python 3.13 + 后�
 | 7 | `智能层/device_control.py` | **设备控制完全不可用**：写操作一律被拒「通信断开」，而设备在线、数据在流 | 写前以 `device_manager.get_client().connected` 为准，不信过期缓存 |
 | 8 | `core/request_dedup.py` | 去重指纹取 `Authorization[:50]`，不同用户 token 前 50 字符相同 → **不同人互相撞车，409 假「重复提交」** | 改用完整 token 的 sha256 摘要 |
 | 9 | `采集层/enhanced_simulated_client.py` | 状态类节点（`*_status`/`*_state`）被兜底公式模拟成 84.3/104.98 这类浮点，OEE 只认 0–5 → 全部丢弃，每分钟刷 80+ 条告警，实时状态跟踪空转 | 新增 `_sim_value_for()`，状态类节点返回 `behavior_simulator.state.value`（0–5） |
+| 10 | `展示层/routes.py` | 429 限流只返回英文 `Rate limit exceeded`，前端直接显示给用户 —— 看不出是限流、也不知道等多久 | error 保留英文、message 中文化并带 retry_after 秒数 |
 
 另：`配置/system.yaml` 的 CORS 白名单加 `localhost:5173`（dev server 用；生产走 `file://` 不受影响）。
 
