@@ -307,5 +307,45 @@ patch('core/request_dedup.py',
     ]`,
   'replace', 'request_dedup 指纹不再截断 token')
 
+// ---- 9. 状态类节点别用连续浮点兜底（OEE 状态跟踪空转 + 每分钟 80+ 条告警） ----
+patch('采集层/enhanced_simulated_client.py',
+  'def _generate_enhanced_data(',
+  `def _sim_value_for(name: str, data: dict, behavior_simulator) -> float:
+    """返回某个节点的模拟值（状态类节点返回 0–5 的离散状态码）。
+
+    行为模拟器有建模就用它；没有则用随时间变化的伪随机兜底 —— **但状态类节点
+    (\`*_status\` / \`*_state\`) 不能走兜底**：兜底公式产出 84.3、104.98 这类连续浮点，
+    而 OEE 只认 0–5 的离散状态码（0=停止 1=空闲 2=运行 3=故障 4=维护 5=换型，
+    见 DeviceState 与 data_collector 的 status_map）。采集器会把浮点值全部丢弃，
+    并每分钟刷 80+ 条「OEE 设备状态码未定义」告警，OEE 的实时状态跟踪等于空转。
+    这里直接取行为模拟器的当前状态码，天然与 status_map 对齐。
+    """
+    if name in data:
+        return data[name]
+    lowered = str(name).lower()
+    if lowered.endswith('_status') or lowered.endswith('_state'):
+        return float(getattr(getattr(behavior_simulator, 'state', None), 'value', 1))
+    return 50 + 30 * time.time() % 100
+
+
+def _generate_enhanced_data(`,
+  'replace', '状态节点离散化：新增 _sim_value_for')
+
+patch('采集层/enhanced_simulated_client.py',
+  `        value = data.get(name, 50 + 30 * time.time() % 100)
+
+        entry = {`,
+  `        value = _sim_value_for(name, data, behavior_simulator)
+
+        entry = {`,
+  'replace', '状态节点离散化：通用生成路径')
+
+patch('采集层/enhanced_simulated_client.py',
+  `        # 从行为模拟器获取数据
+        value = data.get(name, 50 + 30 * time.time() % 100)`,
+  `        # 从行为模拟器获取数据（状态类节点走离散状态码，见 _sim_value_for 注释）
+        value = _sim_value_for(name, data, self.behavior_simulator)`,
+  'replace', '状态节点离散化：REST 端点路径')
+
 console.log(bad ? `\n有 ${bad} 处锚点未命中` : '\n全部补丁应用成功')
 process.exit(bad ? 1 : 0)
