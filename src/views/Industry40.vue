@@ -1497,6 +1497,11 @@ async function loadVibration() {
       updated_at: r.updated_at,
     }))
     renderVibrationRms()
+    // 首次加载完自动选中第一台振动设备：否则频谱/轴承两栏永远是「选择设备查看…」，
+    // 得手动点表格行才出图（2026-10-23 实测）
+    if (!vibrationSelectedDevice.value && vibrationData.value.length) {
+      onVibrationDeviceClick(vibrationData.value[0])
+    }
   } catch (e) { console.warn('[Industry40] 加载失败:', errorMessage(e)) }
   finally { loading.vibration = false }
 }
@@ -1677,10 +1682,32 @@ async function loadDeviceList() {
   } catch (e) { console.warn('[Industry40] 加载失败:', errorMessage(e)) }
 }
 
-function onSpcDeviceChange(deviceId: string) {
-  const dev = deviceList.value.find((d) => d.device_id === deviceId)
-  spc.registers = (dev?.registers || []).map((r) => r.name)
+async function onSpcDeviceChange(deviceId: string) {
+  spc.registers = []
   spc.registerName = ''
+  if (!deviceId) return
+  // 设备列表接口给的是摘要（只有 register_count），**没有 registers 数组** ——
+  // 直接用 deviceList 里的对象取 registers 永远是空，寄存器下拉就永远选不了。
+  // 必须按 id 再取一次完整设备。
+  try {
+    const data = await devicesApi.getById(deviceId) as any
+    const dev = data?.device || data
+    // 不同协议的「参数」在不同字段：modbus→registers，mqtt→topics，
+    // opcua→nodes，rest→endpoints。只读 registers 时，选中 MQTT/OPCUA 设备
+    // 就永远拿不到寄存器，SPC 一直停在「请选择设备与寄存器」。
+    spc.registers = [
+      ...(dev?.registers || []),
+      ...(dev?.topics || []),
+      ...(dev?.nodes || []),
+      ...(dev?.endpoints || []),
+    ].filter((r: any) => r && r.name).map((r: any) => r.name)
+  } catch (e: any) { console.warn('[Industry40] 取设备寄存器失败:', e?.message || e) }
+  // 选中设备后直接落到第一个寄存器并出图：否则还要再点「选择寄存器 → 查看」，
+  // 首屏一直是「请选择设备与寄存器」（和总览/历史一个道理）
+  if (!spc.registerName && spc.registers.length) {
+    spc.registerName = spc.registers[0]
+    loadSPC()
+  }
 }
 
 // ========== Tab 切换 ==========
@@ -1697,6 +1724,22 @@ const loaders: Record<string, () => void | Promise<void>> = {
 
 function onTabChange(tab: string) {
   loaders[tab]?.()
+  // 首次进入 SPC / 振动时自动选中可用的设备（否则首屏永远是「请选择设备与寄存器」
+  // 「选择设备查看频谱」，看着像功能没做 —— 和历史页/控制页是同一类问题）
+  nextTick(() => {
+    if (tab === 'spc' && !spc.deviceId) {
+      const first = overviewNodes.value.find((d: any) => d.connected !== false) || overviewNodes.value[0]
+      const id = (first as any)?.device_id || (first as any)?.name
+      if (id) {
+        spc.deviceId = id
+        onSpcDeviceChange(id)
+      }
+    }
+    if (tab === 'vibration' && !vibrationSelectedDevice.value) {
+      const row = (vibrationData.value || [])[0]
+      if (row) onVibrationDeviceClick(row)
+    }
+  })
   // 刚从隐藏状态切回来时容器已有尺寸，补一次 resize（隐藏期间 resize 会把图表压成 0 尺寸）
   nextTick(() => resizeVisibleCharts())
 }
