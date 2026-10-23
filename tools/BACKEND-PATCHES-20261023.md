@@ -39,6 +39,7 @@ venv：`C:/Users/cxx/.workbuddy/binaries/python/envs/scada`（Python 3.13 + 后�
 | 5 | `core/request_dedup.py` | Socket.IO polling 的 POST 指纹相同，2s 内被 409 拦 → 实时通道反复重连 | `skip_paths` 增加 `/socket.io` |
 | 6 | `用户层/auth.py` | 操作日志 `timestamp` 是 SQLite UTC，前端当本地显示 → 早 8 小时 | 返回前转本地带偏移 |
 | 7 | `智能层/device_control.py` | **设备控制完全不可用**：写操作一律被拒「通信断开」，而设备在线、数据在流 | 写前以 `device_manager.get_client().connected` 为准，不信过期缓存 |
+| 8 | `core/request_dedup.py` | 去重指纹取 `Authorization[:50]`，不同用户 token 前 50 字符相同 → **不同人互相撞车，409 假「重复提交」** | 改用完整 token 的 sha256 摘要 |
 
 另：`配置/system.yaml` 的 CORS 白名单加 `localhost:5173`（dev server 用；生产走 `file://` 不受影响）。
 
@@ -54,6 +55,24 @@ venv：`C:/Users/cxx/.workbuddy/binaries/python/envs/scada`（Python 3.13 + 后�
 | Socket.IO | `Origin: file://` → 200 握手 |
 | 操作日志 | 返回带偏移 ISO，不再是裸 UTC |
 | 线圈写入 | 修复前 100% 被拒「设备 relay_output_01 通信断开」；修复后 `{"success":true,"verified":true}` |
+
+## 待主仓确认的权限设计（未擅自改）
+
+`PUT /api/config` 的装饰器是 `@role_required('admin', 'engineer')`，即**工程师能改系统配置**；
+但 `用户层/auth.py` 的 `ROLES` 里 engineer 的权限只有
+`read/write/acknowledge_alarms/export_data/manage_devices`，**没有 `system_config`**。
+两者口径不一致。若按 ROLES 的设计意图，应改为 `@role_required('admin')`，
+或把配置按 section 分权（工程师可改采集/报警/能源，系统/数据库/日志仅 admin）。
+实测矩阵（`tools/perm-audit.js`，4 角色 × 6 操作）当前结果：
+
+| 操作 | admin | engineer | operator | viewer |
+|---|---|---|---|---|
+| 查看用户列表 | 200 | 403 | 403 | 403 |
+| 改系统配置 | 200 | **200（存疑）** | 403 | 403 |
+| 写寄存器 | 200 | 200 | 403 | 403 |
+| 确认报警 | 200 | 200 | 200 | 403 |
+| 急停 | 200 | 200 | 200 | 200 |
+| 控制审计日志 | 200 | 200 | 200 | 200 |
 
 ## 已知限制（模拟模式，未修）
 
