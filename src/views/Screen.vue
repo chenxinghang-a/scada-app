@@ -165,9 +165,38 @@ function ensureChart(name: string, el: HTMLElement | undefined): echarts.ECharts
   return charts[name]
 }
 
-function getVal(deviceId: string, reg: string) {
-  const v = deviceValues[`${deviceId}:${reg}`]
-  return Number.isFinite(v) ? (v as number).toFixed(1) : '--'
+// 表头三列只认这三个关键词，但设备寄存器名不会刚好叫 temperature/pressure/power ——
+// 现场是 distill_temperature / boiler_pressure / total_power_kw。
+// 原来用 `${deviceId}:${col}` 精确查，只有寄存器名恰好等于 temperature 的设备才有值，
+// 大屏上 30 台设备绝大部分的「温度/压力/功率」都是 `--`（答辩时最难看的那种）。
+const COL_KEYWORDS: Record<string, string[]> = {
+  temperature: ['temperature', 'temp'],
+  pressure: ['pressure', 'press'],
+  power: ['power_kw', 'total_power', 'power', 'watt', 'energy'],
+}
+// 这些名字含关键词但语义不是「功率」，先排除
+const COL_EXCLUDE: Record<string, string[]> = {
+  power: ['power_factor', 'power_quality', 'power_status'],
+}
+
+function getVal(deviceId: string, col: string) {
+  // 1) 精确命中
+  const exact = deviceValues[`${deviceId}:${col}`]
+  if (Number.isFinite(exact)) return (exact as number).toFixed(1)
+  // 2) 关键词包含匹配（按 COL_KEYWORDS 的顺序优先）
+  const keys = COL_KEYWORDS[col] || [col]
+  const excludes = COL_EXCLUDE[col] || []
+  for (const kw of keys) {
+    for (const fullKey of Object.keys(deviceValues)) {
+      if (!fullKey.startsWith(deviceId + ':')) continue
+      const reg = fullKey.slice(deviceId.length + 1).toLowerCase()
+      if (!reg.includes(kw)) continue
+      if (excludes.some(ex => reg.includes(ex))) continue
+      const v = deviceValues[fullKey]
+      if (Number.isFinite(v)) return (v as number).toFixed(1)
+    }
+  }
+  return '--'
 }
 
 function fmtTime(t: string) { return t ? new Date(t).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', second: '2-digit' }) : '-' }
