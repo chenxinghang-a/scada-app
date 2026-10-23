@@ -278,13 +278,13 @@
               <el-col :span="12">
                 <div class="chart-wrap" v-loading="loading.spc">
                   <div ref="spcXbarRef" class="chart-box"></div>
-                  <el-empty v-if="!hasSpcXbar" class="chart-empty" description="请选择设备与寄存器" :image-size="60" />
+                  <el-empty v-if="!hasSpcXbar" class="chart-empty" :description="spc.deviceId && spc.registerName ? '该寄存器暂无控制图数据（后端仅对配置了 spc 关键词的寄存器做分析）' : '请选择设备与寄存器'" :image-size="60" />
                 </div>
               </el-col>
               <el-col :span="12">
                 <div class="chart-wrap" v-loading="loading.spc">
                   <div ref="spcRRef" class="chart-box"></div>
-                  <el-empty v-if="!hasSpcR" class="chart-empty" description="请选择设备与寄存器" :image-size="60" />
+                  <el-empty v-if="!hasSpcR" class="chart-empty" :description="spc.deviceId && spc.registerName ? '该寄存器暂无极差图数据' : '请选择设备与寄存器'" :image-size="60" />
                 </div>
               </el-col>
             </el-row>
