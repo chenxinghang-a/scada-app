@@ -57,7 +57,7 @@ const sleep = (ms) => new Promise(r => setTimeout(r, ms))
   // 登录
   await page.type('input[type="text"]', 'admin', { delay: 20 }).catch(() => {})
   const pwd = await page.$('input[type="password"]')
-  if (pwd) await pwd.type('admin123', { delay: 20 })
+  if (pwd) await pwd.type(process.env.SCADA_PWD || 'admin123', { delay: 20 })
   await page.evaluate(() => {
     const btn = Array.from(document.querySelectorAll('button')).find(b => /登录|登 录/.test(b.innerText))
     if (btn) btn.click()
