@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>SmartSCADA 修复验收报告 · 2026-10-23</title>
+<style>
+  :root {
+    --bg: #f7f8fa; --card: #fff; --ink: #1f2328; --ink-2: #59636e; --ink-3: #8b949e;
+    --line: #e3e6ea; --red: #cf222e; --green: #1a7f37; --amber: #9a6700; --blue: #0969da;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 32px 24px 64px; background: var(--bg); color: var(--ink);
+    font: 14px/1.65 -apple-system, "Segoe UI", "Microsoft YaHei", sans-serif;
+  }
+  .wrap { max-width: 1080px; margin: 0 auto; }
+  h1 { font-size: 24px; margin: 0 0 6px; letter-spacing: -.2px; }
+  .sub { color: var(--ink-2); margin: 0 0 28px; font-size: 13px; }
+  .sub code { background: #eef1f4; padding: 1px 5px; border-radius: 4px; font-size: 12px; }
+  h2 { font-size: 16px; margin: 34px 0 12px; padding-bottom: 8px; border-bottom: 1px solid var(--line); }
+  h2 .n { color: var(--ink-3); font-weight: 500; margin-right: 6px; }
+  table { width: 100%; border-collapse: collapse; background: var(--card); border: 1px solid var(--line); border-radius: 8px; overflow: hidden; font-size: 13px; }
+  th, td { padding: 9px 12px; text-align: left; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { background: #fbfcfd; font-weight: 600; color: var(--ink-2); font-size: 12px; letter-spacing: .2px; }
+  tr:last-child td { border-bottom: none; }
+  td.num { font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .bad { color: var(--red); font-weight: 600; }
+  .good { color: var(--green); font-weight: 600; }
+  .warn { color: var(--amber); font-weight: 600; }
+  .dim { color: var(--ink-3); }
+  .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 12px; margin: 16px 0 8px; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 8px; padding: 14px 16px; }
+  .card .k { font-size: 12px; color: var(--ink-3); }
+  .card .v { font-size: 22px; font-weight: 650; margin: 4px 0 2px; font-variant-numeric: tabular-nums; }
+  .card .d { font-size: 12px; color: var(--ink-2); }
+  .note { background: #fff8e6; border: 1px solid #f0d9a8; border-radius: 8px; padding: 12px 16px; font-size: 13px; color: #6b5316; margin: 14px 0; }
+  .note.blue { background: #eef5ff; border-color: #c7ddff; color: #14417a; }
+  ul { margin: 8px 0; padding-left: 22px; }
+  li { margin: 4px 0; }
+  code { font-family: ui-monospace, Consolas, monospace; font-size: 12px; background: #eef1f4; padding: 1px 5px; border-radius: 4px; }
+  footer { margin-top: 40px; padding-top: 14px; border-top: 1px solid var(--line); color: var(--ink-3); font-size: 12px; }
+  @media print { body { background: #fff; padding: 0; } .card, table { break-inside: avoid; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <h1>SmartSCADA 修复验收报告</h1>
+  <p class="sub">
+    2026-10-23 · 后端 <code>1.3.1091</code>（主仓 HEAD <code>be1041d</code> + 9 项补丁）· 前端 <code>app.asar</code> 22:29<br>
+    验收方式：真跑后端 + 真开浏览器逐页操作，<strong>不看 mock 单测</strong>（772 个单测全绿时，下列问题依然存在）
+  </p>
+
+  <div class="cards">
+    <div class="card"><div class="k">OEE 综合效率</div><div class="v"><span class="bad">0.07%</span> → <span class="good">70.2%</span></div><div class="d">22 台设备平均</div></div>
+    <div class="card"><div class="k">总用电 / 碳排放</div><div class="v"><span class="bad">0</span> → <span class="good">2649 kWh</span></div><div class="d">碳 1539 kg / ¥3179</div></div>
+    <div class="card"><div class="k">采集器告警</div><div class="v"><span class="bad">87/分</span> → <span class="good">0</span></div><div class="d">状态码未定义</div></div>
+    <div class="card"><div class="k">操作功能普查</div><div class="v"><span class="good">8 / 8</span></div><div class="d">急停·配置·用户·报警·导出·批量·配方·联锁</div></div>
+  </div>
+
+  <h2><span class="n">01</span>后端：9 项</h2>
+  <table>
+    <thead><tr><th style="width:26%">问题</th><th style="width:44%">根因</th><th style="width:30%">修复后实测</th></tr></thead>
+    <tbody>
+      <tr>
+        <td><strong>报警时间显示成「未来」</strong></td>
+        <td>Flask 默认 JSON 把本地 naive datetime 序列化成 <code>… GMT</code>，前端按 UTC 解析 → 东八区凭空 +8 小时</td>
+        <td>输出带偏移 ISO8601，<code>2026-10-23T18:41:52+08:00</code></td>
+      </tr>
+      <tr>
+        <td><strong>历史查询永远 0 条</strong></td>
+        <td>前端发 <code>toISOString()</code>（UTC），后端直接拿去和库里的本地 naive 字符串比</td>
+        <td>同一窗口从 0 条 → 14 条</td>
+      </tr>
+      <tr>
+        <td><strong>性能监控 24h 趋势全空</strong></td>
+        <td><code>metrics.jsonl</code> 只有一个从没被启动过的 CLI 会写</td>
+        <td>进程内 60s 自采样，均值/峰值有数</td>
+      </tr>
+      <tr>
+        <td><strong>OEE 恒 0.07%</strong></td>
+        <td><code>initialize_all()</code> 被改成只打日志；配置加载的 30 台设备从不初始化；且预置产量却没记运行时间 → 可用率≈0</td>
+        <td><span class="good">70.2%</span>（可用率 0.81 / 性能 1.0 / 质量 0.97）</td>
+      </tr>
+      <tr>
+        <td><strong>能源 / 碳排放恒 0</strong></td>
+        <td>功率积分需两次采样才有增量，进程刚起时只建基线</td>
+        <td>2649 kWh / 1539 kg / ¥3179</td>
+      </tr>
+      <tr>
+        <td><strong>设备控制整条不可用</strong></td>
+        <td><code>_init_device_health()</code> 在设备连接<strong>之前</strong>跑，全标 <code>disconnected</code>；<code>update_device_health()</code> 全仓零调用方 → 缓存永不过期 → 写入一律被拒「通信断开」</td>
+        <td>写前取 <code>client.connected</code> 实时状态：<code>{"success":true,"verified":true}</code></td>
+      </tr>
+      <tr>
+        <td><strong>不同用户互相撞车</strong></td>
+        <td>去重指纹取 <code>Authorization[:50]</code>，JWT header 段完全相同 → 两个人的 token 前 50 字符一样，B 的合法请求被判「重复提交」409</td>
+        <td>改用完整 token 的 sha256 摘要；四角色矩阵恢复真实结果</td>
+      </tr>
+      <tr>
+        <td><strong>OEE 状态跟踪空转</strong></td>
+        <td>状态类节点（<code>*_status</code>/<code>*_state</code>）走兜底公式 <code>50+30·t%100</code>，产出 84.3/104.98 浮点，而 OEE 只认 0–5</td>
+        <td>新增 <code>_sim_value_for()</code> 返回 <code>DeviceState.value</code>；告警 <span class="good">87 → 0</span></td>
+      </tr>
+      <tr>
+        <td><strong>操作日志早 8 小时</strong></td>
+        <td><code>operation_logs.timestamp</code> 是 SQLite UTC</td>
+        <td>返回前转本地带偏移</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h2><span class="n">02</span>前端：8 项</h2>
+  <table>
+    <thead><tr><th style="width:30%">问题</th><th style="width:40%">根因</th><th style="width:30%">修复</th></tr></thead>
+    <tbody>
+      <tr><td>历史 / 控制 / SPC 首屏全空</td><td>进入后什么都要手选，不选就一片「请选择…」</td><td>自动选第一台可用设备 + 首个参数并直接查询</td></tr>
+      <tr><td>MQTT/REST/OPCUA 设备选不到参数</td><td>这些协议参数在 <code>topics</code>/<code>nodes</code>/<code>endpoints</code>，前端只读 <code>registers</code></td><td>四类字段合并（历史 / 控制 / SPC 三处）</td></tr>
+      <tr><td>设备列表 → 寄存器永远取不到</td><td>列表接口只返回摘要（<code>register_count</code>），没有 <code>registers</code> 数组</td><td>改用 <code>getById</code> 取完整设备</td></tr>
+      <tr><td>仪表盘「活动报警 0 条 / 未确认 1」</td><td>未确认数取自历史列表，活动数取自活动接口，两个口径</td><td>统一取 <code>/alarms/active</code></td></tr>
+      <tr><td>配方功能界面不存在</td><td>后端 <code>recipe_simulator</code> 有完整多阶段配方，API 齐全，前端<strong>零入口</strong></td><td>新增「配方运行」面板：选设备+配方、启停、阶段进度</td></tr>
+      <tr><td>停配方会停到别人的</td><td><code>stopRecipe/getRecipeStatus</code> 不带 <code>device_id</code></td><td>补参数</td></tr>
+      <tr><td>产线拓扑 22 个节点挤成一团</td><td>固定 4 列 × 160px，8 行 960px 塞进两百像素容器，整图被缩放</td><td>按 √n 自适应网格 + 节点尺寸随格子收缩</td></tr>
+      <tr><td>工业4.0 冷启动显示「0% 暂无数据」</td><td>健康分靠采样累积，约 1 分钟才有值</td><td>显示 <code>—</code> + 「采集中，约 1 分钟」</td></tr>
+    </tbody>
+  </table>
+
+  <h2><span class="n">03</span>验收覆盖</h2>
+  <table>
+    <thead><tr><th style="width:22%">维度</th><th style="width:12%">范围</th><th>结果</th></tr></thead>
+    <tbody>
+      <tr><td>页面渲染</td><td class="num">11 页</td><td>无白屏、无 4xx（除 favicon 404）</td></tr>
+      <tr><td>工业4.0 标签页</td><td class="num">8 个</td><td>逐个点开，均有内容与图表</td></tr>
+      <tr><td>操作类功能</td><td class="num">8 项</td><td class="good">8 / 8 通过（每项「发请求 → 读回验证」）</td></tr>
+      <tr><td>权限矩阵</td><td class="num">4 角色 × 6 操作</td><td>除 1 处设计存疑，其余符合预期</td></tr>
+      <tr><td>API 端点</td><td class="num">33 个 GET</td><td>33 / 33 返回 200</td></tr>
+      <tr><td>运行健康</td><td class="num">55 秒</td><td>Traceback 0 · 状态码告警 0 · 智能层 30 台初始化</td></tr>
+    </tbody>
+  </table>
+
+  <h2><span class="n">04</span>还欠着的</h2>
+  <div class="note">
+    <strong>权限设计待定：</strong><code>PUT /api/config</code> 的装饰器是
+    <code>role_required('admin','engineer')</code>，即工程师能改系统配置；但 <code>ROLES</code> 里
+    engineer 的权限不含 <code>system_config</code>。两处口径矛盾，属设计意图问题，
+    <strong>没有擅自改</strong>。
+  </div>
+  <div class="note">
+    <strong>模拟模式的写入回读不可信：</strong>写入生效（接口 verified=true），但模拟器下一步就会用自己生成的数据覆盖；
+    uint16 继电器读回会变成 <code>16256</code>（0x3F80 = float32 1.0 的高 16 位）。
+    这是模拟器编解码问题，<strong>真实 Modbus 设备不走这条路径</strong>。
+  </div>
+  <div class="note blue">
+    <strong>关于「以后怎么保证不再坏」：</strong>
+    单测覆盖不了这类问题（全绿时页面照样是空的）。已固化四个真机验收脚本，改完各跑一遍即可：
+    <ul>
+      <li><code>tools/ui-audit.js</code> — 11 个页面渲染 + 控制台/网络错误</li>
+      <li><code>tools/tab-audit.js</code> — 工业4.0 八个标签页逐个点击</li>
+      <li><code>tools/ops-audit.js</code> — 8 项操作功能端到端（含读回验证）</li>
+      <li><code>tools/perm-audit.js</code> — 4 角色权限矩阵</li>
+    </ul>
+  </div>
+
+  <h2><span class="n">05</span>可复现性</h2>
+  <p style="font-size:13px;color:var(--ink-2)">
+    后端改动没有直接写进主仓（那边有并行开发），而是以「<code>git archive HEAD</code> 导出副本 → 打补丁 → 主仓自带
+    <code>scada-backend.spec</code> 打包」的方式落地，脚本 <code>tools/apply-backend-patches.js</code> 共 9 项，
+    每处替换都断言锚点存在，主仓代码一变就报错退出而不是静默跳过。
+    在干净 HEAD 副本上从头应用后 <code>py_compile</code> 全通过。
+  </p>
+
+  <footer>
+    SmartSCADA 1.3.1091 · 报告生成于 2026-10-23 22:5x · 安装位置
+    <code>%LOCALAPPDATA%\Programs\smartscada</code> · 数据与配置未改动
+  </footer>
+</div>
+</body>
+</html>
