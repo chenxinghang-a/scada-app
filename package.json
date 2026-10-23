@@ -78,7 +78,9 @@
           "!**/__pycache__/**",
           "!**/*.pyc",
           "!_internal/data/**",
-          "!_internal/backups/**"
+          "!_internal/backups/**",
+          "!src/**",
+          "!prev-*/**"
         ]
       }
     ],
