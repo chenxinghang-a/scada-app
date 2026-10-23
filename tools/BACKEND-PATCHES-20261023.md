@@ -40,6 +40,7 @@ venv：`C:/Users/cxx/.workbuddy/binaries/python/envs/scada`（Python 3.13 + 后�
 | 6 | `用户层/auth.py` | 操作日志 `timestamp` 是 SQLite UTC，前端当本地显示 → 早 8 小时 | 返回前转本地带偏移 |
 | 7 | `智能层/device_control.py` | **设备控制完全不可用**：写操作一律被拒「通信断开」，而设备在线、数据在流 | 写前以 `device_manager.get_client().connected` 为准，不信过期缓存 |
 | 8 | `core/request_dedup.py` | 去重指纹取 `Authorization[:50]`，不同用户 token 前 50 字符相同 → **不同人互相撞车，409 假「重复提交」** | 改用完整 token 的 sha256 摘要 |
+| 9 | `采集层/enhanced_simulated_client.py` | 状态类节点（`*_status`/`*_state`）被兜底公式模拟成 84.3/104.98 这类浮点，OEE 只认 0–5 → 全部丢弃，每分钟刷 80+ 条告警，实时状态跟踪空转 | 新增 `_sim_value_for()`，状态类节点返回 `behavior_simulator.state.value`（0–5） |
 
 另：`配置/system.yaml` 的 CORS 白名单加 `localhost:5173`（dev server 用；生产走 `file://` 不受影响）。
 
@@ -76,15 +77,8 @@ venv：`C:/Users/cxx/.workbuddy/binaries/python/envs/scada`（Python 3.13 + 后�
 
 ## 已知限制（模拟模式，未修）
 
-0. **状态类寄存器被模拟成连续浮点值，OEE 状态跟踪空转**（2026-10-23 实测）：
-   `robot_status` / `gripper_state` / `reactor_status` 每分钟产生 80+ 条
-   `OEE 设备状态码未定义（104.98）` 警告。根因是 OPC UA 节点没配 `data_type`，
-   模拟器按连续模拟量生成（配置里写的是「0=停止/1=运行/2=报警」）。
-   更麻烦的是**语义对不上**：设备侧 1=运行，而 `data_collector` 的
-   `status_map = {0:stopped, 1:idle, 2:running, 3:fault, ...}` ——
-   即使喂进合法值，「运行」也会被记成「空闲」，可用率偏低。
-   修法要么让模拟器按寄存器名产出离散整数、要么在配置里加 `status_map` 让采集器按设备解读，
-   两者都要动模拟器/配置的公共逻辑，**未擅自改**（现有 OEE 靠初始化预置值仍在合理区间）。
+> 状态类寄存器被模拟成浮点、导致 OEE 状态跟踪空转的问题已在**第 9 项**修掉。
+
 
 1. **写入的值会被模拟数据覆盖**：模拟客户端把写入记在 `behavior_simulator._written_coils`，
    但采集链路按 Modbus 寄存器重新打包生成值，`/data/latest` 读到的仍是模拟器产出的值。
