@@ -1,123 +1,60 @@
-# 后端修复待合并清单（2026-10-23）
+# 后端补丁：已应用并打包装机（2026-10-23 21:51）
 
-> 背景：`scada-app` 里的 `backend/src/` 是**从 1.3.1089 打包产物反推的源码快照**（原 `_internal/*.py`），
-> 不是后端主仓。真正的后端源码仓库是 `C:/Users/cxx/WorkBuddy/Claw/industrial_scada`
-> （活跃开发中，round 248→255）。
-> 下面这 5 项是**在主仓当前代码里还没修**的问题，当天在快照上验证过；
-> 合并时请以主仓为准，不要直接拿 `backend/src/` 覆盖。
+## 结果
 
-勾选状态请对照主仓当前代码复核，主仓可能已被其他轮次修掉。
+后端主仓 `C:/Users/cxx/WorkBuddy/Claw/industrial_scada` 的 **HEAD（be1041d，round 255）**
+导出副本 + 下列 6 项补丁 → PyInstaller onedir → 已部署到
+`%LOCALAPPDATA%\Programs\smartscada\resources\backend\`，版本 1.3.1091。
 
----
+**主仓工作区一个字节没动**（那里有另一个实例在活跃开发，当时 5 个文件未提交）。
 
-## 1. JSON 时间序列化：本地时间被谎报成 GMT（+8 小时）
+## 复现步骤
 
-**文件**：`展示层/routes.py`
+```bash
+# 1. 导出主仓 HEAD（不碰工作区）
+git -C "C:/Users/cxx/WorkBuddy/Claw/industrial_scada" archive HEAD -o head.tar
+mkdir back && tar -xf head.tar -C back
 
-**现象**：接口返回 `"last_trigger_time": "Fri, 23 Oct 2026 18:41:52 GMT"`，
-前端 `new Date()` 按 UTC 解析后转本地 → 东八区显示 02:41（次日，未来 8 小时）。
-仪表盘「实时报警」、大屏、报警输出全都因此错位。
+# 2. 打补丁（12 处，锚点未命中会报错退出）
+node tools/apply-backend-patches.js back
 
-**根因**：后端大量使用 naive `datetime`（值 = 本地时间，无 tzinfo），
-Flask 默认 JSON provider 走 HTTP-date，把它当成 UTC 输出。
+# 3. 用主仓自带配方打包
+printf '1.3.1091' > back/VERSION      # 与 scada-app/package.json 对齐
+<venv>/pyinstaller --noconfirm --distpath out/dist --workpath out/work back/scada-backend.spec
 
-**改法**（在 `create_app` 里，紧接 `app.config['SECRET_KEY'] = ...` 之后）：
-
-```python
-from datetime import datetime as _datetime, date as _date
-from flask.json.provider import DefaultJSONProvider
-
-class _ScadaJSONProvider(DefaultJSONProvider):
-    def default(self, o):
-        if isinstance(o, _datetime):
-            if o.tzinfo is None:
-                o = o.astimezone()          # naive 视为本地时间，补出真实偏移
-            return o.isoformat()            # 2026-10-23T18:41:52+08:00
-        if isinstance(o, _date):
-            return o.isoformat()
-        return super().default(o)
-
-# create_app 内：
-app.json = _ScadaJSONProvider(app)
+# 4. 部署：只覆盖代码，保留 _internal/{data,logs,exports,metrics,配置}
 ```
 
-**验收**：`GET /api/alarms/active` 的时间字段应形如 `...+08:00`，不再是 `GMT`。
+venv：`C:/Users/cxx/.workbuddy/binaries/python/envs/scada`（Python 3.13 + 后端依赖 + pyinstaller）。
+**不要装 eventlet** —— 两侧统一 `async_mode=threading`。
 
----
+## 6 项补丁
 
-## 2. OEE 恒 0.07%：智能层初始化被架空
+| # | 文件 | 问题 | 修法 |
+|---|---|---|---|
+| 1 | `展示层/routes.py` | 本地 naive datetime 被 Flask 序列化成 `... GMT`，前端按 UTC 解析 → 东八区 +8h（报警时间显示成未来） | 自定义 `_ScadaJSONProvider`，输出带偏移 ISO8601 |
+| 2 | `智能层/oee_calculator.py` | 预置产量却没记运行时间 → 可用率≈0 → OEE 恒 0.07% | 新增 `seed_run_time()` |
+| 3 | `智能层/energy_manager.py` | 单次功率读数只建积分基线 → 累计量恒 0（总用电 0/碳排放 0） | 新增 `seed_accumulated()` |
+| 4 | `core/simulation_initializer.py` | `initialize_all()` 只打日志，配置加载的 30 台设备从不初始化 OEE/能源 | 遍历设备按预设参数初始化；产量与运行时间同口径（5.5–7.2h） |
+| 5 | `core/request_dedup.py` | Socket.IO polling 的 POST 指纹相同，2s 内被 409 拦 → 实时通道反复重连 | `skip_paths` 增加 `/socket.io` |
+| 6 | `用户层/auth.py` | 操作日志 `timestamp` 是 SQLite UTC，前端当本地显示 → 早 8 小时 | 返回前转本地带偏移 |
 
-**文件**：`core/simulation_initializer.py`
+另：`配置/system.yaml` 的 CORS 白名单加 `localhost:5173`（dev server 用；生产走 `file://` 不受影响）。
 
-**现象**：工业 4.0 页 OEE 全 0 / 0.1%，「需改进」；能源 0 kWh；碳排放 0 kg。
+## 装机验证（2026-10-23 21:52）
 
-**根因**：
-- `initialize_all()` 被重写成只打日志（注释「设备改为通过前端动态添加」），
-  但模拟模式下 30 台设备是 `SimulatedDeviceManager` 直接读 `配置/devices*.yaml` 加载的，
-  **从不经过 `add_preset_device`** → `_init_device_data` 永不被调用。
-- 即使补了产量，`_init_single_oee` 只 `record_production`、不记运行时间 →
-  `availability = actual_run_time / planned` ≈ 0 → OEE ≈ 0.07%。
-
-**改法**：
-- `initialize_all()` 遍历 `device_manager.get_all_devices()`，按预设 id 取 `simulation_params`
-  （没有预设的用派生默认值 `_default_sim_params`），逐个调 `_init_single_oee` / `_init_single_energy`；
-  已在 `oee_calculator.shift_data` 里的设备跳过。
-- `_init_single_oee` 里产量与运行时间同口径：
-  `hours_running = random.uniform(5.5, 7.2)`（8 小时班的中后段，避免恒 25%），
-  并在 `record_production` 后调 `oee_calculator.seed_run_time(device_id, hours_running * 3600)`。
-
-**验收**：启动日志出现「智能层数据初始化完成: 新初始化 30 台」，
-`/api/industry40/oee` 平均 OEE 落在 65–80%。
-
----
-
-## 3. 能源 / 碳排放恒 0
-
-**文件**：`智能层/energy_manager.py`、`core/simulation_initializer.py`
-
-**根因**：`feed_power_data` 的功率积分需要**两次**采样才有增量，进程刚起来时第一次读数只建基线，
-`energy_accumulated` 恒为 0 → 「总用电 0 kWh / 电费 ¥0 / 碳排放 0 kg」。
-
-**改法**：
-- `EnergyManager` 新增 `seed_accumulated(device_id, energy_kwh, timestamp=None)`，
-  按当前电价时段累加进 `energy_accumulated`。
-- `_init_single_energy` 末尾按「今日已过小时数」预置：
-  `seed_accumulated(device_id, baseline / 24 * hours_today * 0.9)`。
-
-**验收**：`/api/industry40/energy` 的 `total_energy_kwh`、`carbon_emission_kg` 非 0。
-
----
-
-## 4. Socket.IO 被请求去重中间件误伤
-
-**文件**：`core/request_dedup.py`
-
-**根因**：`_make_fingerprint()` 只在 `request.is_json` 时读 body；
-Socket.IO polling 的 POST 是 `text/plain`，指纹退化成「方法+路径+token」完全一致，
-2 秒窗口内第二次 POST 必被 409 拦 → 客户端判为传输失败 → 反复重连。
-
-**改法**：`skip_paths` 增加 `'/socket.io'`（幂等由 Socket.IO 自身的 sid 会话保证）。
-
-**验收**：浏览器 Network 面板 `/socket.io/` 无 409；性能监控「已连接」稳定不掉。
-
----
-
-## 5. dev 环境 CORS 白名单缺 5173
-
-**文件**：`配置/system.yaml` + `展示层/websocket.py` 的 `_load_cors_origins()` 兜底列表
-
-**现象**：vite dev server（5173）页面连 socket 时 engine.io 回
-`400 "Not an accepted origin."`，开发环境实时通道永远连不上（生产走 `file://`，不受影响）。
-
-**改法**：origins 增加 `http://localhost:5173`、`http://127.0.0.1:5173`。
-（该文件当前有在途改动，合并前先确认。）
-
----
-
-## 主仓已修、无需重复的项
-
-| 问题 | 主仓修复 |
+| 项 | 结果 |
 |---|---|
-| 历史查询 UTC/本地错位（选 1 小时永远空） | `展示层/api/api_data.py::_parse_time` 已统一转本机 naive |
-| 性能监控 24h 趋势永远空 | `api_performance.append_sample`（round 252） |
-| 登出 500 / 预设接口 500 / 6 个指标恒 0 | round 255（be1041d） |
+| `/api/health/status` | 200，version 1.3.1091，4 模块 initialized |
+| 智能层初始化 | 日志 `新初始化 30 台` |
+| OEE | 22 台设备，平均 70.2%（原 0.07%） |
+| 能源 | 2649.13 kWh / ¥3178.95 / 1539.14 kg 碳（原全 0） |
+| 登出 | 200 `{"success":true}`（round 255 的修复在） |
+| Socket.IO | `Origin: file://` → 200 握手 |
+| 操作日志 | 返回带偏移 ISO，不再是裸 UTC |
+
+## 维护注意
+
+- 补丁按**锚点**定位。主仓一旦把某处改在别的行/改写措辞，`apply-backend-patches.js`
+  会报「锚点缺失」并退出 —— 说明主仓可能已经自己修了那一项，此时删掉对应 patch 段即可。
+- `scada-app/backend/src/` 是从 1.3.1089 产物反推的旧快照，**只作参考**，不要用它覆盖主仓。
