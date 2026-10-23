@@ -138,7 +138,7 @@ async function handleLogin() {
       const sec = Number(data.retry_after)
       const msg = Number.isFinite(sec) && sec > 0
         ? `登录过于频繁，请 ${Math.ceil(sec)} 秒后再试`
-        : '登录过于频繁，请稍后再试'
+        : '登录过于频繁，请约 1 分钟后重试'
       errorMsg.value = msg
       ElMessage.warning(msg)
       return
