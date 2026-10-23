@@ -129,7 +129,21 @@ async function handleLogin() {
       ElMessage.error('登录失败')
     }
   } catch (err: any) {
-    const msg = err?.response?.data?.error || '登录失败，请检查用户名和密码'
+    // 429 是登录限流（连续输错密码 / 多人同时登录 / 刚跑过自动化脚本都会触发）。
+    // 后端返回的是英文 "Rate limit exceeded"，直接甩给用户看不懂，也不知道要等多久 ——
+    // 这里是登录页，必须说清「等几秒」，否则用户会以为密码错了或软件坏了。
+    const status = err?.response?.status
+    const data = err?.response?.data || {}
+    if (status === 429) {
+      const sec = Number(data.retry_after)
+      const msg = Number.isFinite(sec) && sec > 0
+        ? `登录过于频繁，请 ${Math.ceil(sec)} 秒后再试`
+        : '登录过于频繁，请稍后再试'
+      errorMsg.value = msg
+      ElMessage.warning(msg)
+      return
+    }
+    const msg = data.message || data.error || '登录失败，请检查用户名和密码'
     errorMsg.value = msg
     ElMessage.error(msg)
   } finally {

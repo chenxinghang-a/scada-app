@@ -347,5 +347,31 @@ patch('采集层/enhanced_simulated_client.py',
         value = _sim_value_for(name, data, self.behavior_simulator)`,
   'replace', '状态节点离散化：REST 端点路径')
 
+// ---- 10. 429 限流文案中文化（前端会直接显示给用户） ----
+patch('展示层/routes.py',
+  `    @app.errorhandler(429)
+    def rate_limit_exceeded(e):
+        return jsonify({
+            'error': 'Rate limit exceeded',
+            'message': str(e.description),
+            'retry_after': e.retry_after
+        }), 429`,
+  `    @app.errorhandler(429)
+    def rate_limit_exceeded(e):
+        # message 会被前端**直接显示给用户**，不能是英文骨架错误 ——
+        # 用户看到「Rate limit exceeded」既不知道原因也不知道要等多久，
+        # 第一反应是密码错了或者软件坏了。带上秒数。
+        retry = getattr(e, 'retry_after', None)
+        try:
+            retry = int(float(retry)) if retry is not None else None
+        except (TypeError, ValueError):
+            retry = None
+        return jsonify({
+            'error': 'Rate limit exceeded',  # 保留原字段，程序判断用
+            'message': (f'操作过于频繁，请 {retry} 秒后重试' if retry else '操作过于频繁，请稍后重试'),
+            'retry_after': retry
+        }), 429`,
+  'replace', '429 文案中文化')
+
 console.log(bad ? `\n有 ${bad} 处锚点未命中` : '\n全部补丁应用成功')
 process.exit(bad ? 1 : 0)
