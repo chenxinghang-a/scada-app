@@ -95,11 +95,13 @@ export const controlApi = {
     return api.post('/control/recipe/start', { recipe_name: recipeName, device_id: deviceId }) as Promise<any>
   },
 
-  stopRecipe() {
-    return api.post('/control/recipe/stop') as Promise<any>
+  stopRecipe(deviceId?: string) {
+    // device_id 必须带：后端按设备查行为模拟器，缺省会落到第一个模拟器上，
+    // 在多设备场景下等于「停了别人的配方」
+    return api.post('/control/recipe/stop', { device_id: deviceId }) as Promise<any>
   },
 
-  getRecipeStatus() {
-    return api.get('/control/recipe/status') as Promise<any>
+  getRecipeStatus(deviceId?: string) {
+    return api.get('/control/recipe/status', { params: { device_id: deviceId } }) as Promise<any>
   },
 }

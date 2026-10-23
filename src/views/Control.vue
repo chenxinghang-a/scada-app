@@ -152,6 +152,35 @@
         </div>
       </section>
 
+      <!-- 配方运行 -->
+      <section class="panel">
+        <div class="panel__header">
+          <span>配方运行</span>
+          <span class="panel__meta">{{ recipe.running ? '运行中' : '未运行' }}</span>
+        </div>
+        <div class="panel__body recipe-body">
+          <div class="recipe-row">
+            <el-select v-model="recipe.deviceId" placeholder="目标设备" size="default" style="width:240px">
+              <el-option v-for="d in devices" :key="d.device_id" :label="d.name || d.device_id" :value="d.device_id" />
+            </el-select>
+            <el-select v-model="recipe.key" placeholder="选择配方" size="default" style="width:180px">
+              <el-option v-for="r in recipe.list" :key="r.key" :label="r.name" :value="r.key" />
+            </el-select>
+            <el-button type="primary" :loading="recipe.busy" :disabled="!recipe.key || !recipe.deviceId" @click="startRecipe">启动</el-button>
+            <el-button :loading="recipe.busy" :disabled="!recipe.running" @click="stopRecipe">停止</el-button>
+          </div>
+          <div v-if="recipe.status" class="recipe-status">
+            <span class="recipe-chip">配方 {{ recipe.status.recipe || recipe.key }}</span>
+            <span v-if="recipe.status.phase" class="recipe-chip">阶段 {{ recipe.status.phase }}</span>
+            <span v-if="recipe.status.phase_index != null && recipe.status.phase_count" class="recipe-chip">
+              {{ recipe.status.phase_index + 1 }} / {{ recipe.status.phase_count }}
+            </span>
+            <span v-if="recipe.status.elapsed_seconds != null" class="recipe-chip">已运行 {{ Math.round(recipe.status.elapsed_seconds) }}s</span>
+          </div>
+          <div v-else class="recipe-empty">配方由后端多阶段模拟器驱动：选设备与配方后启动，运行中可随时停止。</div>
+        </div>
+      </section>
+
       <!-- 线圈控制 -->
       <section class="panel">
         <div class="panel__header">
@@ -265,6 +294,63 @@ const devices = ref<Device[]>([])
 const currentRegisters = ref<Register[]>([])
 const coilRegisters = ref<Register[]>([])
 const interlocks = ref<any[]>([])
+
+// 配方运行：后端 采集层/recipe_simulator 有多阶段配方（发酵 / 注塑），
+// 但前端此前**只有 API 声明、没有任何入口** —— 功能在后端做完了，界面上找不到。
+// 这里补上最小的运行面板：选设备 + 选配方 + 启停 + 阶段进度。
+const recipe = reactive({
+  list: [] as Array<{ key: string; name: string; phaseCount?: number }>,
+  deviceId: '',
+  key: '',
+  running: false,
+  status: null as any,
+  busy: false,
+})
+let recipeTimer: ReturnType<typeof setInterval> | null = null
+
+async function loadRecipes() {
+  try {
+    const data = await controlApi.getRecipes() as any
+    const raw = data?.recipes || {}
+    recipe.list = Object.entries(raw).map(([k, v]: any) => ({
+      key: k, name: v?.name || k, phaseCount: v?.phase_count,
+    }))
+  } catch (e: any) { console.warn('[Control] 配方列表加载失败:', e?.message || e) }
+}
+
+async function refreshRecipeStatus() {
+  if (!recipe.deviceId) { recipe.running = false; recipe.status = null; return }
+  try {
+    const s = await controlApi.getRecipeStatus(recipe.deviceId) as any
+    recipe.running = !!s?.running
+    recipe.status = s?.running ? s : null
+  } catch { recipe.running = false; recipe.status = null }
+}
+
+async function startRecipe() {
+  if (!recipe.key || !recipe.deviceId) return
+  recipe.busy = true
+  try {
+    const r = await controlApi.startRecipe(recipe.key, recipe.deviceId) as any
+    ensureControlOk(r)
+    ElMessage.success(`配方已启动：${r?.device || recipe.deviceId}`)
+    recipe.status = r?.status || null
+    recipe.running = true
+  } catch (e: any) { showActionError(e, '配方启动失败') }
+  finally { recipe.busy = false }
+}
+
+async function stopRecipe() {
+  recipe.busy = true
+  try {
+    const r = await controlApi.stopRecipe(recipe.deviceId) as any
+    ensureControlOk(r)
+    ElMessage.success('配方已停止')
+    recipe.running = false
+    recipe.status = null
+  } catch (e: any) { showActionError(e, '配方停止失败') }
+  finally { recipe.busy = false }
+}
 const deviceHealth = ref<any[]>([])
 const controlLogs = ref<any[]>([])
 
@@ -337,23 +423,41 @@ let statusTimer: ReturnType<typeof setInterval>
 
 onMounted(async () => {
   await loadDevices()
-  // 默认选中第一台「有可写参数」的设备：否则首屏是空的下拉 + 空的写入区，
-  // 用户不知道要先选设备，看起来像控制功能没做（2026-10-23 实测）。
+  // 默认选中第一台「能写寄存器」的设备：优先 Modbus（有 registers），
+  // 否则会选到 MQTT 设备 —— 那种设备的参数是 topics，写入区寄存器下拉是空的，
+  // 看起来像写入功能坏了（2026-10-23 实测截图）。
   if (!regForm.device_id && devices.value.length) {
-    const preferred = devices.value.find((d: any) => (d.register_count || 0) > 0) || devices.value[0]
+    const isModbus = (d: any) => String(d.protocol || '').toLowerCase().startsWith('modbus')
+    const preferred =
+      devices.value.find((d: any) => isModbus(d) && (d.register_count || 0) > 0) ||
+      devices.value.find((d: any) => isModbus(d)) ||
+      devices.value.find((d: any) => (d.register_count || 0) > 0) ||
+      devices.value[0]
     const autoId = (preferred as any)?.device_id || (preferred as any)?.id
     if (autoId) {
       regForm.device_id = autoId
       await onDeviceChange(autoId)
+      // 首次进入再自动选中第一个寄存器：否则「当前值/目标值」两栏都是 —，
+      // 得先手动选一次寄存器才看得见东西（2026-10-23 实测截图）。
+      if (!regForm.register_name && currentRegisters.value.length) {
+        regForm.register_name = currentRegisters.value[0].name
+      }
     }
   }
   loadSafetyStatus()
   loadLogs()
   statusTimer = setInterval(loadSafetyStatus, 10000)
+
+  await loadRecipes()
+  // 配方默认跟「当前控制的设备」对齐，省掉再选一次
+  recipe.deviceId = regForm.device_id
+  refreshRecipeStatus()
+  recipeTimer = setInterval(refreshRecipeStatus, 5000)
 })
 
 onUnmounted(() => {
   clearInterval(statusTimer)
+  if (recipeTimer) clearInterval(recipeTimer)
 })
 
 async function loadDevices() {
@@ -948,4 +1052,14 @@ async function batchControl(action: string) {
   color: var(--text-inverse);
   font-weight: var(--weight-semibold);
 }
+
+/* 配方运行面板（补后端已有、前端零入口的配方功能） */
+.recipe-body { display: flex; flex-direction: column; gap: 10px; }
+.recipe-row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+.recipe-status { display: flex; gap: 8px; flex-wrap: wrap; }
+.recipe-chip {
+  padding: 2px 10px; border-radius: 10px; font-size: 12px;
+  background: var(--bg-subtle, rgba(0,0,0,.04)); color: var(--text-secondary);
+}
+.recipe-empty { font-size: 12px; color: var(--text-tertiary, #909399); }
 </style>
