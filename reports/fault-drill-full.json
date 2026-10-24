@@ -1,0 +1,230 @@
+{
+  "generated_at": "2026-10-25T02:24:26",
+  "device": "siemens_1500_01",
+  "register": "boiler_temperature",
+  "fault": "overheating",
+  "severity": 1.0,
+  "timeline": [
+    {
+      "t_plus_s": 2.0,
+      "value": 175.54,
+      "quality": 192,
+      "active_alarms": 0,
+      "this_device_alarms": [],
+      "device_status": "connected"
+    },
+    {
+      "t_plus_s": 4.1,
+      "value": 176.71,
+      "quality": 192,
+      "active_alarms": 0,
+      "this_device_alarms": [],
+      "device_status": "connected"
+    },
+    {
+      "t_plus_s": 6.1,
+      "value": 177.83,
+      "quality": 192,
+      "active_alarms": 0,
+      "this_device_alarms": [],
+      "device_status": "connected"
+    },
+    {
+      "t_plus_s": 8.2,
+      "value": 178.76,
+      "quality": 192,
+      "active_alarms": 0,
+      "this_device_alarms": [],
+      "device_status": "connected"
+    },
+    {
+      "t_plus_s": 10.3,
+      "value": 179.67,
+      "quality": 192,
+      "active_alarms": 0,
+      "this_device_alarms": [],
+      "device_status": "connected"
+    },
+    {
+      "t_plus_s": 12.3,
+      "value": 180.52,
+      "quality": 192,
+      "active_alarms": 1,
+      "this_device_alarms": [
+        "temp_high"
+      ],
+      "device_status": "connected"
+    },
+    {
+      "t_plus_s": 14.3,
+      "value": 181.73,
+      "quality": 192,
+      "active_alarms": 1,
+      "this_device_alarms": [
+        "temp_high"
+      ],
+      "device_status": "connected"
+    },
+    {
+      "t_plus_s": 16.4,
+      "value": 181.52,
+      "quality": 192,
+      "active_alarms": 1,
+      "this_device_alarms": [
+        "temp_high"
+      ],
+      "device_status": "connected"
+    },
+    {
+      "t_plus_s": 18.4,
+      "value": 183.0,
+      "quality": 192,
+      "active_alarms": 1,
+      "this_device_alarms": [
+        "temp_high"
+      ],
+      "device_status": "connected"
+    },
+    {
+      "t_plus_s": 20.5,
+      "value": 183.75,
+      "quality": 192,
+      "active_alarms": 1,
+      "this_device_alarms": [
+        "temp_high"
+      ],
+      "device_status": "connected"
+    },
+    {
+      "t_plus_s": 22.5,
+      "value": 184.37,
+      "quality": 192,
+      "active_alarms": 1,
+      "this_device_alarms": [
+        "temp_high"
+      ],
+      "device_status": "connected"
+    },
+    {
+      "t_plus_s": 24.6,
+      "value": 184.89,
+      "quality": 192,
+      "active_alarms": 1,
+      "this_device_alarms": [
+        "temp_high"
+      ],
+      "device_status": "connected"
+    },
+    {
+      "t_plus_s": 26.6,
+      "value": 185.21,
+      "quality": 192,
+      "active_alarms": 1,
+      "this_device_alarms": [
+        "temp_high"
+      ],
+      "device_status": "connected"
+    },
+    {
+      "t_plus_s": 28.7,
+      "value": 186.64,
+      "quality": 192,
+      "active_alarms": 1,
+      "this_device_alarms": [
+        "temp_high"
+      ],
+      "device_status": "connected"
+    },
+    {
+      "t_plus_s": 30.7,
+      "value": 186.41,
+      "quality": 192,
+      "active_alarms": 1,
+      "this_device_alarms": [
+        "temp_high"
+      ],
+      "device_status": "connected"
+    },
+    {
+      "t_plus_s": 32.8,
+      "value": 187.37,
+      "quality": 192,
+      "active_alarms": 1,
+      "this_device_alarms": [
+        "temp_high"
+      ],
+      "device_status": "connected"
+    },
+    {
+      "t_plus_s": 34.8,
+      "value": 188.72,
+      "quality": 192,
+      "active_alarms": 1,
+      "this_device_alarms": [
+        "temp_high"
+      ],
+      "device_status": "connected"
+    },
+    {
+      "t_plus_s": 36.9,
+      "value": 189.88,
+      "quality": 192,
+      "active_alarms": 1,
+      "this_device_alarms": [
+        "temp_high"
+      ],
+      "device_status": "connected"
+    },
+    {
+      "t_plus_s": 38.9,
+      "value": 190.66,
+      "quality": 192,
+      "active_alarms": 1,
+      "this_device_alarms": [
+        "temp_high"
+      ],
+      "device_status": "connected"
+    },
+    {
+      "t_plus_s": 40.9,
+      "value": 190.52,
+      "quality": 192,
+      "active_alarms": 1,
+      "this_device_alarms": [
+        "temp_high"
+      ],
+      "device_status": "connected"
+    }
+  ],
+  "findings": [
+    {
+      "severity": "info",
+      "title": "故障→报警闭环成立：12 秒",
+      "detail": "注入 overheating(severity=1.0) 后 12s，活动报警里出现该设备的记录；数值从 174.16 变到 190.66。",
+      "impact": "报警链路可用；这个时延就是现场能接受的上限"
+    }
+  ],
+  "baseline": {
+    "value": 174.16,
+    "quality": 192,
+    "active_alarms": 0,
+    "device_status": "connected",
+    "at": "2026-10-25T02:24:27"
+  },
+  "injection": {
+    "status": 200,
+    "response": {
+      "device_id": "siemens_1500_01",
+      "fault_type": "overheating",
+      "message": "已注入故障: overheating",
+      "severity": 1.0,
+      "success": true
+    }
+  },
+  "result": {
+    "alarm_detected_after_s": 12.3,
+    "peak_value": 190.66,
+    "baseline_value": 174.16,
+    "value_changed": true
+  }
+}

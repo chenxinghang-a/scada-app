@@ -1,0 +1,64 @@
+{
+  "generated_at": "2026-10-25T02:25:17",
+  "db": "C:/Users/cxx/wb_tmp/out-v7/dist/scada-backend/_internal/data/scada_simulated.db",
+  "window_hours": 1,
+  "total_records": 1,
+  "records_in_window": 1,
+  "kpi": {
+    "alarm_rate": {
+      "avg_per_hour": 1.0,
+      "peak_per_hour": 1,
+      "standard": {
+        "steady_max": 6,
+        "peak_max": 12
+      },
+      "verdict": "达标",
+      "hourly": {
+        "2026-10-25 02:00": 1
+      }
+    },
+    "priority_distribution": {
+      "counts": {
+        "critical": 1
+      },
+      "critical_share": 1.0,
+      "standard": {
+        "critical_max_share": 0.05
+      },
+      "verdict": "超标"
+    },
+    "top_alarms": [
+      {
+        "alarm_id": "temp_high",
+        "count": 1
+      }
+    ],
+    "stale_alarms": {
+      "count": 0,
+      "items": []
+    },
+    "mtta_seconds": {
+      "count": 0,
+      "note": "没有「已确认」的报警，无法计算"
+    },
+    "chattering": {
+      "count": 0,
+      "items": []
+    }
+  },
+  "findings": [
+    {
+      "severity": "warn",
+      "title": "窗口内只有 1 条报警，KPI 仅作口径演示",
+      "detail": "ISA-18.2 的报警率、优先级占比都是**统计量**，样本太小时波动极大。本报告的数字算法正确，但不足以支撑「系统报警健康」的结论。要拿到有意义的数字，需要一段连续运行（工业现场通常取 30 天）。",
+      "impact": "可以证明口径对，不能证明系统好"
+    },
+    {
+      "severity": "warn",
+      "title": "高优先级（critical）占 100%，标准建议 ≤5%",
+      "detail": "HIGH/CRIT 过多意味着优先级分层失效——所有报警都重要 = 没有重要的。",
+      "impact": "操作员的注意力被平均分配，真正的严重事件不突出"
+    }
+  ],
+  "data_sufficiency": "insufficient"
+}

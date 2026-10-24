@@ -373,5 +373,55 @@ patch('展示层/routes.py',
         }), 429`,
   'replace', '429 文案中文化')
 
+// ---- 11. 历史数据补质量戳（审计发现：实时表有 quality，历史表被 row[:5] 截掉了） ----
+patch('存储层/database.py',
+  `                    timestamp DATETIME NOT NULL,
+                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+                )
+            ''')`,
+  `                    timestamp DATETIME NOT NULL,
+                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    quality INTEGER
+                )
+            ''')`,
+  'replace', 'history_data 建表加 quality')
+
+patch('存储层/database.py',
+  `            cursor.executemany('''
+                INSERT INTO history_data (device_id, register_name, value, unit, timestamp)
+                VALUES (?, ?, ?, ?, ?)
+            ''', [row[:5] for row in valid_rows])`,
+  `            # history_data: 批量INSERT（保留 quality）
+            # 原来写 row[:5]，把 quality 砍掉了 —— 实时表有质量、历史表没有，
+            # 结果「历史曲线上的每个点都无法区分真值还是坏值」。
+            cursor.executemany('''
+                INSERT INTO history_data (device_id, register_name, value, unit, timestamp, quality)
+                VALUES (?, ?, ?, ?, ?, ?)
+            ''', valid_rows)`,
+  'replace', 'history_data 写入保留 quality')
+
+patch('存储层/database.py',
+  '            self._migrate_realtime_quality(cursor)',
+  '\n            self._migrate_history_quality(cursor)',
+  'after', '调用 history 迁移')
+
+patch('存储层/database.py',
+  '    def _migrate_realtime_unique(self, cursor):',
+  `    def _migrate_history_quality(self, cursor):
+        """history_data 补 quality 列（存量留 NULL，**故意不给 GOOD**）。
+
+        与 realtime_data 的迁移口径不同：那个给了默认 192，因为实时表马上会被新采集覆盖。
+        历史表不能这么做 —— 存量行的质量当时根本没采集，标成 GOOD 等于事后谎称
+        「当时数据是好的」，而工业数据追溯最忌讳伪造质量。
+        """
+        try:
+            cursor.execute('ALTER TABLE history_data ADD COLUMN quality INTEGER')
+            logger.info('数据库迁移: 添加列 history_data.quality（存量为 NULL，表示未记录）')
+        except Exception as e:
+            logger.debug(f'迁移列 history_data.quality 未执行: {e}')
+
+    def _migrate_realtime_unique(self, cursor):`,
+  'replace', '新增 history 迁移方法')
+
 console.log(bad ? `\n有 ${bad} 处锚点未命中` : '\n全部补丁应用成功')
 process.exit(bad ? 1 : 0)

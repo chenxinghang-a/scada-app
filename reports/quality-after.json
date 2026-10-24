@@ -1,0 +1,60 @@
+{
+  "generated_at": "2026-10-25T02:21:57",
+  "db": "C:/Users/cxx/wb_tmp/out-v7/dist/scada-backend/_internal/data/scada_simulated.db",
+  "tables": {
+    "realtime_data": {
+      "rows": 83,
+      "has_quality_column": true,
+      "columns": [
+        "id",
+        "device_id",
+        "register_name",
+        "value",
+        "unit",
+        "timestamp",
+        "created_at",
+        "quality"
+      ],
+      "quality_distribution": [
+        {
+          "code": 192,
+          "count": 83,
+          "meaning": "Good（192 = 0xC0，网关常用约定）"
+        }
+      ],
+      "non_good_rows": 0,
+      "newest_timestamp": "2026-10-25 02:21:56.796423",
+      "age_seconds": 1.0
+    },
+    "history_data": {
+      "rows": 4906,
+      "has_quality_column": true,
+      "columns": [
+        "id",
+        "device_id",
+        "register_name",
+        "value",
+        "unit",
+        "timestamp",
+        "created_at",
+        "quality"
+      ],
+      "quality_distribution": [
+        {
+          "code": 192,
+          "count": 4906,
+          "meaning": "Good（192 = 0xC0，网关常用约定）"
+        }
+      ],
+      "non_good_rows": 0
+    }
+  },
+  "findings": [
+    {
+      "severity": "info",
+      "title": "实时数据质量全部为 Good——是真实情况，还是没测过坏值",
+      "detail": "realtime_data 共 83 条，quality 全部是 192/0xC0。模拟模式下设备不会真的通信失败，所以这个 100% Good 不构成「质量机制有效」的证据，只能说明**还没有被坏数据检验过**。",
+      "impact": "需要一次「注入坏质量」的演练才能证明质量机制真的会起作用"
+    }
+  ]
+}

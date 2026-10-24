@@ -1,0 +1,140 @@
+{
+  "generated_at": "2026-10-25T02:23:08",
+  "device": "siemens_1500_01",
+  "register": "boiler_temperature",
+  "fault": "overheating",
+  "severity": 1.0,
+  "timeline": [
+    {
+      "t_plus_s": 2.1,
+      "value": 186.15,
+      "quality": 192,
+      "active_alarms": 1,
+      "this_device_alarms": [
+        "temp_high"
+      ],
+      "device_status": "connected"
+    },
+    {
+      "t_plus_s": 4.1,
+      "value": 186.09,
+      "quality": 192,
+      "active_alarms": 1,
+      "this_device_alarms": [
+        "temp_high"
+      ],
+      "device_status": "connected"
+    },
+    {
+      "t_plus_s": 6.2,
+      "value": 186.89,
+      "quality": 192,
+      "active_alarms": 1,
+      "this_device_alarms": [
+        "temp_high"
+      ],
+      "device_status": "connected"
+    },
+    {
+      "t_plus_s": 8.2,
+      "value": 187.07,
+      "quality": 192,
+      "active_alarms": 1,
+      "this_device_alarms": [
+        "temp_high"
+      ],
+      "device_status": "connected"
+    },
+    {
+      "t_plus_s": 10.2,
+      "value": 187.34,
+      "quality": 192,
+      "active_alarms": 1,
+      "this_device_alarms": [
+        "temp_high"
+      ],
+      "device_status": "connected"
+    },
+    {
+      "t_plus_s": 12.3,
+      "value": 187.93,
+      "quality": 192,
+      "active_alarms": 1,
+      "this_device_alarms": [
+        "temp_high"
+      ],
+      "device_status": "connected"
+    },
+    {
+      "t_plus_s": 14.3,
+      "value": 189.02,
+      "quality": 192,
+      "active_alarms": 1,
+      "this_device_alarms": [
+        "temp_high"
+      ],
+      "device_status": "connected"
+    },
+    {
+      "t_plus_s": 16.4,
+      "value": 189.68,
+      "quality": 192,
+      "active_alarms": 1,
+      "this_device_alarms": [
+        "temp_high"
+      ],
+      "device_status": "connected"
+    },
+    {
+      "t_plus_s": 18.4,
+      "value": 190.51,
+      "quality": 192,
+      "active_alarms": 1,
+      "this_device_alarms": [
+        "temp_high"
+      ],
+      "device_status": "connected"
+    },
+    {
+      "t_plus_s": 20.4,
+      "value": 191.53,
+      "quality": 192,
+      "active_alarms": 1,
+      "this_device_alarms": [
+        "temp_high"
+      ],
+      "device_status": "connected"
+    }
+  ],
+  "findings": [
+    {
+      "severity": "info",
+      "title": "故障→报警闭环成立：2 秒",
+      "detail": "注入 overheating(severity=1.0) 后 2s，活动报警里出现该设备的记录；数值从 185.8 变到 191.53。",
+      "impact": "报警链路可用；这个时延就是现场能接受的上限"
+    }
+  ],
+  "baseline": {
+    "value": 185.8,
+    "quality": 192,
+    "active_alarms": 1,
+    "device_status": "connected",
+    "at": "2026-10-25T02:23:09"
+  },
+  "injection": {
+    "status": 200,
+    "response": {
+      "device_id": "siemens_1500_01",
+      "fault_type": "overheating",
+      "message": "已注入故障: overheating",
+      "severity": 1.0,
+      "success": true
+    }
+  },
+  "result": {
+    "alarm_detected_after_s": 2.1,
+    "peak_value": 191.53,
+    "baseline_value": 185.8,
+    "value_changed": true
+  }
+}

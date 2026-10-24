@@ -1,0 +1,105 @@
+{
+  "generated_at": "2026-10-25T02:22:33",
+  "device": "siemens_1500_01",
+  "register": "boiler_temperature",
+  "fault": "overheating",
+  "severity": 0.9,
+  "timeline": [
+    {
+      "t_plus_s": 2.1,
+      "value": 169.12,
+      "quality": 192,
+      "active_alarms": 0,
+      "this_device_alarms": [],
+      "device_status": "connected"
+    },
+    {
+      "t_plus_s": 4.1,
+      "value": 170.49,
+      "quality": 192,
+      "active_alarms": 0,
+      "this_device_alarms": [],
+      "device_status": "connected"
+    },
+    {
+      "t_plus_s": 6.1,
+      "value": 172.02,
+      "quality": 192,
+      "active_alarms": 0,
+      "this_device_alarms": [],
+      "device_status": "connected"
+    },
+    {
+      "t_plus_s": 8.2,
+      "value": 173.57,
+      "quality": 192,
+      "active_alarms": 0,
+      "this_device_alarms": [],
+      "device_status": "connected"
+    },
+    {
+      "t_plus_s": 10.3,
+      "value": 174.53,
+      "quality": 192,
+      "active_alarms": 0,
+      "this_device_alarms": [],
+      "device_status": "connected"
+    },
+    {
+      "t_plus_s": 12.4,
+      "value": 175.51,
+      "quality": 192,
+      "active_alarms": 0,
+      "this_device_alarms": [],
+      "device_status": "connected"
+    },
+    {
+      "t_plus_s": 14.4,
+      "value": 176.84,
+      "quality": 192,
+      "active_alarms": 0,
+      "this_device_alarms": [],
+      "device_status": "connected"
+    },
+    {
+      "t_plus_s": 16.4,
+      "value": 178.67,
+      "quality": 192,
+      "active_alarms": 0,
+      "this_device_alarms": [],
+      "device_status": "connected"
+    }
+  ],
+  "findings": [
+    {
+      "severity": "warn",
+      "title": "注入故障后未在观察窗内产生报警",
+      "detail": "可能原因：阈值未越限（当前峰値 178.67）、该设备没有对应报警规则、或报警被去重/抑制机制挡掉。",
+      "impact": "需要人工确认是「值没到阈值」还是「报警没响」"
+    }
+  ],
+  "note": "账号处于首次登录态，已通过 force-change-password 取新令牌（下次请用 Drill@2026pwd）",
+  "baseline": {
+    "value": 169.0,
+    "quality": 192,
+    "active_alarms": 0,
+    "device_status": "connected",
+    "at": "2026-10-25T02:22:34"
+  },
+  "injection": {
+    "status": 200,
+    "response": {
+      "device_id": "siemens_1500_01",
+      "fault_type": "overheating",
+      "message": "已注入故障: overheating",
+      "severity": 0.9,
+      "success": true
+    }
+  },
+  "result": {
+    "alarm_detected_after_s": null,
+    "peak_value": 178.67,
+    "baseline_value": 169.0,
+    "value_changed": true
+  }
+}

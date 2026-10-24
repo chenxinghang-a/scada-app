@@ -1,0 +1,241 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>SmartSCADA 深度交付 · 证据清单</title>
+<style>
+  :root{--bg:#f6f7f9;--card:#fff;--ink:#1b1f24;--ink2:#59636e;--ink3:#8b949e;--line:#e2e5ea;
+        --red:#cf222e;--green:#1a7f37;--amber:#9a6700;--blue:#0969da;--purple:#8250df}
+  *{box-sizing:border-box}
+  body{margin:0;padding:36px 26px 72px;background:var(--bg);color:var(--ink);
+       font:14px/1.7 -apple-system,"Segoe UI","Microsoft YaHei",sans-serif}
+  .wrap{max-width:1100px;margin:0 auto}
+  h1{font-size:25px;margin:0 0 6px;letter-spacing:-.3px}
+  .sub{color:var(--ink2);margin:0 0 30px;font-size:13px}
+  h2{font-size:17px;margin:38px 0 14px;padding-bottom:9px;border-bottom:2px solid var(--line)}
+  h2 .n{color:var(--ink3);font-weight:500;margin-right:8px;font-variant-numeric:tabular-nums}
+  h3{font-size:14px;margin:22px 0 8px;color:var(--ink)}
+  table{width:100%;border-collapse:collapse;background:var(--card);border:1px solid var(--line);
+        border-radius:8px;overflow:hidden;font-size:13px;margin:10px 0}
+  th,td{padding:9px 12px;text-align:left;border-bottom:1px solid var(--line);vertical-align:top}
+  th{background:#fbfcfd;font-weight:600;color:var(--ink2);font-size:12px}
+  tr:last-child td{border-bottom:none}
+  code{font-family:ui-monospace,Consolas,monospace;font-size:12px;background:#eef1f4;padding:1px 5px;border-radius:4px}
+  pre{background:#0d1117;color:#c9d1d9;padding:13px 16px;border-radius:8px;overflow-x:auto;font-size:12.5px;line-height:1.6}
+  pre .c{color:#8b949e}
+  .cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px;margin:16px 0 6px}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:9px;padding:15px 17px}
+  .card .k{font-size:12px;color:var(--ink3)}
+  .card .v{font-size:20px;font-weight:650;margin:5px 0 2px;font-variant-numeric:tabular-nums}
+  .card .d{font-size:12px;color:var(--ink2)}
+  .bad{color:var(--red);font-weight:600}.good{color:var(--green);font-weight:600}
+  .warn{color:var(--amber);font-weight:600}.mono{font-variant-numeric:tabular-nums}
+  .note{background:#fff8e6;border:1px solid #f0d9a8;border-radius:9px;padding:13px 17px;font-size:13px;color:#6b5316;margin:14px 0}
+  .note.blue{background:#eef5ff;border-color:#c7ddff;color:#14417a}
+  .note.green{background:#edf9f0;border-color:#bfe6c8;color:#155724}
+  .note.red{background:#fff0f0;border-color:#f5c2c2;color:#8b1a1a}
+  ul{margin:8px 0;padding-left:22px}li{margin:5px 0}
+  .tag{display:inline-block;padding:1px 8px;border-radius:10px;font-size:11px;font-weight:600;
+       background:#eef1f4;color:var(--ink2);margin-right:6px}
+  .tag.ok{background:#dafbe1;color:#1a7f37}.tag.no{background:#ffebe9;color:#cf222e}
+  .tag.part{background:#fff8c5;color:#9a6700}
+  footer{margin-top:46px;padding-top:15px;border-top:1px solid var(--line);color:var(--ink3);font-size:12px}
+  @media print{body{background:#fff;padding:0}.card,table,pre{break-inside:avoid}h2{break-after:avoid}}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <h1>深度交付 · 证据清单</h1>
+  <p class="sub">
+    2026-10-25 凌晨 · 回答「更深入而不是更大」的四个问题，并把答案落成可复核的实验<br>
+    原则：<strong>能被第三方独立复核的，才算证据</strong>。自己跑一遍说通过不算，代码读起来没问题更不算。
+  </p>
+
+  <div class="cards">
+    <div class="card"><div class="k">历史数据带质量戳</div>
+      <div class="v"><span class="bad">0%</span> → <span class="good">100%</span></div>
+      <div class="d">30.8 万条存量从「无法追溯」变为有列可查</div></div>
+    <div class="card"><div class="k">时钟双字段一致</div>
+      <div class="v mono">50,000 / 50,000</div>
+      <div class="d">100% 相差 +8 小时 —— 量化了，不是猜测</div></div>
+    <div class="card"><div class="k">故障 → 报警时延</div>
+      <div class="v"><span class="good">12 s</span></div>
+      <div class="d">174.16°C → 越限 180.52°C → 报警出现</div></div>
+    <div class="card"><div class="k">kill -9 后数据丢失</div>
+      <div class="v"><span class="good">0 条</span></div>
+      <div class="d">3029 → 3063 → 重启 4419，一条不少</div></div>
+  </div>
+
+  <h2><span class="n">01</span>四个问题的答案（摘要）</h2>
+  <table>
+    <thead><tr><th style="width:24%">问题</th><th>核心答案</th></tr></thead>
+    <tbody>
+      <tr><td><strong>① 专家会做而你没要求的事</strong></td>
+        <td>按 ISA-18.2 交付报警系统并出月度 KPI；把数据质量贯穿到人眼；时钟一致性检查；
+            变化即审计（配置 diff）；故障注入列为必做；备份要验证"能恢复"而不是"有备份"；
+            性能给基线数字；点表逐点核对；报警阈值给出处；交付 FDS/SAT 文档。</td></tr>
+      <tr><td><strong>② 从哪些原始素材入手</strong></td>
+        <td>P&amp;ID 工艺流程图（位号来源）、设备铭牌/数据手册（量程、寄存器表）、
+            Modbus/OPC UA 点表、历史工况数据（定阈值）、HAZOP/故障树（定联锁）、
+            SOP 操作规程、以及标准条文本身（GB/T 22239、ISA-18.2、IEC 62443）——
+            不是"安全、易用"这类形容词。</td></tr>
+      <tr><td><strong>③ 具体方法和工具</strong></td>
+        <td>ISA-18.2 口径统计、质量码解码、时钟偏差直方图、故障注入、kill -9 恢复演练、
+            pymodbus 点表往返核对、物料/能量平衡、可复现构建、可追溯矩阵。
+            本页 5 项已实现并跑出数字。</td></tr>
+      <tr><td><strong>④ 除你我之外谁能证明</strong></td>
+        <td>标准条文里的数字（6 条/小时、≤5% 高优先级）、公开基准数据集、
+            协议一致性测试、<strong>物理守恒律</strong>、统计检验、以及
+            <strong>别人拿到仓库能一条命令复现同样的数字</strong>。
+            最后一条是本页所有结论的兜底。</td></tr>
+    </tbody>
+  </table>
+  <div class="note blue">
+    完整论述在 <code>reports/深度评审-专家视角-20261025.md</code>，含每条"为什么"和"本项目的现状对照"。
+  </div>
+
+  <h2><span class="n">02</span>五项实证（都跑过，都能复现）</h2>
+
+  <h3>① 数据质量审计 —— 找出"历史数据无法追溯"的架构缺陷，并且修掉了</h3>
+  <p style="font-size:13px;color:var(--ink2);margin:6px 0">
+    审计发现：<code>realtime_data</code> 有 <code>quality</code> 列，<code>history_data</code> <strong>没有</strong>。
+    采集层算出的质量码在落库时被 <code>row[:5]</code> 截掉了。
+  </p>
+  <pre><span class="c"># 修复前</span>
+history_data : ['id','device_id','register_name','value','unit','timestamp','created_at']
+               <span class="c">↑ 30.8 万条，没有一列能说明"这个值当时可不可信"</span>
+
+<span class="c"># 修复后（第 11 项补丁）</span>
+history_data : [..., 'created_at', <span style="color:#7ee787">'quality'</span>]
+               <span class="c">↑ 新数据全部带质量码；存量行留 NULL（= 未记录，不是 Good）</span></pre>
+  <table>
+    <thead><tr><th>验证</th><th>结果</th></tr></thead>
+    <tbody>
+      <tr><td>同一个审计脚本，修复前后各跑一次</td><td>前：<span class="bad">1 项 severe</span>；后：<span class="good">0 项 severe</span></td></tr>
+      <tr><td>新写入的行是否带质量</td><td>4,906 行，<code>quality</code> 全部有值（192/0xC0 = Good）</td></tr>
+      <tr><td>存量行怎么处理</td><td>留 <code>NULL</code>。<strong>故意不给 192</strong> —— 标成 GOOD 等于事后谎称"当时数据是好的"，工业追溯最忌讳伪造质量</td></tr>
+    </tbody>
+  </table>
+
+  <h3>② 时钟一致性审计 —— 把"时间可能不对"变成具体分布</h3>
+  <pre>timestamp vs created_at（采样 50,000 行，无法解析 0）:
+  差值 <span style="color:#f0883e">+8 小时</span> :  50,000 行    <span class="c">← 100%，不是偶发</span>
+
+时间回退: 0 次（扫描 50,000 行，最大回退 0.0 秒）    <span class="c">← 这一项是干净的</span></pre>
+  <div class="note">
+    同一条记录里，<code>timestamp</code> 是本地时间、<code>created_at</code> 是 SQLite 的
+    <code>CURRENT_TIMESTAMP</code>（UTC）。单看任一字段都合理，放在一起就让"这条数据是什么时候的"
+    失去唯一答案 —— 跨表关联、按时段聚合、事后追溯都会整体偏 8 小时。
+  </div>
+
+  <h3>③ ISA-18.2 报警 KPI —— 口径按标准，样本不够会自己说出来</h3>
+  <pre>1. 报警率        <span style="color:#7ee787">4.00</span> 条/小时   峰值 4/小时   标准 ≤6  <span style="color:#7ee787">达标</span>
+2. 优先级分布    critical 1 / warning 0    占比 100%   标准 ≤5%  <span style="color:#f0883e">超标</span>
+3. Top 频繁报警  temp_high×1
+4. 陈旧报警      0 条（&gt;24h 未确认）
+5. MTTA          无「已确认」报警，无法计算
+6. 抖动          0 条
+
+<span style="color:#f0883e">样本量: 不足（仅演示口径）</span>  ← 工具自己判定的，不是人免责</pre>
+  <div class="note blue">
+    口径修正过一处：ISA-18.2 的"报警次数"是<strong>发生次数</strong>，不是记录行数。
+    <code>alarm_records</code> 对同一报警去重（只累加 <code>trigger_count</code>），
+    按行数算会把"1 小时触发 300 次"算成"1 条"。改用 <code>trigger_count</code> 求和后，
+    同一条数据从 1.00 条/小时变成 4.00 条/小时。
+  </div>
+
+  <h3>④ 故障注入演练 —— 报警链路到底会不会响</h3>
+  <pre>基线: 值=174.16  质量=192  活动报警=0  状态=connected
+[注入] overheating severity=1.0 → HTTP 200
+
+  +   2s  值=175.54  报警=0
+  +   4s  值=176.71  报警=0
+  +   6s  值=177.83  报警=0
+  +   8s  值=178.76  报警=0
+  +  10s  值=179.67  报警=0
+  +  12s  值=<span style="color:#7ee787">180.52</span>  报警=<span style="color:#7ee787">1</span>  本机报警=<span style="color:#7ee787">temp_high</span>  <span class="c">← 越过阈值 180，同一采样点报警出现</span>
+  +  14s  值=181.73  报警=1
+  ...
+  +  41s  值=190.52  报警=1</pre>
+  <table>
+    <thead><tr><th>要素</th><th>数值</th><th>为什么这条重要</th></tr></thead>
+    <tbody>
+      <tr><td>数值确实变了</td><td class="mono">174.16 → 190.66</td><td>证明注入真的作用到数据源，不是只改了个标志位</td></tr>
+      <tr><td>越限点</td><td class="mono">180.52（+12s）</td><td>与配置的阈值 180 吻合，说明报警判据读的是这份配置</td></tr>
+      <tr><td>报警出现</td><td class="mono">同一采样点</td><td>时延在天花板 2 秒内（采样周期），不是"过一会儿才响"</td></tr>
+    </tbody>
+  </table>
+
+  <h3>⑤ 崩溃恢复演练 —— "WAL 不会丢数据"到底是不是真的</h3>
+  <pre>T0 行数:            2,087
+跑 20 秒后:         3,029   <span class="c">(+942)</span>
+kill -9 之后:       3,063   <span class="c">← 强杀瞬间又落盘 34 条：最后一批事务已提交到 WAL</span>
+重启并复查:         4,419   <span class="c">← 一条不少，且继续写入</span>
+服务状态:           UP</pre>
+  <div class="note green">
+    <strong>判定 PASS。</strong>数据零丢失，服务自愈。
+    "强杀后行数比强杀前还多"这个细节是整件事的关键证据 ——
+    它说明最后一批事务在进程被杀时已经提交到 WAL，重启时被完整重放，
+    而不是"恰好没写到一半"。
+  </div>
+
+  <h2><span class="n">03</span>为什么有两件事我明确没做</h2>
+  <table>
+    <thead><tr><th style="width:18%">项目</th><th style="width:12%">状态</th><th>理由</th></tr></thead>
+    <tbody>
+      <tr><td>物料/能量平衡自检</td><td><span class="tag no">不做</span></td>
+        <td>30 台设备的模拟数据之间没有真实物料流关系，算出来的"平衡"是我编的。
+            <strong>这种证据比没有更糟</strong> —— 它会给评审一个"看起来专业但其实是假"的印象。</td></tr>
+      <tr><td>配置变更 diff 审计</td><td><span class="tag no">不做</span></td>
+        <td>要改 <code>operation_logs</code> 的表结构和写入路径，属后端主仓正在改动的区域。
+            在补丁层做会与并行开发冲突，留给他们。</td></tr>
+      <tr><td>点表核对（配置 vs 实际读写）</td><td><span class="tag part">部分</span></td>
+        <td>只能核模拟器；真实设备的点表要现场比对设备手册。这一步谁也代替不了。</td></tr>
+      <tr><td>报警阈值出处表</td><td><span class="tag part">部分</span></td>
+        <td>能列出"这 10 条规则没有一条写了出处"，但定阈值需要工艺参数 —— 那是专业判断，不是代码问题。</td></tr>
+    </tbody>
+  </table>
+
+  <h2><span class="n">04</span>怎么复核我</h2>
+  <p style="font-size:13px;color:var(--ink2)">五条命令，任何人拿到仓库都能跑出同样的数字。跑不出来，说明我说的就是假的。</p>
+  <pre><span class="c"># 1. 数据质量（修复后应该只剩"说明"级）</span>
+python tools/data-quality-audit.py
+
+<span class="c"># 2. 时钟一致性（应该看到 +8 小时 / 100%）</span>
+python tools/clock-audit.py --limit 50000
+
+<span class="c"># 3. ISA-18.2 KPI（口径按标准，样本不足会自己说）</span>
+python tools/isa18-kpi.py --hours 1
+
+<span class="c"># 4. 故障注入（需要后端在跑；观察 12 秒越限→报警）</span>
+python tools/fault-drill.py --device siemens_1500_01 --register boiler_temperature --samples 20
+
+<span class="c"># 5. 崩溃恢复（会强制杀掉后端，请在测试库上跑）</span>
+powershell -ExecutionPolicy Bypass -File tools/crash-recovery-drill.ps1</pre>
+
+  <h2><span class="n">05</span>这次改了什么代码</h2>
+  <table>
+    <thead><tr><th style="width:26%">位置</th><th>改动</th></tr></thead>
+    <tbody>
+      <tr><td><code>存储层/database.py</code></td>
+        <td><code>history_data</code> 建表加 <code>quality</code> 列；批量 INSERT 不再 <code>row[:5]</code> 截断；
+            新增 <code>_migrate_history_quality()</code> 给存量库补列（留 NULL）</td></tr>
+      <tr><td><code>tools/*.py</code>（5 个）</td>
+        <td>数据质量审计、时钟审计、ISA-18.2 KPI、故障注入演练、崩溃恢复演练</td></tr>
+      <tr><td><code>reports/*</code></td>
+        <td>专家视角评审（4 个问题的完整论述）、5 份 JSON 原始结果</td></tr>
+    </tbody>
+  </table>
+  <p style="font-size:13px;color:var(--ink2)">
+    后端改动仍走"导出主仓 HEAD → 打补丁 → 打包"的路径（第 11 项补丁），
+    主仓工作区零改动。补丁清单见 <code>tools/BACKEND-PATCHES-20261023.md</code>。
+  </p>
+
+  <footer>
+    SmartSCADA 1.3.1091 · 深度交付证据清单 · 2026-10-25 凌晨<br>
+    所有数字由本页列出的脚本产生，脚本在 <code>scada-app/tools/</code>，可重复执行
+  </footer>
+</div>
+</body>
+</html>

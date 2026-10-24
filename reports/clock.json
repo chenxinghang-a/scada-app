@@ -1,0 +1,52 @@
+{
+  "generated_at": "2026-10-25T02:14:56",
+  "db": "backend/_internal/data/scada_simulated.db",
+  "table": "history_data",
+  "columns": [
+    "id",
+    "device_id",
+    "register_name",
+    "value",
+    "unit",
+    "timestamp",
+    "created_at"
+  ],
+  "checks": {
+    "timestamp_vs_created_at": {
+      "sampled": 50000,
+      "unparsed": 0,
+      "delta_hours_histogram": {
+        "8": 50000
+      }
+    },
+    "time_backwards": {
+      "scanned": 50000,
+      "back_steps": 0,
+      "worst_back_seconds": 0.0,
+      "examples": []
+    },
+    "duplicate_timestamps": {
+      "extra_rows": 84776
+    }
+  },
+  "findings": [
+    {
+      "severity": "high",
+      "title": "同一行内两个时间字段系统性相差 +8 小时（占 100.0%）",
+      "detail": "history_data.timestamp 与 created_at 的差值中位落在 +8 小时。典型成因是「一个用本地时间、一个用 SQLite CURRENT_TIMESTAMP（UTC）」。单看任一字段都合理，放在一起就会让「这条数据是什么时候的」失去唯一答案。",
+      "impact": "跨表关联、按时段聚合、事后追溯都会整体偏移 8 小时"
+    },
+    {
+      "severity": "info",
+      "title": "无时间回退",
+      "detail": "扫描 50,000 行，同一测点时间戳单调不减。",
+      "impact": "无"
+    },
+    {
+      "severity": "info",
+      "title": "同测点同秒存在 84776 条重复记录",
+      "detail": "采集周期小于 1 秒时属正常；若采集周期远大于 1 秒则说明重复入库。",
+      "impact": "按秒聚合时会被重复计数"
+    }
+  ]
+}

@@ -468,7 +468,7 @@
                 <span class="panel__hint">点击节点查看设备详情</span>
               </div>
               <div class="panel__body">
-                <div class="twin-floor" v-loading="loading.twin">
+                <div class="twin-floor" :style="{ minHeight: twinFloorHeight + 'px' }" v-loading="loading.twin">
                   <svg class="twin-links" v-if="twinDevices.length">
                     <line v-for="(c,i) in twinConnections" :key="i"
                       class="twin-link"
@@ -883,6 +883,13 @@ const TWIN_MAP: Record<string, TwinMapEntry> = {
   schneider_m340_01: { x: 500, y: 220, icon: '⚡', name: '配电系统', process_type: '电力分配' },
   abb_m4m_01: { x: 700, y: 140, icon: '📊', name: '电力监测', process_type: '电力监控' },
 }
+
+// 画布高度按节点范围撑开：未知设备从 y=380 往下排，固定 350px 的容器会把它们藏进滚动区，
+// 用户看不到「其余 15 台设备」。这里让容器跟着内容长高，页面整体滚动。
+const twinFloorHeight = computed(() => {
+  const maxY = twinDevices.value.reduce((m, d) => Math.max(m, d.y || 0), 0)
+  return Math.max(350, maxY + 130)
+})
 
 const twinConnections = computed(() => {
   const devs = twinDevices.value
@@ -1443,8 +1450,11 @@ async function loadTwin() {
         }
       }
       // 未知设备自动排列
+      // ⚠️ 起点必须避开 TWIN_MAP 已占的坐标区（x 100/300/500/700，y 60/220），
+      //    否则两批节点完全重叠 —— 实测 22 台设备在页面上只看得见 8 个圆，
+      //    而且「化工车间」和 compressors_01 的名字叠在一起。
       const x = 100 + (unknownIdx % 4) * 180
-      const y = 60 + Math.floor(unknownIdx / 4) * 160
+      const y = 380 + Math.floor(unknownIdx / 4) * 150
       unknownIdx++
       return {
         ...d, x, y, icon: '⚙️',

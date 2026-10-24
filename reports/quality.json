@@ -1,0 +1,63 @@
+{
+  "generated_at": "2026-10-25T02:14:19",
+  "db": "backend/_internal/data/scada_simulated.db",
+  "tables": {
+    "realtime_data": {
+      "rows": 83,
+      "has_quality_column": true,
+      "columns": [
+        "id",
+        "device_id",
+        "register_name",
+        "value",
+        "unit",
+        "timestamp",
+        "created_at",
+        "quality"
+      ],
+      "quality_distribution": [
+        {
+          "code": 192,
+          "count": 83,
+          "meaning": "Good（192 = 0xC0，网关常用约定）"
+        }
+      ],
+      "non_good_rows": 0,
+      "newest_timestamp": "2026-10-23 21:42:01.290734",
+      "age_seconds": 102737.9
+    },
+    "history_data": {
+      "rows": 308306,
+      "has_quality_column": false,
+      "columns": [
+        "id",
+        "device_id",
+        "register_name",
+        "value",
+        "unit",
+        "timestamp",
+        "created_at"
+      ]
+    }
+  },
+  "findings": [
+    {
+      "severity": "high",
+      "title": "历史数据没有质量列，坏值无法事后追溯",
+      "detail": "history_data 共 308,306 条，表结构里没有 quality 字段。意味着历史曲线上的每一个点都无法区分「当时测到的是真值」还是「通信中断后沿用/插补的旧值」。实时表有 quality 但只在内存窗口里有效，落盘到历史表时被丢弃。",
+      "impact": "事后回溯事故时，无法回答「当时那个 180°C 是真的吗」"
+    },
+    {
+      "severity": "info",
+      "title": "实时数据质量全部为 Good——是真实情况，还是没测过坏值",
+      "detail": "realtime_data 共 83 条，quality 全部是 192/0xC0。模拟模式下设备不会真的通信失败，所以这个 100% Good 不构成「质量机制有效」的证据，只能说明**还没有被坏数据检验过**。",
+      "impact": "需要一次「注入坏质量」的演练才能证明质量机制真的会起作用"
+    },
+    {
+      "severity": "warn",
+      "title": "实时数据已 1712.3 分钟没有更新",
+      "detail": "最新一条 timestamp = 2026-10-23 21:42:01.290734。如果此时后端进程还在跑，说明采集停了但没人知道。",
+      "impact": "UI 会继续显示这些旧值，看起来一切正常"
+    }
+  ]
+}
