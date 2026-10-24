@@ -193,3 +193,12 @@ requirements:
   evidence: ''
   status: not_done
   note: 真实设备的点表必须现场核对，这一步谁也代替不了。
+- id: DATA-07
+  category: 数据
+  requirement: 备份必须验证「能恢复」，而不只是「生成了文件」
+  source: 灾难恢复（RTO/RPO）；没做过恢复演练的备份等于没有备份
+  implementation: tools/auto_backup.py 生成备份（走项目自带逻辑，不另写一套）
+  verification: python tools/backup-verify.py --backend <backend 目录>
+  evidence: reports/evidence/backup-restore.json
+  status: verified
+  note: 实测备份 97.76MB，PRAGMA integrity_check=ok，8 张表行数与源库逐一相等（含 32.9 万行历史）

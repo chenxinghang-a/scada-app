@@ -47,8 +47,8 @@
     <strong>评审可以随机挑一条，当场跑验证命令。</strong></p>
 
  <div class="cards">
-   <div class="card"><div class="k">需求条目</div><div class="v">21</div></div>
-   <div class="card"><div class="k">已验证</div><div class="v" style="color:var(--green)">15</div></div>
+   <div class="card"><div class="k">需求条目</div><div class="v">22</div></div>
+   <div class="card"><div class="k">已验证</div><div class="v" style="color:var(--green)">16</div></div>
    <div class="card"><div class="k">部分覆盖</div><div class="v" style="color:var(--amber)">3</div></div>
    <div class="card"><div class="k">明确不做</div><div class="v" style="color:var(--ink3)">3</div></div>
  </div>
@@ -142,7 +142,7 @@
         <td><code>reports/clock.json</code></td>
         <td><span class="tag part">部分</span></td>
       </tr>
-      <tr class="note-row"><td></td><td colspan="6">↳ 修复了接口序列化，但库内 timestamp(本地) 与 created_at(UTC) 仍相差 8 小时 —— 属历史包袱，未做数据迁移</td></tr>
+      <tr class="note-row"><td></td><td colspan="6">↳ 不是一个表的问题：全库 5 张表（history_data / users / operation_logs / alarm_records / device_status）都用 SQLite CURRENT_TIMESTAMP（UTC），而业务代码大量用 datetime.now()（本地）。只改 history_data 会造成「有的表 UTC、有的表本地」——比现在更糟。正确做法是统一时间基准 + 在 API 层统一转换，属架构决策，需主仓确认。本次只修了「接口输出」这一层（_ScadaJSONProvider 让 datetime 带偏移），没动库内存储。</td></tr>
       <tr>
         <td class="id">DATA-04</td>
         <td><span class="cat">数据</span></td>
@@ -309,11 +309,23 @@
         <td><span class='dim'>—</span></td>
         <td><span class="tag skip">不做</span></td>
       </tr>
-      <tr class="note-row"><td></td><td colspan="6">↳ 真实设备的点表必须现场核对，这一步谁也代替不了。</td></tr></tbody>
+      <tr class="note-row"><td></td><td colspan="6">↳ 真实设备的点表必须现场核对，这一步谁也代替不了。</td></tr>
+      <tr>
+        <td class="id">DATA-07</td>
+        <td><span class="cat">数据</span></td>
+        <td>备份必须验证「能恢复」，而不只是「生成了文件」
+            <div class="src">依据：灾难恢复（RTO/RPO）；没做过恢复演练的备份等于没有备份</div>
+        </td>
+        <td class="mono-sm">tools/auto_backup.py 生成备份（走项目自带逻辑，不另写一套）</td>
+        <td><code>python tools/backup-verify.py --backend &lt;backend 目录&gt;</code></td>
+        <td><code>reports/evidence/backup-restore.json</code></td>
+        <td><span class="tag ok">已验证</span></td>
+      </tr>
+      <tr class="note-row"><td></td><td colspan="6">↳ 实测备份 97.76MB，PRAGMA integrity_check=ok，8 张表行数与源库逐一相等（含 32.9 万行历史）</td></tr></tbody>
  </table>
 
  <footer>
-  范围：模拟模式（simulation mode），30 台虚拟设备 · 生成于 2026-10-25 02:59<br>
+  范围：模拟模式（simulation mode），30 台虚拟设备 · 生成于 2026-10-25 03:13<br>
   由 <code>tools/trace-matrix.py</code> 从 <code>docs/traceability.yaml</code> 生成，改需求请改 yaml
  </footer>
 </div></body></html>

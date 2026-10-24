@@ -39,7 +39,7 @@
  <p class="sub">SmartSCADA 工业数据采集与监控系统 · v1.3.1091
     · 测试日期 2026-10-25
     · 测试环境：模拟模式（simulation mode），30 台虚拟设备</p>
- <p class="sum">共 21 项 · 通过 15 · 有异常 1 · 未覆盖 2 · 不适用 3</p>
+ <p class="sum">共 22 项 · 通过 16 · 有异常 1 · 未覆盖 2 · 不适用 3</p>
 
  <div class="note">
    <strong>这张表的读法：</strong>「实际结果」一栏的数字/结论不是手写的，
@@ -285,6 +285,17 @@
         <td class="ts">—</td>
         <td><span class="tag skip">不适用</span></td>
         <td class="ev">—</td>
+      </tr>
+      <tr>
+        <td class="no">SAT-22</td>
+        <td class="rid">DATA-07</td>
+        <td>备份必须验证「能恢复」，而不只是「生成了文件」
+            <div class="cat">数据</div></td>
+        <td class="mono-sm">python tools/backup-verify.py --backend &lt;backend 目录&gt;</td>
+        <td class="actual">PASS：integrity_check=ok，且 8 张表行数与源库完全一致</td>
+        <td class="ts">2026-10-25T03:13:18</td>
+        <td><span class="tag ok">通过</span></td>
+        <td class="ev">reports/evidence/backup-restore.json</td>
       </tr></tbody>
  </table>
 
@@ -299,5 +310,5 @@
  </div>
 
  <footer>由 tools/sat-report.py 从 docs/traceability.yaml + reports/ 生成 ·
-   2026-10-25 03:09</footer>
+   2026-10-25 03:13</footer>
 </div></body></html>

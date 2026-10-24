@@ -1,0 +1,36 @@
+{
+  "generated_at": "2026-10-25T03:13:18",
+  "backend": "C:\\Users\\cxx\\wb_tmp\\out-v8\\dist\\scada-backend",
+  "source_db": "scada_simulated.db",
+  "source_counts": {
+    "realtime_data": 83,
+    "history_data": 329188,
+    "alarm_records": 3,
+    "device_status": 0,
+    "history_archive": 0,
+    "users": 5,
+    "operation_logs": 64,
+    "jwt_blacklist": 2
+  },
+  "steps": [
+    {
+      "step": "run_backup",
+      "returncode": 0,
+      "tail": "ada-backend\\_internal\\backups\\20261025\\scada_031319.db\n  大小: 97.76MB\n\n配置备份:\n  状态: success\n  文件: alarms.yaml, alarm_templates.yaml, devices.yaml, devices_modbus_sim.yaml, devices_real.yaml, devices_simulated.yaml, energy.yaml, fault_presets.yaml, iec104_example.yaml, interlocks.yaml, simulation_presets.yaml, system.yaml\n\n旧备份清理:\n  删除: 0 个\n============================================================\n"
+    }
+  ],
+  "verdict": "PASS：integrity_check=ok，且 8 张表行数与源库完全一致",
+  "backup_artifact": "C:\\Users\\cxx\\wb_tmp\\out-v8\\dist\\scada-backend\\_internal\\backups\\20261025",
+  "integrity_check": "ok",
+  "backup_counts": {
+    "realtime_data": 83,
+    "history_data": 329188,
+    "alarm_records": 3,
+    "device_status": 0,
+    "history_archive": 0,
+    "users": 5,
+    "operation_logs": 64,
+    "jwt_blacklist": 2
+  },
+  "mismatch": []
+}
