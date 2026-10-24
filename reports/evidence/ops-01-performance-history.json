@@ -1,0 +1,45 @@
+{
+  "requirement": "OPS-01 性能监控应能提供 24 小时趋势",
+  "collected_at": "2026-10-25T02:42:26",
+  "http_status": 200,
+  "sample_count": 1,
+  "first": {
+    "application": {
+      "config_count": 12,
+      "log_count": 3,
+      "log_total_mb": 1.01
+    },
+    "database": {
+      "db_file": "scada_simulated.db",
+      "size_mb": 100.97,
+      "status": "ok",
+      "tables": {
+        "alarm_records": 1,
+        "device_status": 0,
+        "history_archive": 0,
+        "history_data": 339327,
+        "jwt_blacklist": 2,
+        "operation_logs": 49,
+        "realtime_data": 83,
+        "sqlite_sequence": 6,
+        "users": 1
+      },
+      "total_records": 339469,
+      "wal_size_mb": 4.88
+    },
+    "system": {
+      "cpu_count": 12,
+      "cpu_percent": 20.7,
+      "disk_free_gb": 24.27,
+      "disk_percent": 94.8,
+      "disk_total_gb": 462.59,
+      "disk_used_gb": 438.32,
+      "memory_percent": 92.2,
+      "memory_total_gb": 15.78,
+      "memory_used_gb": 14.55,
+      "thread_count": 97
+    },
+    "timestamp": "2026-10-25T02:42:08.240058"
+  },
+  "verdict": "PASS：有采样点"
+}

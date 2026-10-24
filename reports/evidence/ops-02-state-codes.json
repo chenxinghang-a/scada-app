@@ -1,0 +1,45 @@
+{
+  "requirement": "OPS-02 设备状态类寄存器必须产出合法状态码（0-5）",
+  "collected_at": "2026-10-25T02:53:54",
+  "db": "C:\\Users\\cxx\\wb_tmp\\out-v8\\dist\\scada-backend\\_internal\\data\\scada_simulated.db",
+  "note": "v8 起 55 秒内新写入的行；修复前同一查询 max=150",
+  "status_registers": [
+    {
+      "register": "gripper_state",
+      "min": 2.0,
+      "max": 2.0,
+      "rows": 51,
+      "distinct": 1
+    },
+    {
+      "register": "line_status",
+      "min": 2.0,
+      "max": 2.0,
+      "rows": 11,
+      "distinct": 1
+    },
+    {
+      "register": "reactor_status",
+      "min": 2.0,
+      "max": 2.0,
+      "rows": 51,
+      "distinct": 1
+    },
+    {
+      "register": "robot_status",
+      "min": 2.0,
+      "max": 2.0,
+      "rows": 51,
+      "distinct": 1
+    },
+    {
+      "register": "running_status",
+      "min": 2.0,
+      "max": 2.0,
+      "rows": 51,
+      "distinct": 1
+    }
+  ],
+  "out_of_range": [],
+  "verdict": "PASS：所有状态类寄存器的值都落在 0-5"
+}

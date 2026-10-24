@@ -320,11 +320,22 @@ patch('采集层/enhanced_simulated_client.py',
     并每分钟刷 80+ 条「OEE 设备状态码未定义」告警，OEE 的实时状态跟踪等于空转。
     这里直接取行为模拟器的当前状态码，天然与 status_map 对齐。
     """
-    if name in data:
-        return data[name]
     lowered = str(name).lower()
-    if lowered.endswith('_status') or lowered.endswith('_state'):
-        return float(getattr(getattr(behavior_simulator, 'state', None), 'value', 1))
+    is_state = lowered.endswith('_status') or lowered.endswith('_state')
+    state_code = float(getattr(getattr(behavior_simulator, 'state', None), 'value', 1))
+
+    if name in data:
+        v = data[name]
+        if not is_state:
+            return v
+        try:
+            iv = int(round(float(v)))
+        except (TypeError, ValueError):
+            return state_code
+        return float(iv) if 0 <= iv <= 5 else state_code
+
+    if is_state:
+        return state_code
     return 50 + 30 * time.time() % 100
 
 

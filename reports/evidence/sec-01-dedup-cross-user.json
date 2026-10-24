@@ -1,0 +1,19 @@
+{
+  "requirement": "SEC-01 不同用户的请求不得被误判为重复提交",
+  "collected_at": "2026-10-25T02:42:29",
+  "probes": [
+    {
+      "token_index": 0,
+      "http": 200,
+      "success": true,
+      "message": "紧急停机已解除，系统恢复正常"
+    },
+    {
+      "token_index": 1,
+      "http": 200,
+      "success": true,
+      "message": "紧急停机已解除，系统恢复正常"
+    }
+  ],
+  "verdict": "PASS：两个不同 token 连续提交同一请求，均未被判重复"
+}

@@ -1,0 +1,14 @@
+{
+  "generated_at": "2026-10-25T02:37:09+08:00",
+  "backend": "C:/Users/cxx/wb_tmp/out-v7/dist/scada-backend/scada-backend.exe",
+  "db": "C:/Users/cxx/wb_tmp/out-v7/dist/scada-backend/_internal/data/scada_simulated.db",
+  "run_seconds": 25,
+  "before":        {"history": 323916, "realtime": 83, "max_timestamp": "2026-10-25 02:36:23.188035"},
+  "after_run":     {"history": 325135, "realtime": 83},
+  "after_kill":    {"history": 325135},
+  "after_restart": {"history": 325281, "realtime": 83, "max_timestamp": "2026-10-25 02:37:08.411121"},
+  "written_during_run": 1219,
+  "lost_on_restart": 0,
+  "healthy_after_restart": true,
+  "verdict": "PASS：强杀后重启，已写入的数据一条不少，服务自愈"
+}

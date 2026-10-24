@@ -1,0 +1,22 @@
+﻿ID,类别,需求,依据,实现位置,验证方法,证据,状态,备注
+ALM-01,报警,报警应按 ISA-18.2 区分优先级，高优先级占比不超过 5%,ANSI/ISA-18.2-2016 报警优先级分层,报警层/alarm_manager.py 的优先级矩阵；alarm_level 字段,python tools/isa18-kpi.py --hours 24,reports/isa18.json,verified,"本项目实测 critical 占比偏高（样本仅 1 条），已由工具自动判定并标注""样本不足"""
+ALM-02,报警,报警率应可测量，稳态不超过 6 条/小时/操作员,ANSI/ISA-18.2-2016 报警率指标,tools/isa18-kpi.py 按 trigger_count 求和计算,python tools/isa18-kpi.py --hours 1,reports/isa18-v7.json,verified,"口径关键点 —— alarm_records 对同一报警去重，按行数算会把""300 次触发""算成""1 条"""
+ALM-03,报警,应能识别陈旧报警（未确认且超过 24 小时）,ISA-18.2 要求陈旧报警数为 0,tools/isa18-kpi.py 的 stale_alarms 检查,python tools/isa18-kpi.py,reports/isa18.json,verified,
+ALM-04,报警,报警触发后应能在 UI 上被看见（端到端链路）,功能需求,报警层/alarm_manager.py → 展示层/api/api_alarms.py → src/views/Dashboard.vue,python tools/fault-drill.py（注入故障，观察报警出现时刻）,reports/fault-drill-full.json,verified,实测注入 overheating 后 12 秒越过 180°C 阈值，同一采样点 temp_high 出现
+DATA-01,数据,每个测量值应带质量戳，且历史数据也要能追溯质量,OPC UA StatusCode；IEC 62443 数据完整性,存储层/database.py 建表 + 批量 INSERT（第 11 项补丁）,python tools/data-quality-audit.py,reports/quality-after.json,verified,修复前 history_data 无 quality 列（30.8 万条无法追溯）；修复后存量留 NULL、新数据带真实质量
+DATA-02,数据,强制杀进程后，已提交的数据不得丢失,事务持久性（ACID-D）,SQLite WAL 模式 + 批量事务提交,powershell -f tools/crash-recovery-drill.ps1,reports/crash-recovery.json,verified,实测 kill -9：3029 → 3063（末批已提交 WAL）→ 重启 4419，零丢失
+DATA-03,数据,同一条记录里的多个时间字段必须指向同一时刻,时钟一致性（工业系统通用要求）,展示层/routes.py 的 _ScadaJSONProvider（第 1 项补丁）,python tools/clock-audit.py --limit 50000,reports/clock.json,partial,修复了接口序列化，但库内 timestamp(本地) 与 created_at(UTC) 仍相差 8 小时 —— 属历史包袱，未做数据迁移
+DATA-04,数据,历史查询的时间范围参数应正确映射（不能整体偏移时区）,功能需求,展示层/api/api_data.py 的 _parse_time（主仓已修，非本次补丁）,见 reports/ 早期探测记录；查询 1 小时窗口返回 14 条而非 0 条,,partial,"修好了但当时没落盘 JSON 证据，属""验证过但没留证"""
+CTRL-01,控制,写操作前必须确认设备真实在线（不能依赖过期缓存）,功能安全 —— 避免对离线设备下发指令,智能层/device_control.py 写前实时查询 client.connected（第 7 项补丁）,POST /devices/<id>/write-coil 返回 success=true；修复前 100% 被拒,reports/evidence/ctrl-01-write-when-online.json,verified,"修复前所有写入被""通信断开""拒绝，而设备在线、数据在流"
+CTRL-02,控制,写入后应回读验证，不能只看接口返回,功能安全,智能层/device_control.py 的 write_with_verification,"写线圈返回 {""success"":true,""verified"":true}",,partial,验证逻辑正确，但模拟模式下写入值会被行为模拟器覆盖，回读不可信（真实设备不受影响）
+SEC-01,安全,"不同用户的请求不得被误判为""重复提交""",可用性 + 并发正确性,core/request_dedup.py 用完整 token 的 sha256 摘要（第 8 项补丁）,python tools/perm-audit.js（4 角色 × 6 操作矩阵）,reports/evidence/sec-01-dedup-cross-user.json,verified,修复前四个角色依次调同一接口，后三个全 409 —— 看起来像没权限，其实是去重误伤
+SEC-02,安全,权限应按角色收敛（管理员/工程师/操作员/观察者）,GB/T 22239 访问控制；等保 2.0,用户层/auth.py 的 ROLES + API 装饰器,node tools/perm-audit.js,reports/evidence/sec-02-perm-matrix.json,partial,唯一不符预期 —— PUT /api/config 装饰器允许 engineer，但 ROLES 里 engineer 无 system_config 权限。 两处口径矛盾属设计意图问题，未擅自改，留给主仓确认
+OPS-01,运维,性能监控应能提供 24 小时趋势（不是只有瞬时值）,运维需求,展示层/api/api_performance.py 进程内 60s 自采样（第 4 项补丁）,"GET /api/performance/metrics/history 返回采样点；页面显示""近 24 小时均/峰""",reports/evidence/ops-01-performance-history.json,verified,修复前 metrics.jsonl 只有一个从没被启动过的 CLI 会写，趋势永远为空
+OPS-02,运维,设备状态类寄存器必须产出合法状态码（0–5），不能被模拟成浮点,ISA-95 设备状态机,采集层/enhanced_simulated_client.py 的 _sim_value_for（第 9 项补丁）,启动后日志中「OEE 设备状态码未定义」从 87 条/分 降至 0,reports/evidence/ops-02-state-codes.json,verified,
+OPS-03,运维,工业 4.0 指标（OEE/能源/碳排）应有实际数值，不能恒为 0,功能需求（工业 4.0 模块）,core/simulation_initializer.py 的 initialize_all + 智能层/oee_calculator.seed_run_time（第 2/3/5 项补丁）,GET /api/industry40/oee 平均 70.2%；/energy 2649 kWh / 1539 kg,reports/evidence/ops-03-industry40-metrics.json,verified,修复前 OEE 恒 0.07%、能源恒 0
+UI-01,界面,进入页面后应立即看到有效内容，而不是要求用户先做选择,可用性需求,History.vue / Control.vue / Industry40.vue 的默认选中逻辑,node tools/ui-audit.js（11 个页面文本长度与空块统计）,reports/evidence/ui-01-pages.log,verified,修复前历史页/控制页/SPC 首屏全是「请选择设备」
+UI-02,界面,数据大屏的数字必须在刷新（不能是静态快照）,可用性需求（答辩场景）,src/views/Screen.vue 的 10s 定时器 + WebSocket 推送,node tools/screen-audit.js（隔 8 秒采两次快照比对）,reports/evidence/ui-02-screen.log,verified,实测吞吐 2308→2591、温度 39.7→38.7，数字在动
+UI-03,界面,打包版（file:// 加载 asar）应能正常挂载，不能白屏,交付质量,electron-builder 打包流程 + app.asar,node tools/prod-audit.js（解 asar 后用 file:// 打开）,reports/evidence/ui-03-prod-file.log,verified,挂载成功、0 JS 错误、0 资源加载失败；登录受 Chrome file:// 的 localStorage 限制，属测试环境
+DATA-05,数据,物料/能量平衡自检（进 = 出 + 存量变化）,质量平衡（工业系统最硬的自检）,无,无,,not_done,"30 台设备的模拟数据之间没有真实物料流关系，算出来的""平衡""是编的。 这种证据比没有更糟 —— 会给评审一个""看起来专业但其实是假""的印象。"
+SEC-03,安全,配置变更应记录 diff（谁把哪个键从什么改成什么）,GB/T 22239 安全审计,无,无,,not_done,需要改 operation_logs 的表结构与写入路径，属后端主仓并行开发区域，补丁层做会冲突。
+DATA-06,数据,点表逐点核对（配置的寄存器 vs 设备手册）,交付规范（IO List）,部分（模拟器内部一致性可查）,需现场比对设备手册,,not_done,真实设备的点表必须现场核对，这一步谁也代替不了。

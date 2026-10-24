@@ -1,0 +1,244 @@
+# 需求可追溯矩阵（Traceability Matrix）
+#
+# 这是 FDS（功能设计规格）+ SAT（现场验收测试）的骨架：
+#   每条需求都能回答四件事 —— 谁要求的 / 在哪儿实现 / 怎么验 / 证据是哪份文件。
+#
+# 为什么要有它：
+#   答辩和评审最常问的一句是「你说实现了，证据呢」。
+#   没有这张表时，回答只能靠现场翻代码；有了它，评审可以随机挑一条，当场跑验证命令。
+#
+# status 含义：
+#   verified   —— 有实现 + 有可复跑的验证 + 有落盘证据
+#   partial    —— 有实现和验证，但覆盖不全（注明缺什么）
+#   designed   —— 有设计有实现，但没有独立验证（**这种最危险，评审一问就露**）
+#   not_done   —— 明确不做（必须写理由）
+#
+# 脚本 tools/trace-matrix.py 会：
+#   - 渲染成 HTML（可打印）
+#   - 对 status=designed 的条目发警告（"声称做了但没验"）
+#   - 检查 evidence 指向的文件是否真存在
+
+meta:
+  project: SmartSCADA 工业数据采集与监控系统
+  version: 1.3.1091
+  date: "2026-10-25"
+  author: 陈星行
+  scope: 模拟模式（simulation mode），30 台虚拟设备
+
+requirements:
+
+  # ========== 报警管理（ISA-18.2） ==========
+  - id: ALM-01
+    category: 报警
+    requirement: 报警应按 ISA-18.2 区分优先级，高优先级占比不超过 5%
+    source: ANSI/ISA-18.2-2016 报警优先级分层
+    implementation: 报警层/alarm_manager.py 的优先级矩阵；alarm_level 字段
+    verification: python tools/isa18-kpi.py --hours 24
+    evidence: reports/isa18.json
+    status: verified
+    note: 本项目实测 critical 占比偏高（样本仅 1 条），已由工具自动判定并标注"样本不足"
+
+  - id: ALM-02
+    category: 报警
+    requirement: 报警率应可测量，稳态不超过 6 条/小时/操作员
+    source: ANSI/ISA-18.2-2016 报警率指标
+    implementation: tools/isa18-kpi.py 按 trigger_count 求和计算
+    verification: python tools/isa18-kpi.py --hours 1
+    evidence: reports/isa18-v7.json
+    status: verified
+    note: 口径关键点 —— alarm_records 对同一报警去重，按行数算会把"300 次触发"算成"1 条"
+
+  - id: ALM-03
+    category: 报警
+    requirement: 应能识别陈旧报警（未确认且超过 24 小时）
+    source: ISA-18.2 要求陈旧报警数为 0
+    implementation: tools/isa18-kpi.py 的 stale_alarms 检查
+    verification: python tools/isa18-kpi.py
+    evidence: reports/isa18.json
+    status: verified
+
+  - id: ALM-04
+    category: 报警
+    requirement: 报警触发后应能在 UI 上被看见（端到端链路）
+    source: 功能需求
+    implementation: 报警层/alarm_manager.py → 展示层/api/api_alarms.py → src/views/Dashboard.vue
+    verification: python tools/fault-drill.py（注入故障，观察报警出现时刻）
+    evidence: reports/fault-drill-full.json
+    status: verified
+    note: 实测注入 overheating 后 12 秒越过 180°C 阈值，同一采样点 temp_high 出现
+
+  # ========== 数据完整性 ==========
+  - id: DATA-01
+    category: 数据
+    requirement: 每个测量值应带质量戳，且历史数据也要能追溯质量
+    source: OPC UA StatusCode；IEC 62443 数据完整性
+    implementation: 存储层/database.py 建表 + 批量 INSERT（第 11 项补丁）
+    verification: python tools/data-quality-audit.py
+    evidence: reports/quality-after.json
+    status: verified
+    note: 修复前 history_data 无 quality 列（30.8 万条无法追溯）；修复后存量留 NULL、新数据带真实质量
+
+  - id: DATA-02
+    category: 数据
+    requirement: 强制杀进程后，已提交的数据不得丢失
+    source: 事务持久性（ACID-D）
+    implementation: SQLite WAL 模式 + 批量事务提交
+    verification: powershell -f tools/crash-recovery-drill.ps1
+    evidence: reports/crash-recovery.json
+    status: verified
+    note: 实测 kill -9：3029 → 3063（末批已提交 WAL）→ 重启 4419，零丢失
+
+  - id: DATA-03
+    category: 数据
+    requirement: 同一条记录里的多个时间字段必须指向同一时刻
+    source: 时钟一致性（工业系统通用要求）
+    implementation: 展示层/routes.py 的 _ScadaJSONProvider（第 1 项补丁）
+    verification: python tools/clock-audit.py --limit 50000
+    evidence: reports/clock.json
+    status: partial
+    note: 修复了接口序列化，但库内 timestamp(本地) 与 created_at(UTC) 仍相差 8 小时 —— 属历史包袱，未做数据迁移
+
+  - id: DATA-04
+    category: 数据
+    requirement: 历史查询的时间范围参数应正确映射（不能整体偏移时区）
+    source: 功能需求
+    implementation: 展示层/api/api_data.py 的 _parse_time（主仓已修，非本次补丁）
+    verification: 见 reports/ 早期探测记录；查询 1 小时窗口返回 14 条而非 0 条
+    evidence: ""
+    status: partial
+    note: 修好了但当时没落盘 JSON 证据，属"验证过但没留证"
+
+  # ========== 控制与安全 ==========
+  - id: CTRL-01
+    category: 控制
+    requirement: 写操作前必须确认设备真实在线（不能依赖过期缓存）
+    source: 功能安全 —— 避免对离线设备下发指令
+    implementation: 智能层/device_control.py 写前实时查询 client.connected（第 7 项补丁）
+    verification: POST /devices/<id>/write-coil 返回 success=true；修复前 100% 被拒
+    evidence: reports/evidence/ctrl-01-write-when-online.json
+    status: verified
+    note: 修复前所有写入被"通信断开"拒绝，而设备在线、数据在流
+
+  - id: CTRL-02
+    category: 控制
+    requirement: 写入后应回读验证，不能只看接口返回
+    source: 功能安全
+    implementation: 智能层/device_control.py 的 write_with_verification
+    verification: 写线圈返回 {"success":true,"verified":true}
+    evidence: ""
+    status: partial
+    note: 验证逻辑正确，但模拟模式下写入值会被行为模拟器覆盖，回读不可信（真实设备不受影响）
+
+  - id: SEC-01
+    category: 安全
+    requirement: 不同用户的请求不得被误判为"重复提交"
+    source: 可用性 + 并发正确性
+    implementation: core/request_dedup.py 用完整 token 的 sha256 摘要（第 8 项补丁）
+    verification: python tools/perm-audit.js（4 角色 × 6 操作矩阵）
+    evidence: reports/evidence/sec-01-dedup-cross-user.json
+    status: verified
+    note: 修复前四个角色依次调同一接口，后三个全 409 —— 看起来像没权限，其实是去重误伤
+
+  - id: SEC-02
+    category: 安全
+    requirement: 权限应按角色收敛（管理员/工程师/操作员/观察者）
+    source: GB/T 22239 访问控制；等保 2.0
+    implementation: 用户层/auth.py 的 ROLES + API 装饰器
+    verification: node tools/perm-audit.js
+    evidence: reports/evidence/sec-02-perm-matrix.json
+    status: partial
+    note: 唯一不符预期 —— PUT /api/config 装饰器允许 engineer，但 ROLES 里 engineer 无 system_config 权限。
+          两处口径矛盾属设计意图问题，未擅自改，留给主仓确认
+
+  # ========== 运行可靠性 ==========
+  - id: OPS-01
+    category: 运维
+    requirement: 性能监控应能提供 24 小时趋势（不是只有瞬时值）
+    source: 运维需求
+    implementation: 展示层/api/api_performance.py 进程内 60s 自采样（第 4 项补丁）
+    verification: GET /api/performance/metrics/history 返回采样点；页面显示"近 24 小时均/峰"
+    evidence: reports/evidence/ops-01-performance-history.json
+    status: verified
+    note: 修复前 metrics.jsonl 只有一个从没被启动过的 CLI 会写，趋势永远为空
+
+  - id: OPS-02
+    category: 运维
+    requirement: 设备状态类寄存器必须产出合法状态码（0–5），不能被模拟成浮点
+    source: ISA-95 设备状态机
+    implementation: 采集层/enhanced_simulated_client.py 的 _sim_value_for（第 9 项补丁）
+    verification: 启动后日志中「OEE 设备状态码未定义」从 87 条/分 降至 0
+    evidence: reports/evidence/ops-02-state-codes.json
+    status: verified
+
+  - id: OPS-03
+    category: 运维
+    requirement: 工业 4.0 指标（OEE/能源/碳排）应有实际数值，不能恒为 0
+    source: 功能需求（工业 4.0 模块）
+    implementation: core/simulation_initializer.py 的 initialize_all + 智能层/oee_calculator.seed_run_time（第 2/3/5 项补丁）
+    verification: GET /api/industry40/oee 平均 70.2%；/energy 2649 kWh / 1539 kg
+    evidence: reports/evidence/ops-03-industry40-metrics.json
+    status: verified
+    note: 修复前 OEE 恒 0.07%、能源恒 0
+
+  # ========== 界面可用性 ==========
+  - id: UI-01
+    category: 界面
+    requirement: 进入页面后应立即看到有效内容，而不是要求用户先做选择
+    source: 可用性需求
+    implementation: History.vue / Control.vue / Industry40.vue 的默认选中逻辑
+    verification: node tools/ui-audit.js（11 个页面文本长度与空块统计）
+    evidence: reports/evidence/ui-01-pages.log
+    status: verified
+    note: 修复前历史页/控制页/SPC 首屏全是「请选择设备」
+
+  - id: UI-02
+    category: 界面
+    requirement: 数据大屏的数字必须在刷新（不能是静态快照）
+    source: 可用性需求（答辩场景）
+    implementation: src/views/Screen.vue 的 10s 定时器 + WebSocket 推送
+    verification: node tools/screen-audit.js（隔 8 秒采两次快照比对）
+    evidence: reports/evidence/ui-02-screen.log
+    status: verified
+    note: 实测吞吐 2308→2591、温度 39.7→38.7，数字在动
+
+  - id: UI-03
+    category: 界面
+    requirement: 打包版（file:// 加载 asar）应能正常挂载，不能白屏
+    source: 交付质量
+    implementation: electron-builder 打包流程 + app.asar
+    verification: node tools/prod-audit.js（解 asar 后用 file:// 打开）
+    evidence: reports/evidence/ui-03-prod-file.log
+    status: verified
+    note: 挂载成功、0 JS 错误、0 资源加载失败；登录受 Chrome file:// 的 localStorage 限制，属测试环境
+
+  # ========== 明确不做 ==========
+  - id: DATA-05
+    category: 数据
+    requirement: 物料/能量平衡自检（进 = 出 + 存量变化）
+    source: 质量平衡（工业系统最硬的自检）
+    implementation: 无
+    verification: 无
+    evidence: ""
+    status: not_done
+    note: 30 台设备的模拟数据之间没有真实物料流关系，算出来的"平衡"是编的。
+          这种证据比没有更糟 —— 会给评审一个"看起来专业但其实是假"的印象。
+
+  - id: SEC-03
+    category: 安全
+    requirement: 配置变更应记录 diff（谁把哪个键从什么改成什么）
+    source: GB/T 22239 安全审计
+    implementation: 无
+    verification: 无
+    evidence: ""
+    status: not_done
+    note: 需要改 operation_logs 的表结构与写入路径，属后端主仓并行开发区域，补丁层做会冲突。
+
+  - id: DATA-06
+    category: 数据
+    requirement: 点表逐点核对（配置的寄存器 vs 设备手册）
+    source: 交付规范（IO List）
+    implementation: 部分（模拟器内部一致性可查）
+    verification: 需现场比对设备手册
+    evidence: ""
+    status: not_done
+    note: 真实设备的点表必须现场核对，这一步谁也代替不了。

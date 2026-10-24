@@ -272,7 +272,25 @@ async function loadI40() {
     if (devices.value.length) {
       try {
         let rendered = false
-        for (const dev of devices.value.slice(0, 3)) {
+        // ⚠️ 探测有代价：大屏每 10s 刷新一次，如果每次都「3 台 × 4 寄存器」地试，
+        //    12 个请求/轮 × 6 轮/分 = 72 次，叠加其它接口会打穿 150/min 的限流（实测 429）。
+        //    所以：① 找到就记住（spcProbe），后续只查那一个；
+        //          ② 未找到时只试 1 台设备的 2 个寄存器，且失败后 5 分钟内不再试。
+        const now = Date.now()
+        if (spcProbe.value) {
+          const cc0 = await industry40Api.getSPC(spcProbe.value.device, spcProbe.value.register)
+            .catch(() => null) as any
+          if (disposed) return
+          const xb0 = cc0?.control_chart?.xbar || {}
+          if (Array.isArray(xb0.points) && xb0.points.length > 1) {
+            renderSPCChart({ values: xb0.points, ucl: xb0.ucl, cl: xb0.cl, lcl: xb0.lcl })
+            spcEmpty.value = false
+            return
+          }
+        }
+        if (now - spcProbeAt < 300_000 && !spcProbe.value) return   // 5 分钟内不重复探测
+
+        for (const dev of devices.value.slice(0, 1)) {
           const detail: any = await devicesApi.getById(dev.device_id).catch(() => null)
           const full = detail?.device || detail
           const regs = [
@@ -281,7 +299,7 @@ async function loadI40() {
             ...(full?.nodes || []),
             ...(full?.endpoints || []),
           ].filter((r: any) => r && r.name)
-          for (const r of regs.slice(0, 4)) {
+          for (const r of regs.slice(0, 2)) {
             const spcData = await industry40Api.getSPC(dev.device_id, r.name).catch(() => null) as any
             if (disposed) return
             const cc = spcData?.control_chart
@@ -290,11 +308,13 @@ async function loadI40() {
               renderSPCChart({ values: xbar.points, ucl: xbar.ucl, cl: xbar.cl, lcl: xbar.lcl })
               rendered = true
               spcEmpty.value = false
+              spcProbe.value = { device: dev.device_id, register: r.name }
               break
             }
           }
           if (rendered) break
         }
+        spcProbeAt = Date.now()
         if (!rendered) {
           const c = ensureChart('spc', spcRef.value)
           c?.clear()
@@ -428,6 +448,9 @@ function renderSPCChart(data: any) {
 // 直接拿它画 series，每个系列只有 1 个点，线画不出来，图表只剩坐标轴（实测截图如此）。
 // 在内存里滚动累积最近 TREND_WINDOW 次采样，横向就有曲线了。
 const spcEmpty = ref(false)
+// 记住「哪台设备的哪个寄存器有 SPC 数据」，避免每轮刷新都重新探测（会打穿限流）
+const spcProbe = ref<{ device: string; register: string } | null>(null)
+let spcProbeAt = 0
 
 const trendBuffer: Record<string, number[]> = {}
 const TREND_WINDOW = 40

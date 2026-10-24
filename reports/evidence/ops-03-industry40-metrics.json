@@ -1,0 +1,21 @@
+{
+  "requirement": "OPS-03 工业 4.0 指标应有实际数值",
+  "collected_at": "2026-10-25T02:42:26",
+  "oee": {
+    "http_status": 200,
+    "device_count": 22,
+    "avg_oee": 0.7074,
+    "sample": {
+      "cems_01": 0.75,
+      "cnc_mazak_01": 0.8364,
+      "compressor_01": 0.8336
+    }
+  },
+  "energy": {
+    "http_status": 200,
+    "total_energy_kwh": 318.22,
+    "carbon_emission_kg": 184.89,
+    "electricity_cost": 111.38
+  },
+  "verdict": "PASS：OEE 与能源均非 0"
+}

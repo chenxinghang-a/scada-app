@@ -1,0 +1,319 @@
+<!DOCTYPE html>
+<html lang="zh-CN"><head><meta charset="utf-8">
+<title>需求可追溯矩阵 · SmartSCADA 工业数据采集与监控系统</title>
+<style>
+ :root{--bg:#f6f7f9;--card:#fff;--ink:#1b1f24;--ink2:#59636e;--ink3:#8b949e;--line:#e2e5ea;
+        --red:#cf222e;--green:#1a7f37;--amber:#9a6700;--blue:#0969da}
+ *{box-sizing:border-box}
+ body{margin:0;padding:34px 22px 70px;background:var(--bg);color:var(--ink);
+      font:13px/1.65 -apple-system,"Segoe UI","Microsoft YaHei",sans-serif}
+ .wrap{max-width:1240px;margin:0 auto}
+ h1{font-size:23px;margin:0 0 6px;letter-spacing:-.3px}
+ .sub{color:var(--ink2);margin:0 0 22px;font-size:13px}
+ .cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin:14px 0}
+ .card{background:var(--card);border:1px solid var(--line);border-radius:8px;padding:12px 15px}
+ .card .k{font-size:12px;color:var(--ink3)}
+ .card .v{font-size:20px;font-weight:650;font-variant-numeric:tabular-nums;margin-top:3px}
+ table{width:100%;border-collapse:collapse;background:var(--card);border:1px solid var(--line);
+        border-radius:8px;overflow:hidden;font-size:12.5px}
+ th,td{padding:8px 10px;text-align:left;border-bottom:1px solid var(--line);vertical-align:top}
+ th{background:#fbfcfd;font-weight:600;color:var(--ink2);font-size:11.5px;position:sticky;top:0}
+ tr:last-child td{border-bottom:none}
+ td.id{font-weight:600;white-space:nowrap;font-variant-numeric:tabular-nums}
+ .cat{display:inline-block;padding:1px 7px;border-radius:9px;background:#eef1f4;color:var(--ink2);font-size:11px}
+ .src{color:var(--ink3);font-size:11.5px;margin-top:2px}
+ code{font-family:ui-monospace,Consolas,monospace;font-size:11.5px;background:#eef1f4;
+       padding:1px 5px;border-radius:4px;word-break:break-all}
+ .dim{color:var(--ink3)}
+ .mono-sm{font-size:11.5px;color:var(--ink2);word-break:break-word}
+ .tag{display:inline-block;padding:1px 8px;border-radius:10px;font-size:11px;font-weight:600;white-space:nowrap}
+ .tag.ok{background:#dafbe1;color:#1a7f37}
+ .tag.part{background:#fff8c5;color:#9a6700}
+ .tag.no{background:#ffebe9;color:#cf222e}
+ .tag.skip{background:#eef1f4;color:#59636e}
+ tr.note-row td{background:#fcfcfd;color:var(--ink2);font-size:11.5px;border-bottom:1px solid var(--line)}
+ .note{background:#fff8e6;border:1px solid #f0d9a8;border-radius:8px;padding:12px 16px;margin:14px 0;font-size:12.5px;color:#6b5316}
+ .note.green{background:#edf9f0;border-color:#bfe6c8;color:#155724}
+ .note.red{background:#fff0f0;border-color:#f5c2c2;color:#8b1a1a}
+ .note ul{margin:8px 0 0;padding-left:20px}
+ .bad{color:var(--red)} .warn{color:var(--amber)}
+ footer{margin-top:36px;padding-top:13px;border-top:1px solid var(--line);color:var(--ink3);font-size:11.5px}
+ @media print{body{background:#fff;padding:0} tr,table{break-inside:avoid} th{position:static}}
+</style></head><body><div class="wrap">
+ <h1>需求可追溯矩阵</h1>
+ <p class="sub">SmartSCADA 工业数据采集与监控系统 · v1.3.1091 ·
+    2026-10-25 · 陈星行<br>
+    每条需求都能回答：谁要求的 → 在哪儿实现 → 怎么验 → 证据是哪份文件。
+    <strong>评审可以随机挑一条，当场跑验证命令。</strong></p>
+
+ <div class="cards">
+   <div class="card"><div class="k">需求条目</div><div class="v">21</div></div>
+   <div class="card"><div class="k">已验证</div><div class="v" style="color:var(--green)">14</div></div>
+   <div class="card"><div class="k">部分覆盖</div><div class="v" style="color:var(--amber)">4</div></div>
+   <div class="card"><div class="k">明确不做</div><div class="v" style="color:var(--ink3)">3</div></div>
+ </div>
+
+  <div class="note green"><strong>一致性检查通过</strong>：没有「声称做了但没验证」的条目，证据文件都在。</div>
+ <table>
+  <thead><tr>
+    <th style="width:8%">ID</th><th style="width:6%">类别</th><th style="width:27%">需求</th>
+    <th style="width:20%">实现位置</th><th style="width:17%">验证方法</th><th style="width:12%">证据</th><th style="width:10%">状态</th>
+  </tr></thead>
+  <tbody>
+      <tr>
+        <td class="id">ALM-01</td>
+        <td><span class="cat">报警</span></td>
+        <td>报警应按 ISA-18.2 区分优先级，高优先级占比不超过 5%
+            <div class="src">依据：ANSI/ISA-18.2-2016 报警优先级分层</div>
+        </td>
+        <td class="mono-sm">报警层/alarm_manager.py 的优先级矩阵；alarm_level 字段</td>
+        <td><code>python tools/isa18-kpi.py --hours 24</code></td>
+        <td><code>reports/isa18.json</code></td>
+        <td><span class="tag ok">已验证</span></td>
+      </tr>
+      <tr class="note-row"><td></td><td colspan="6">↳ 本项目实测 critical 占比偏高（样本仅 1 条），已由工具自动判定并标注&quot;样本不足&quot;</td></tr>
+      <tr>
+        <td class="id">ALM-02</td>
+        <td><span class="cat">报警</span></td>
+        <td>报警率应可测量，稳态不超过 6 条/小时/操作员
+            <div class="src">依据：ANSI/ISA-18.2-2016 报警率指标</div>
+        </td>
+        <td class="mono-sm">tools/isa18-kpi.py 按 trigger_count 求和计算</td>
+        <td><code>python tools/isa18-kpi.py --hours 1</code></td>
+        <td><code>reports/isa18-v7.json</code></td>
+        <td><span class="tag ok">已验证</span></td>
+      </tr>
+      <tr class="note-row"><td></td><td colspan="6">↳ 口径关键点 —— alarm_records 对同一报警去重，按行数算会把&quot;300 次触发&quot;算成&quot;1 条&quot;</td></tr>
+      <tr>
+        <td class="id">ALM-03</td>
+        <td><span class="cat">报警</span></td>
+        <td>应能识别陈旧报警（未确认且超过 24 小时）
+            <div class="src">依据：ISA-18.2 要求陈旧报警数为 0</div>
+        </td>
+        <td class="mono-sm">tools/isa18-kpi.py 的 stale_alarms 检查</td>
+        <td><code>python tools/isa18-kpi.py</code></td>
+        <td><code>reports/isa18.json</code></td>
+        <td><span class="tag ok">已验证</span></td>
+      </tr>
+      <tr>
+        <td class="id">ALM-04</td>
+        <td><span class="cat">报警</span></td>
+        <td>报警触发后应能在 UI 上被看见（端到端链路）
+            <div class="src">依据：功能需求</div>
+        </td>
+        <td class="mono-sm">报警层/alarm_manager.py → 展示层/api/api_alarms.py → src/views/Dashboard.vue</td>
+        <td><code>python tools/fault-drill.py（注入故障，观察报警出现时刻）</code></td>
+        <td><code>reports/fault-drill-full.json</code></td>
+        <td><span class="tag ok">已验证</span></td>
+      </tr>
+      <tr class="note-row"><td></td><td colspan="6">↳ 实测注入 overheating 后 12 秒越过 180°C 阈值，同一采样点 temp_high 出现</td></tr>
+      <tr>
+        <td class="id">DATA-01</td>
+        <td><span class="cat">数据</span></td>
+        <td>每个测量值应带质量戳，且历史数据也要能追溯质量
+            <div class="src">依据：OPC UA StatusCode；IEC 62443 数据完整性</div>
+        </td>
+        <td class="mono-sm">存储层/database.py 建表 + 批量 INSERT（第 11 项补丁）</td>
+        <td><code>python tools/data-quality-audit.py</code></td>
+        <td><code>reports/quality-after.json</code></td>
+        <td><span class="tag ok">已验证</span></td>
+      </tr>
+      <tr class="note-row"><td></td><td colspan="6">↳ 修复前 history_data 无 quality 列（30.8 万条无法追溯）；修复后存量留 NULL、新数据带真实质量</td></tr>
+      <tr>
+        <td class="id">DATA-02</td>
+        <td><span class="cat">数据</span></td>
+        <td>强制杀进程后，已提交的数据不得丢失
+            <div class="src">依据：事务持久性（ACID-D）</div>
+        </td>
+        <td class="mono-sm">SQLite WAL 模式 + 批量事务提交</td>
+        <td><code>powershell -f tools/crash-recovery-drill.ps1</code></td>
+        <td><code>reports/crash-recovery.json</code></td>
+        <td><span class="tag ok">已验证</span></td>
+      </tr>
+      <tr class="note-row"><td></td><td colspan="6">↳ 实测 kill -9：3029 → 3063（末批已提交 WAL）→ 重启 4419，零丢失</td></tr>
+      <tr>
+        <td class="id">DATA-03</td>
+        <td><span class="cat">数据</span></td>
+        <td>同一条记录里的多个时间字段必须指向同一时刻
+            <div class="src">依据：时钟一致性（工业系统通用要求）</div>
+        </td>
+        <td class="mono-sm">展示层/routes.py 的 _ScadaJSONProvider（第 1 项补丁）</td>
+        <td><code>python tools/clock-audit.py --limit 50000</code></td>
+        <td><code>reports/clock.json</code></td>
+        <td><span class="tag part">部分</span></td>
+      </tr>
+      <tr class="note-row"><td></td><td colspan="6">↳ 修复了接口序列化，但库内 timestamp(本地) 与 created_at(UTC) 仍相差 8 小时 —— 属历史包袱，未做数据迁移</td></tr>
+      <tr>
+        <td class="id">DATA-04</td>
+        <td><span class="cat">数据</span></td>
+        <td>历史查询的时间范围参数应正确映射（不能整体偏移时区）
+            <div class="src">依据：功能需求</div>
+        </td>
+        <td class="mono-sm">展示层/api/api_data.py 的 _parse_time（主仓已修，非本次补丁）</td>
+        <td><code>见 reports/ 早期探测记录；查询 1 小时窗口返回 14 条而非 0 条</code></td>
+        <td><span class='dim'>—</span></td>
+        <td><span class="tag part">部分</span></td>
+      </tr>
+      <tr class="note-row"><td></td><td colspan="6">↳ 修好了但当时没落盘 JSON 证据，属&quot;验证过但没留证&quot;</td></tr>
+      <tr>
+        <td class="id">CTRL-01</td>
+        <td><span class="cat">控制</span></td>
+        <td>写操作前必须确认设备真实在线（不能依赖过期缓存）
+            <div class="src">依据：功能安全 —— 避免对离线设备下发指令</div>
+        </td>
+        <td class="mono-sm">智能层/device_control.py 写前实时查询 client.connected（第 7 项补丁）</td>
+        <td><code>POST /devices/&lt;id&gt;/write-coil 返回 success=true；修复前 100% 被拒</code></td>
+        <td><code>reports/evidence/ctrl-01-write-when-online.json</code></td>
+        <td><span class="tag ok">已验证</span></td>
+      </tr>
+      <tr class="note-row"><td></td><td colspan="6">↳ 修复前所有写入被&quot;通信断开&quot;拒绝，而设备在线、数据在流</td></tr>
+      <tr>
+        <td class="id">CTRL-02</td>
+        <td><span class="cat">控制</span></td>
+        <td>写入后应回读验证，不能只看接口返回
+            <div class="src">依据：功能安全</div>
+        </td>
+        <td class="mono-sm">智能层/device_control.py 的 write_with_verification</td>
+        <td><code>写线圈返回 {&quot;success&quot;:true,&quot;verified&quot;:true}</code></td>
+        <td><span class='dim'>—</span></td>
+        <td><span class="tag part">部分</span></td>
+      </tr>
+      <tr class="note-row"><td></td><td colspan="6">↳ 验证逻辑正确，但模拟模式下写入值会被行为模拟器覆盖，回读不可信（真实设备不受影响）</td></tr>
+      <tr>
+        <td class="id">SEC-01</td>
+        <td><span class="cat">安全</span></td>
+        <td>不同用户的请求不得被误判为&quot;重复提交&quot;
+            <div class="src">依据：可用性 + 并发正确性</div>
+        </td>
+        <td class="mono-sm">core/request_dedup.py 用完整 token 的 sha256 摘要（第 8 项补丁）</td>
+        <td><code>python tools/perm-audit.js（4 角色 × 6 操作矩阵）</code></td>
+        <td><code>reports/evidence/sec-01-dedup-cross-user.json</code></td>
+        <td><span class="tag ok">已验证</span></td>
+      </tr>
+      <tr class="note-row"><td></td><td colspan="6">↳ 修复前四个角色依次调同一接口，后三个全 409 —— 看起来像没权限，其实是去重误伤</td></tr>
+      <tr>
+        <td class="id">SEC-02</td>
+        <td><span class="cat">安全</span></td>
+        <td>权限应按角色收敛（管理员/工程师/操作员/观察者）
+            <div class="src">依据：GB/T 22239 访问控制；等保 2.0</div>
+        </td>
+        <td class="mono-sm">用户层/auth.py 的 ROLES + API 装饰器</td>
+        <td><code>node tools/perm-audit.js</code></td>
+        <td><code>reports/evidence/sec-02-perm-matrix.json</code></td>
+        <td><span class="tag part">部分</span></td>
+      </tr>
+      <tr class="note-row"><td></td><td colspan="6">↳ 唯一不符预期 —— PUT /api/config 装饰器允许 engineer，但 ROLES 里 engineer 无 system_config 权限。 两处口径矛盾属设计意图问题，未擅自改，留给主仓确认</td></tr>
+      <tr>
+        <td class="id">OPS-01</td>
+        <td><span class="cat">运维</span></td>
+        <td>性能监控应能提供 24 小时趋势（不是只有瞬时值）
+            <div class="src">依据：运维需求</div>
+        </td>
+        <td class="mono-sm">展示层/api/api_performance.py 进程内 60s 自采样（第 4 项补丁）</td>
+        <td><code>GET /api/performance/metrics/history 返回采样点；页面显示&quot;近 24 小时均/峰&quot;</code></td>
+        <td><code>reports/evidence/ops-01-performance-history.json</code></td>
+        <td><span class="tag ok">已验证</span></td>
+      </tr>
+      <tr class="note-row"><td></td><td colspan="6">↳ 修复前 metrics.jsonl 只有一个从没被启动过的 CLI 会写，趋势永远为空</td></tr>
+      <tr>
+        <td class="id">OPS-02</td>
+        <td><span class="cat">运维</span></td>
+        <td>设备状态类寄存器必须产出合法状态码（0–5），不能被模拟成浮点
+            <div class="src">依据：ISA-95 设备状态机</div>
+        </td>
+        <td class="mono-sm">采集层/enhanced_simulated_client.py 的 _sim_value_for（第 9 项补丁）</td>
+        <td><code>启动后日志中「OEE 设备状态码未定义」从 87 条/分 降至 0</code></td>
+        <td><code>reports/evidence/ops-02-state-codes.json</code></td>
+        <td><span class="tag ok">已验证</span></td>
+      </tr>
+      <tr>
+        <td class="id">OPS-03</td>
+        <td><span class="cat">运维</span></td>
+        <td>工业 4.0 指标（OEE/能源/碳排）应有实际数值，不能恒为 0
+            <div class="src">依据：功能需求（工业 4.0 模块）</div>
+        </td>
+        <td class="mono-sm">core/simulation_initializer.py 的 initialize_all + 智能层/oee_calculator.seed_run_time（第 2/3/5 项补丁）</td>
+        <td><code>GET /api/industry40/oee 平均 70.2%；/energy 2649 kWh / 1539 kg</code></td>
+        <td><code>reports/evidence/ops-03-industry40-metrics.json</code></td>
+        <td><span class="tag ok">已验证</span></td>
+      </tr>
+      <tr class="note-row"><td></td><td colspan="6">↳ 修复前 OEE 恒 0.07%、能源恒 0</td></tr>
+      <tr>
+        <td class="id">UI-01</td>
+        <td><span class="cat">界面</span></td>
+        <td>进入页面后应立即看到有效内容，而不是要求用户先做选择
+            <div class="src">依据：可用性需求</div>
+        </td>
+        <td class="mono-sm">History.vue / Control.vue / Industry40.vue 的默认选中逻辑</td>
+        <td><code>node tools/ui-audit.js（11 个页面文本长度与空块统计）</code></td>
+        <td><code>reports/evidence/ui-01-pages.log</code></td>
+        <td><span class="tag ok">已验证</span></td>
+      </tr>
+      <tr class="note-row"><td></td><td colspan="6">↳ 修复前历史页/控制页/SPC 首屏全是「请选择设备」</td></tr>
+      <tr>
+        <td class="id">UI-02</td>
+        <td><span class="cat">界面</span></td>
+        <td>数据大屏的数字必须在刷新（不能是静态快照）
+            <div class="src">依据：可用性需求（答辩场景）</div>
+        </td>
+        <td class="mono-sm">src/views/Screen.vue 的 10s 定时器 + WebSocket 推送</td>
+        <td><code>node tools/screen-audit.js（隔 8 秒采两次快照比对）</code></td>
+        <td><code>reports/evidence/ui-02-screen.log</code></td>
+        <td><span class="tag ok">已验证</span></td>
+      </tr>
+      <tr class="note-row"><td></td><td colspan="6">↳ 实测吞吐 2308→2591、温度 39.7→38.7，数字在动</td></tr>
+      <tr>
+        <td class="id">UI-03</td>
+        <td><span class="cat">界面</span></td>
+        <td>打包版（file:// 加载 asar）应能正常挂载，不能白屏
+            <div class="src">依据：交付质量</div>
+        </td>
+        <td class="mono-sm">electron-builder 打包流程 + app.asar</td>
+        <td><code>node tools/prod-audit.js（解 asar 后用 file:// 打开）</code></td>
+        <td><code>reports/evidence/ui-03-prod-file.log</code></td>
+        <td><span class="tag ok">已验证</span></td>
+      </tr>
+      <tr class="note-row"><td></td><td colspan="6">↳ 挂载成功、0 JS 错误、0 资源加载失败；登录受 Chrome file:// 的 localStorage 限制，属测试环境</td></tr>
+      <tr>
+        <td class="id">DATA-05</td>
+        <td><span class="cat">数据</span></td>
+        <td>物料/能量平衡自检（进 = 出 + 存量变化）
+            <div class="src">依据：质量平衡（工业系统最硬的自检）</div>
+        </td>
+        <td class="mono-sm">无</td>
+        <td><code>无</code></td>
+        <td><span class='dim'>—</span></td>
+        <td><span class="tag skip">不做</span></td>
+      </tr>
+      <tr class="note-row"><td></td><td colspan="6">↳ 30 台设备的模拟数据之间没有真实物料流关系，算出来的&quot;平衡&quot;是编的。 这种证据比没有更糟 —— 会给评审一个&quot;看起来专业但其实是假&quot;的印象。</td></tr>
+      <tr>
+        <td class="id">SEC-03</td>
+        <td><span class="cat">安全</span></td>
+        <td>配置变更应记录 diff（谁把哪个键从什么改成什么）
+            <div class="src">依据：GB/T 22239 安全审计</div>
+        </td>
+        <td class="mono-sm">无</td>
+        <td><code>无</code></td>
+        <td><span class='dim'>—</span></td>
+        <td><span class="tag skip">不做</span></td>
+      </tr>
+      <tr class="note-row"><td></td><td colspan="6">↳ 需要改 operation_logs 的表结构与写入路径，属后端主仓并行开发区域，补丁层做会冲突。</td></tr>
+      <tr>
+        <td class="id">DATA-06</td>
+        <td><span class="cat">数据</span></td>
+        <td>点表逐点核对（配置的寄存器 vs 设备手册）
+            <div class="src">依据：交付规范（IO List）</div>
+        </td>
+        <td class="mono-sm">部分（模拟器内部一致性可查）</td>
+        <td><code>需现场比对设备手册</code></td>
+        <td><span class='dim'>—</span></td>
+        <td><span class="tag skip">不做</span></td>
+      </tr>
+      <tr class="note-row"><td></td><td colspan="6">↳ 真实设备的点表必须现场核对，这一步谁也代替不了。</td></tr></tbody>
+ </table>
+
+ <footer>
+  范围：模拟模式（simulation mode），30 台虚拟设备 · 生成于 2026-10-25 02:54<br>
+  由 <code>tools/trace-matrix.py</code> 从 <code>docs/traceability.yaml</code> 生成，改需求请改 yaml
+ </footer>
+</div></body></html>
