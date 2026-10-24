@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html lang="zh-CN"><head><meta charset="utf-8"><title>FDS 功能设计规格 · SmartSCADA</title>
+<style>
+ :root{--bg:#f6f7f9;--card:#fff;--ink:#1b1f24;--ink2:#59636e;--ink3:#8b949e;--line:#e2e5ea;--blue:#0969da}
+ *{box-sizing:border-box}
+ body{margin:0;padding:34px 22px 70px;background:var(--bg);color:var(--ink);
+      font:13px/1.7 -apple-system,"Segoe UI","Microsoft YaHei",sans-serif}
+ .wrap{max-width:1180px;margin:0 auto}
+ h1{font-size:24px;margin:0 0 6px}
+ .sub{color:var(--ink2);margin:0 0 26px;font-size:12.5px}
+ h2{font-size:16px;margin:34px 0 12px;padding-bottom:8px;border-bottom:2px solid var(--line)}
+ h2 .n{color:var(--ink3);font-weight:500;margin-right:8px}
+ table{width:100%;border-collapse:collapse;background:var(--card);border:1px solid var(--line);
+        border-radius:8px;overflow:hidden;font-size:12px}
+ table.inner{margin:8px 0 14px;font-size:11.5px}
+ th,td{padding:7px 10px;text-align:left;border-bottom:1px solid var(--line);vertical-align:top}
+ th{background:#fbfcfd;font-weight:600;color:var(--ink2);font-size:11px}
+ tr:last-child td{border-bottom:none}
+ td.m{font-weight:600;color:var(--blue);white-space:nowrap}
+ td.p{font-family:ui-monospace,Consolas,monospace;font-size:11.5px;word-break:break-all}
+ td.f{font-family:ui-monospace,Consolas,monospace;font-size:11px;color:var(--ink2)}
+ td.n{text-align:right;font-variant-numeric:tabular-nums;color:var(--ink2)}
+ .dim{color:var(--ink3);font-weight:400;font-size:11.5px;margin-left:8px}
+ details{background:var(--card);border:1px solid var(--line);border-radius:8px;padding:10px 14px;margin:8px 0}
+ summary{cursor:pointer;font-size:12.5px}
+ .tbl{margin:12px 0}
+ .tbl-head{padding:8px 12px;background:#fbfcfd;border:1px solid var(--line);border-bottom:none;border-radius:8px 8px 0 0;font-size:12.5px}
+ .tbl-head + table{border-radius:0 0 8px 8px}
+ .cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin:14px 0}
+ .card{background:var(--card);border:1px solid var(--line);border-radius:8px;padding:12px 15px}
+ .card .k{font-size:11.5px;color:var(--ink3)}
+ .card .v{font-size:19px;font-weight:650;font-variant-numeric:tabular-nums;margin-top:3px}
+ .arch{background:#0d1117;color:#c9d1d9;padding:16px 20px;border-radius:8px;font-family:ui-monospace,Consolas,monospace;
+        font-size:12px;line-height:1.75;overflow-x:auto;white-space:pre}
+ .note{background:#eef5ff;border:1px solid #c7ddff;border-radius:8px;padding:12px 16px;font-size:12.5px;color:#14417a;margin:14px 0}
+ footer{margin-top:38px;padding-top:13px;border-top:1px solid var(--line);color:var(--ink3);font-size:11.5px}
+ @media print{body{background:#fff;padding:0} details{break-inside:avoid} details[open]{}}
+</style></head><body><div class="wrap">
+
+ <h1>FDS 功能设计规格</h1>
+ <p class="sub">SmartSCADA 工业数据采集与监控系统 · v1.3.1091 · 2026-10-25<br>
+ 本文件由 <code>tools/fds-report.py</code> 从源码与数据库提取生成 ——
+ <strong>代码改了重跑一次即同步</strong>，不存在「文档和实现对不上」。</p>
+
+ <div class="cards">
+   <div class="card"><div class="k">API 端点</div><div class="v">170</div></div>
+   <div class="card"><div class="k">数据表</div><div class="v">8</div></div>
+   <div class="card"><div class="k">业务包</div><div class="v">12</div></div>
+   <div class="card"><div class="k">配置文件</div><div class="v">12</div></div>
+ </div>
+
+ <h2><span class="n">1</span>系统结构</h2>
+ <div class="arch">前端 (Vue 3 + Element Plus)
+   ├─ 视图层：仪表盘 / 设备 / 控制 / 历史 / 报警 / 工业4.0 / 数据大屏 / 配置
+   ├─ 传输：REST (axios, Bearer JWT) + WebSocket (socket.io, polling 优先)
+   └─ 打包：Electron 33，页面走 file://，后端由主进程 spawn
+
+后端 (Flask 3.1 + SocketIO/threading)
+   ├─ 展示层 ── 12 个 API 蓝图（170 个端点）+ 页面认证 + 错误处理
+   ├─ 采集层 ── 设备管理器（30 台模拟/真实设备）、数据采集器、行为模拟器
+   ├─ 存储层 ── SQLite（WAL 模式），8 张表
+   ├─ 报警层 ── 规则引擎、去重/抑制、洪水检测、升级、输出（塔灯/广播）
+   ├─ 智能层 ── OEE、预测维护、SPC、能源、边缘决策、设备控制（联锁/急停）
+   └─ core   ── 健康检查、熔断、限流、降级、缓存、审计、调度
+
+进程：单后端进程（5000 端口，模拟模式）+ Electron 主进程
+部署：托盘常驻，前端与后端同机</div>
+
+ <h2><span class="n">2</span>数据模型（8 张表）</h2>
+ <p class="sub" style="margin-bottom:10px">从实际库的 PRAGMA 提取，含当前行数。行数为 0 的表表示有结构但尚无数据。</p>
+ 
+      <div class="tbl">
+        <div class="tbl-head"><strong>alarm_records</strong>
+          <span class="dim">1 行 · 16 列 · 索引 7</span></div>
+        <table class="inner"><thead><tr><th style="width:32%">列</th><th style="width:26%">类型</th><th>约束</th></tr></thead>
+        <tbody><tr><td class='p'>id</td><td class='f'>INTEGER</td><td>PK</td></tr><tr><td class='p'>alarm_id</td><td class='f'>TEXT</td><td> NOT NULL</td></tr><tr><td class='p'>device_id</td><td class='f'>TEXT</td><td> NOT NULL</td></tr><tr><td class='p'>register_name</td><td class='f'>TEXT</td><td> NOT NULL</td></tr><tr><td class='p'>alarm_level</td><td class='f'>TEXT</td><td> NOT NULL</td></tr><tr><td class='p'>alarm_message</td><td class='f'>TEXT</td><td></td></tr><tr><td class='p'>threshold</td><td class='f'>REAL</td><td></td></tr><tr><td class='p'>actual_value</td><td class='f'>REAL</td><td></td></tr><tr><td class='p'>timestamp</td><td class='f'>DATETIME</td><td> NOT NULL</td></tr><tr><td class='p'>trigger_count</td><td class='f'>INTEGER</td><td></td></tr><tr><td class='p'>last_trigger_time</td><td class='f'>DATETIME</td><td></td></tr><tr><td class='p'>last_value</td><td class='f'>REAL</td><td></td></tr><tr><td class='p'>acknowledged</td><td class='f'>BOOLEAN</td><td></td></tr><tr><td class='p'>acknowledged_at</td><td class='f'>DATETIME</td><td></td></tr><tr><td class='p'>acknowledged_by</td><td class='f'>TEXT</td><td></td></tr><tr><td class='p'>created_at</td><td class='f'>DATETIME</td><td></td></tr></tbody></table>
+      </div>
+      <div class="tbl">
+        <div class="tbl-head"><strong>device_status</strong>
+          <span class="dim">0 行 · 6 列 · 索引 1</span></div>
+        <table class="inner"><thead><tr><th style="width:32%">列</th><th style="width:26%">类型</th><th>约束</th></tr></thead>
+        <tbody><tr><td class='p'>id</td><td class='f'>INTEGER</td><td>PK</td></tr><tr><td class='p'>device_id</td><td class='f'>TEXT</td><td> NOT NULL</td></tr><tr><td class='p'>status</td><td class='f'>TEXT</td><td> NOT NULL</td></tr><tr><td class='p'>message</td><td class='f'>TEXT</td><td></td></tr><tr><td class='p'>timestamp</td><td class='f'>DATETIME</td><td> NOT NULL</td></tr><tr><td class='p'>created_at</td><td class='f'>DATETIME</td><td></td></tr></tbody></table>
+      </div>
+      <div class="tbl">
+        <div class="tbl-head"><strong>history_archive</strong>
+          <span class="dim">0 行 · 9 列 · 索引 1</span></div>
+        <table class="inner"><thead><tr><th style="width:32%">列</th><th style="width:26%">类型</th><th>约束</th></tr></thead>
+        <tbody><tr><td class='p'>id</td><td class='f'>INTEGER</td><td>PK</td></tr><tr><td class='p'>device_id</td><td class='f'>TEXT</td><td> NOT NULL</td></tr><tr><td class='p'>register_name</td><td class='f'>TEXT</td><td> NOT NULL</td></tr><tr><td class='p'>avg_value</td><td class='f'>REAL</td><td></td></tr><tr><td class='p'>min_value</td><td class='f'>REAL</td><td></td></tr><tr><td class='p'>max_value</td><td class='f'>REAL</td><td></td></tr><tr><td class='p'>sample_count</td><td class='f'>INTEGER</td><td></td></tr><tr><td class='p'>archive_date</td><td class='f'>DATE</td><td> NOT NULL</td></tr><tr><td class='p'>created_at</td><td class='f'>DATETIME</td><td></td></tr></tbody></table>
+      </div>
+      <div class="tbl">
+        <div class="tbl-head"><strong>history_data</strong>
+          <span class="dim">308,306 行 · 7 列 · 索引 4</span></div>
+        <table class="inner"><thead><tr><th style="width:32%">列</th><th style="width:26%">类型</th><th>约束</th></tr></thead>
+        <tbody><tr><td class='p'>id</td><td class='f'>INTEGER</td><td>PK</td></tr><tr><td class='p'>device_id</td><td class='f'>TEXT</td><td> NOT NULL</td></tr><tr><td class='p'>register_name</td><td class='f'>TEXT</td><td> NOT NULL</td></tr><tr><td class='p'>value</td><td class='f'>REAL</td><td></td></tr><tr><td class='p'>unit</td><td class='f'>TEXT</td><td></td></tr><tr><td class='p'>timestamp</td><td class='f'>DATETIME</td><td> NOT NULL</td></tr><tr><td class='p'>created_at</td><td class='f'>DATETIME</td><td></td></tr></tbody></table>
+      </div>
+      <div class="tbl">
+        <div class="tbl-head"><strong>jwt_blacklist</strong>
+          <span class="dim">2 行 · 4 列 · 索引 3</span></div>
+        <table class="inner"><thead><tr><th style="width:32%">列</th><th style="width:26%">类型</th><th>约束</th></tr></thead>
+        <tbody><tr><td class='p'>id</td><td class='f'>INTEGER</td><td>PK</td></tr><tr><td class='p'>token_jti</td><td class='f'>TEXT</td><td> NOT NULL</td></tr><tr><td class='p'>blacklisted_at</td><td class='f'>DATETIME</td><td></td></tr><tr><td class='p'>reason</td><td class='f'>TEXT</td><td></td></tr></tbody></table>
+      </div>
+      <div class="tbl">
+        <div class="tbl-head"><strong>operation_logs</strong>
+          <span class="dim">41 行 · 7 列 · 索引 1</span></div>
+        <table class="inner"><thead><tr><th style="width:32%">列</th><th style="width:26%">类型</th><th>约束</th></tr></thead>
+        <tbody><tr><td class='p'>id</td><td class='f'>INTEGER</td><td>PK</td></tr><tr><td class='p'>username</td><td class='f'>TEXT</td><td> NOT NULL</td></tr><tr><td class='p'>action</td><td class='f'>TEXT</td><td> NOT NULL</td></tr><tr><td class='p'>target</td><td class='f'>TEXT</td><td></td></tr><tr><td class='p'>detail</td><td class='f'>TEXT</td><td></td></tr><tr><td class='p'>ip_address</td><td class='f'>TEXT</td><td></td></tr><tr><td class='p'>timestamp</td><td class='f'>DATETIME</td><td></td></tr></tbody></table>
+      </div>
+      <div class="tbl">
+        <div class="tbl-head"><strong>realtime_data</strong>
+          <span class="dim">83 行 · 8 列 · 索引 3</span></div>
+        <table class="inner"><thead><tr><th style="width:32%">列</th><th style="width:26%">类型</th><th>约束</th></tr></thead>
+        <tbody><tr><td class='p'>id</td><td class='f'>INTEGER</td><td>PK</td></tr><tr><td class='p'>device_id</td><td class='f'>TEXT</td><td> NOT NULL</td></tr><tr><td class='p'>register_name</td><td class='f'>TEXT</td><td> NOT NULL</td></tr><tr><td class='p'>value</td><td class='f'>REAL</td><td></td></tr><tr><td class='p'>unit</td><td class='f'>TEXT</td><td></td></tr><tr><td class='p'>timestamp</td><td class='f'>DATETIME</td><td> NOT NULL</td></tr><tr><td class='p'>created_at</td><td class='f'>DATETIME</td><td></td></tr><tr><td class='p'>quality</td><td class='f'>INTEGER</td><td></td></tr></tbody></table>
+      </div>
+      <div class="tbl">
+        <div class="tbl-head"><strong>users</strong>
+          <span class="dim">1 行 · 15 列 · 索引 2</span></div>
+        <table class="inner"><thead><tr><th style="width:32%">列</th><th style="width:26%">类型</th><th>约束</th></tr></thead>
+        <tbody><tr><td class='p'>id</td><td class='f'>INTEGER</td><td>PK</td></tr><tr><td class='p'>username</td><td class='f'>TEXT</td><td> NOT NULL</td></tr><tr><td class='p'>password_hash</td><td class='f'>TEXT</td><td> NOT NULL</td></tr><tr><td class='p'>role</td><td class='f'>TEXT</td><td> NOT NULL</td></tr><tr><td class='p'>display_name</td><td class='f'>TEXT</td><td></td></tr><tr><td class='p'>email</td><td class='f'>TEXT</td><td></td></tr><tr><td class='p'>phone</td><td class='f'>TEXT</td><td></td></tr><tr><td class='p'>last_login</td><td class='f'>DATETIME</td><td></td></tr><tr><td class='p'>login_attempts</td><td class='f'>INTEGER</td><td></td></tr><tr><td class='p'>locked_until</td><td class='f'>DATETIME</td><td></td></tr><tr><td class='p'>created_at</td><td class='f'>DATETIME</td><td></td></tr><tr><td class='p'>updated_at</td><td class='f'>DATETIME</td><td></td></tr><tr><td class='p'>is_active</td><td class='f'>BOOLEAN</td><td></td></tr><tr><td class='p'>must_change_password</td><td class='f'>BOOLEAN</td><td></td></tr><tr><td class='p'>password_changed_at</td><td class='f'>DATETIME</td><td></td></tr></tbody></table>
+      </div>
+
+ <h2><span class="n">3</span>接口规格（170 个端点 / 12 个蓝图）</h2>
+ <p class="sub" style="margin-bottom:10px">点开每个蓝图查看端点明细。路径即 REST 契约，处理函数名可直接在源码中检索。</p>
+ 
+      <details><summary><strong>api_alarms.py</strong> · 26 个端点</summary>
+        <table class="inner"><thead><tr><th style="width:14%">方法</th><th style="width:56%">路径</th><th>处理函数</th></tr></thead>
+        <tbody><tr><td class='m'>GET</td><td class='p'>/alarms</td><td class='f'>get_alarms</td></tr><tr><td class='m'>GET</td><td class='p'>/alarms/active</td><td class='f'>get_active_alarms</td></tr><tr><td class='m'>POST</td><td class='p'>/alarms/&lt;alarm_id&gt;/acknowledge</td><td class='f'>acknowledge_alarm</td></tr><tr><td class='m'>GET</td><td class='p'>/alarms/statistics</td><td class='f'>get_alarm_statistics</td></tr><tr><td class='m'>GET</td><td class='p'>/alarm-output/status</td><td class='f'>get_alarm_output_status</td></tr><tr><td class='m'>POST</td><td class='p'>/alarm-output/acknowledge</td><td class='f'>alarm_output_acknowledge</td></tr><tr><td class='m'>POST</td><td class='p'>/alarm-output/reset</td><td class='f'>alarm_output_reset</td></tr><tr><td class='m'>POST</td><td class='p'>/alarm-output/manual</td><td class='f'>alarm_output_manual</td></tr><tr><td class='m'>POST</td><td class='p'>/broadcast/speak</td><td class='f'>broadcast_speak</td></tr><tr><td class='m'>GET</td><td class='p'>/broadcast/areas</td><td class='f'>get_broadcast_areas</td></tr><tr><td class='m'>GET</td><td class='p'>/broadcast/history</td><td class='f'>get_broadcast_history</td></tr><tr><td class='m'>GET</td><td class='p'>/alarm-rules</td><td class='f'>get_alarm_rules</td></tr><tr><td class='m'>POST</td><td class='p'>/alarm-rules</td><td class='f'>add_alarm_rule</td></tr><tr><td class='m'>PUT</td><td class='p'>/alarm-rules/&lt;rule_id&gt;</td><td class='f'>update_alarm_rule</td></tr><tr><td class='m'>DELETE</td><td class='p'>/alarm-rules/&lt;rule_id&gt;</td><td class='f'>delete_alarm_rule</td></tr><tr><td class='m'>PUT</td><td class='p'>/alarm-rules/notification</td><td class='f'>update_notification</td></tr><tr><td class='m'>GET</td><td class='p'>/alarm-output/config</td><td class='f'>get_alarm_output_config</td></tr><tr><td class='m'>PUT</td><td class='p'>/alarm-output/config</td><td class='f'>update_alarm_output_config</td></tr><tr><td class='m'>GET</td><td class='p'>/broadcast/config</td><td class='f'>get_broadcast_config</td></tr><tr><td class='m'>PUT</td><td class='p'>/broadcast/config</td><td class='f'>update_broadcast_config</td></tr><tr><td class='m'>GET</td><td class='p'>/alarms/flood-status</td><td class='f'>get_flood_status</td></tr><tr><td class='m'>GET</td><td class='p'>/alarms/dedup-config</td><td class='f'>get_dedup_config</td></tr><tr><td class='m'>PUT</td><td class='p'>/alarms/dedup-config</td><td class='f'>update_dedup_config</td></tr><tr><td class='m'>GET</td><td class='p'>/alarms/escalation/status</td><td class='f'>get_escalation_status</td></tr><tr><td class='m'>GET</td><td class='p'>/alarms/escalation/rules</td><td class='f'>get_escalation_rules</td></tr><tr><td class='m'>PUT</td><td class='p'>/alarms/escalation/rules</td><td class='f'>update_escalation_rules</td></tr></tbody></table></details>
+      <details><summary><strong>api_auth.py</strong> · 11 个端点</summary>
+        <table class="inner"><thead><tr><th style="width:14%">方法</th><th style="width:56%">路径</th><th>处理函数</th></tr></thead>
+        <tbody><tr><td class='m'>POST</td><td class='p'>/auth/login</td><td class='f'>login</td></tr><tr><td class='m'>POST</td><td class='p'>/auth/logout</td><td class='f'>logout</td></tr><tr><td class='m'>POST</td><td class='p'>/auth/register</td><td class='f'>register</td></tr><tr><td class='m'>GET</td><td class='p'>/auth/verify</td><td class='f'>verify_token</td></tr><tr><td class='m'>POST</td><td class='p'>/auth/refresh</td><td class='f'>refresh_token</td></tr><tr><td class='m'>POST</td><td class='p'>/auth/change-password</td><td class='f'>change_password</td></tr><tr><td class='m'>POST</td><td class='p'>/auth/force-change-password</td><td class='f'>force_change_password</td></tr><tr><td class='m'>GET</td><td class='p'>/auth/users</td><td class='f'>get_users</td></tr><tr><td class='m'>PUT</td><td class='p'>/auth/users/&lt;username&gt;</td><td class='f'>update_user</td></tr><tr><td class='m'>DELETE</td><td class='p'>/auth/users/&lt;username&gt;</td><td class='f'>delete_user</td></tr><tr><td class='m'>GET</td><td class='p'>/auth/logs</td><td class='f'>get_operation_logs</td></tr></tbody></table></details>
+      <details><summary><strong>api_control.py</strong> · 23 个端点</summary>
+        <table class="inner"><thead><tr><th style="width:14%">方法</th><th style="width:56%">路径</th><th>处理函数</th></tr></thead>
+        <tbody><tr><td class='m'>POST</td><td class='p'>/devices/&lt;device_id&gt;/write-register</td><td class='f'>write_register</td></tr><tr><td class='m'>POST</td><td class='p'>/devices/&lt;device_id&gt;/write-coil</td><td class='f'>write_coil</td></tr><tr><td class='m'>POST</td><td class='p'>/devices/&lt;device_id&gt;/adjust</td><td class='f'>adjust_device</td></tr><tr><td class='m'>POST</td><td class='p'>/devices/&lt;device_id&gt;/write-endpoint</td><td class='f'>write_endpoint</td></tr><tr><td class='m'>GET</td><td class='p'>/control/logs</td><td class='f'>get_control_logs</td></tr><tr><td class='m'>POST</td><td class='p'>/control/estop</td><td class='f'>trigger_estop</td></tr><tr><td class='m'>POST</td><td class='p'>/control/estop/reset</td><td class='f'>reset_estop</td></tr><tr><td class='m'>GET</td><td class='p'>/control/estop/status</td><td class='f'>get_estop_status</td></tr><tr><td class='m'>GET</td><td class='p'>/control/interlocks</td><td class='f'>get_interlocks</td></tr><tr><td class='m'>POST</td><td class='p'>/control/interlocks/&lt;rule_id&gt;/bypass</td><td class='f'>bypass_interlock</td></tr><tr><td class='m'>POST</td><td class='p'>/control/interlocks/&lt;rule_id&gt;/restore</td><td class='f'>restore_interlock</td></tr><tr><td class='m'>POST</td><td class='p'>/control/interlocks/bypass-request</td><td class='f'>create_bypass_request</td></tr><tr><td class='m'>POST</td><td class='p'>/control/interlocks/bypass-approve</td><td class='f'>approve_bypass_request</td></tr><tr><td class='m'>POST</td><td class='p'>/control/interlocks/bypass-reject</td><td class='f'>reject_bypass_request</td></tr><tr><td class='m'>GET</td><td class='p'>/control/interlocks/bypass-pending</td><td class='f'>get_pending_bypasses</td></tr><tr><td class='m'>GET</td><td class='p'>/control/health</td><td class='f'>get_device_health</td></tr><tr><td class='m'>POST</td><td class='p'>/control/batch</td><td class='f'>batch_control</td></tr><tr><td class='m'>GET</td><td class='p'>/control/audit</td><td class='f'>get_audit_log</td></tr><tr><td class='m'>GET</td><td class='p'>/control/status</td><td class='f'>get_control_safety_status</td></tr><tr><td class='m'>POST</td><td class='p'>/control/recipe/start</td><td class='f'>start_recipe</td></tr><tr><td class='m'>POST</td><td class='p'>/control/recipe/stop</td><td class='f'>stop_recipe</td></tr><tr><td class='m'>GET</td><td class='p'>/control/recipe/status</td><td class='f'>get_recipe_status</td></tr><tr><td class='m'>GET</td><td class='p'>/control/recipe/list</td><td class='f'>list_recipes</td></tr></tbody></table></details>
+      <details><summary><strong>api_data.py</strong> · 5 个端点</summary>
+        <table class="inner"><thead><tr><th style="width:14%">方法</th><th style="width:56%">路径</th><th>处理函数</th></tr></thead>
+        <tbody><tr><td class='m'>GET</td><td class='p'>/data/realtime</td><td class='f'>get_realtime_data</td></tr><tr><td class='m'>GET</td><td class='p'>/data/latest/&lt;device_id&gt;</td><td class='f'>get_latest_data</td></tr><tr><td class='m'>GET</td><td class='p'>/data/history/&lt;device_id&gt;/&lt;register_name&gt;</td><td class='f'>get_history_data</td></tr><tr><td class='m'>POST</td><td class='p'>/export/device/&lt;device_id&gt;</td><td class='f'>export_device_data</td></tr><tr><td class='m'>POST</td><td class='p'>/export/alarms</td><td class='f'>export_alarms</td></tr></tbody></table></details>
+      <details><summary><strong>api_devices.py</strong> · 20 个端点</summary>
+        <table class="inner"><thead><tr><th style="width:14%">方法</th><th style="width:56%">路径</th><th>处理函数</th></tr></thead>
+        <tbody><tr><td class='m'>GET</td><td class='p'>/devices</td><td class='f'>get_devices</td></tr><tr><td class='m'>GET</td><td class='p'>/devices/&lt;device_id&gt;</td><td class='f'>get_device</td></tr><tr><td class='m'>POST</td><td class='p'>/devices</td><td class='f'>add_device</td></tr><tr><td class='m'>PUT</td><td class='p'>/devices/&lt;device_id&gt;</td><td class='f'>update_device</td></tr><tr><td class='m'>DELETE</td><td class='p'>/devices/&lt;device_id&gt;</td><td class='f'>delete_device</td></tr><tr><td class='m'>POST</td><td class='p'>/devices/&lt;device_id&gt;/connect</td><td class='f'>connect_device</td></tr><tr><td class='m'>POST</td><td class='p'>/devices/&lt;device_id&gt;/disconnect</td><td class='f'>disconnect_device</td></tr><tr><td class='m'>POST</td><td class='p'>/devices/&lt;device_id&gt;/stop</td><td class='f'>stop_device</td></tr><tr><td class='m'>POST</td><td class='p'>/devices/&lt;device_id&gt;/start</td><td class='f'>start_device</td></tr><tr><td class='m'>POST</td><td class='p'>/devices/&lt;device_id&gt;/test</td><td class='f'>test_device_connection</td></tr><tr><td class='m'>GET</td><td class='p'>/devices/protocols</td><td class='f'>get_supported_protocols</td></tr><tr><td class='m'>GET</td><td class='p'>/devices/&lt;device_id&gt;/behavior</td><td class='f'>get_device_behavior</td></tr><tr><td class='m'>POST</td><td class='p'>/devices/&lt;device_id&gt;/inject-fault</td><td class='f'>inject_device_fault</td></tr><tr><td class='m'>POST</td><td class='p'>/devices/&lt;device_id&gt;/force-state</td><td class='f'>force_device_state</td></tr><tr><td class='m'>GET</td><td class='p'>/devices/templates</td><td class='f'>get_device_templates</td></tr><tr><td class='m'>GET</td><td class='p'>/devices/presets</td><td class='f'>get_simulation_presets</td></tr><tr><td class='m'>GET</td><td class='p'>/devices/presets/&lt;preset_id&gt;</td><td class='f'>get_preset_detail</td></tr><tr><td class='m'>POST</td><td class='p'>/devices/presets/add</td><td class='f'>add_preset_device</td></tr><tr><td class='m'>POST</td><td class='p'>/devices/presets/batch-add</td><td class='f'>batch_add_presets</td></tr><tr><td class='m'>POST</td><td class='p'>/devices/presets/add-all</td><td class='f'>add_all_presets</td></tr></tbody></table></details>
+      <details><summary><strong>api_health.py</strong> · 9 个端点</summary>
+        <table class="inner"><thead><tr><th style="width:14%">方法</th><th style="width:56%">路径</th><th>处理函数</th></tr></thead>
+        <tbody><tr><td class='m'>GET</td><td class='p'>/status</td><td class='f'>get_health_status</td></tr><tr><td class='m'>GET</td><td class='p'>/status/detail</td><td class='f'>get_health_detail</td></tr><tr><td class='m'>GET</td><td class='p'>/modules</td><td class='f'>get_modules_status</td></tr><tr><td class='m'>GET</td><td class='p'>/modules/&lt;module_name&gt;</td><td class='f'>get_module_status</td></tr><tr><td class='m'>GET</td><td class='p'>/checks</td><td class='f'>get_health_checks</td></tr><tr><td class='m'>GET</td><td class='p'>/checks/&lt;check_name&gt;</td><td class='f'>run_health_check</td></tr><tr><td class='m'>GET</td><td class='p'>/available</td><td class='f'>get_available_modules</td></tr><tr><td class='m'>GET</td><td class='p'>/unavailable</td><td class='f'>get_unavailable_modules</td></tr><tr><td class='m'>GET</td><td class='p'>/tasks/&lt;task_id&gt;</td><td class='f'>get_task_status</td></tr></tbody></table></details>
+      <details><summary><strong>api_industry40.py</strong> · 26 个端点</summary>
+        <table class="inner"><thead><tr><th style="width:14%">方法</th><th style="width:56%">路径</th><th>处理函数</th></tr></thead>
+        <tbody><tr><td class='m'>GET</td><td class='p'>/industry40/health</td><td class='f'>get_health_scores</td></tr><tr><td class='m'>GET</td><td class='p'>/industry40/health/&lt;device_id&gt;</td><td class='f'>get_device_health_by_id</td></tr><tr><td class='m'>GET</td><td class='p'>/industry40/maintenance-alerts</td><td class='f'>get_maintenance_alerts</td></tr><tr><td class='m'>GET</td><td class='p'>/industry40/trend/&lt;device_id&gt;/&lt;register_name&gt;</td><td class='f'>get_trend_data</td></tr><tr><td class='m'>GET</td><td class='p'>/industry40/oee</td><td class='f'>get_all_oee</td></tr><tr><td class='m'>GET</td><td class='p'>/industry40/oee/&lt;device_id&gt;</td><td class='f'>get_device_oee</td></tr><tr><td class='m'>GET</td><td class='p'>/industry40/spc/&lt;device_id&gt;/&lt;register_name&gt;</td><td class='f'>get_spc_chart</td></tr><tr><td class='m'>GET</td><td class='p'>/industry40/spc/violations</td><td class='f'>get_spc_violations</td></tr><tr><td class='m'>GET</td><td class='p'>/industry40/energy</td><td class='f'>get_energy_summary</td></tr><tr><td class='m'>GET</td><td class='p'>/industry40/energy/cost</td><td class='f'>get_energy_cost</td></tr><tr><td class='m'>GET</td><td class='p'>/industry40/energy/carbon</td><td class='f'>get_carbon_emission</td></tr><tr><td class='m'>GET</td><td class='p'>/industry40/energy/power</td><td class='f'>get_realtime_power</td></tr><tr><td class='m'>GET</td><td class='p'>/industry40/energy/tariff</td><td class='f'>get_energy_tariff</td></tr><tr><td class='m'>PUT</td><td class='p'>/industry40/energy/tariff</td><td class='f'>update_energy_tariff</td></tr><tr><td class='m'>GET</td><td class='p'>/industry40/energy/anomaly-config</td><td class='f'>get_energy_anomaly_config</td></tr><tr><td class='m'>PUT</td><td class='p'>/industry40/energy/anomaly-config</td><td class='f'>update_energy_anomaly_config</td></tr><tr><td class='m'>GET</td><td class='p'>/industry40/edge/status</td><td class='f'>get_edge_status</td></tr><tr><td class='m'>GET</td><td class='p'>/industry40/edge/rules</td><td class='f'>get_edge_rules</td></tr><tr><td class='m'>GET</td><td class='p'>/industry40/edge/log</td><td class='f'>get_edge_log</td></tr><tr><td class='m'>GET</td><td class='p'>/industry40/devices/status</td><td class='f'>get_devices_status</td></tr><tr><td class='m'>GET</td><td class='p'>/industry40/freshness</td><td class='f'>get_data_freshness</td></tr><tr><td class='m'>GET</td><td class='p'>/industry40/vibration</td><td class='f'>get_vibration_scores</td></tr><tr><td class='m'>GET</td><td class='p'>/industry40/vibration/&lt;device_id&gt;</td><td class='f'>get_device_vibration</td></tr><tr><td class='m'>GET</td><td class='p'>/industry40/vibration/&lt;device_id&gt;/spectrum</td><td class='f'>get_vibration_spectrum</td></tr><tr><td class='m'>GET</td><td class='p'>/industry40/vibration/&lt;device_id&gt;/bearing</td><td class='f'>check_bearing_fault</td></tr><tr><td class='m'>GET</td><td class='p'>/industry40/overview</td><td class='f'>get_industry40_overview</td></tr></tbody></table></details>
+      <details><summary><strong>api_metrics.py</strong> · 1 个端点</summary>
+        <table class="inner"><thead><tr><th style="width:14%">方法</th><th style="width:56%">路径</th><th>处理函数</th></tr></thead>
+        <tbody><tr><td class='m'>GET</td><td class='p'>/metrics</td><td class='f'>prometheus_metrics</td></tr></tbody></table></details>
+      <details><summary><strong>api_ops.py</strong> · 17 个端点</summary>
+        <table class="inner"><thead><tr><th style="width:14%">方法</th><th style="width:56%">路径</th><th>处理函数</th></tr></thead>
+        <tbody><tr><td class='m'>GET</td><td class='p'>/config</td><td class='f'>get_runtime_config</td></tr><tr><td class='m'>PUT</td><td class='p'>/config</td><td class='f'>update_runtime_config</td></tr><tr><td class='m'>GET</td><td class='p'>/config/&lt;key&gt;</td><td class='f'>get_config_key</td></tr><tr><td class='m'>PUT</td><td class='p'>/config/&lt;key&gt;</td><td class='f'>set_config_key</td></tr><tr><td class='m'>GET</td><td class='p'>/config/history</td><td class='f'>get_config_history</td></tr><tr><td class='m'>POST</td><td class='p'>/db/vacuum</td><td class='f'>db_vacuum</td></tr><tr><td class='m'>POST</td><td class='p'>/db/reindex</td><td class='f'>db_reindex</td></tr><tr><td class='m'>POST</td><td class='p'>/db/analyze</td><td class='f'>db_analyze</td></tr><tr><td class='m'>GET</td><td class='p'>/db/integrity</td><td class='f'>db_integrity_check</td></tr><tr><td class='m'>GET</td><td class='p'>/db/tables</td><td class='f'>db_table_stats</td></tr><tr><td class='m'>POST</td><td class='p'>/cleanup/history</td><td class='f'>cleanup_history</td></tr><tr><td class='m'>POST</td><td class='p'>/cleanup/backups</td><td class='f'>cleanup_backups</td></tr><tr><td class='m'>POST</td><td class='p'>/cleanup/logs</td><td class='f'>cleanup_logs</td></tr><tr><td class='m'>POST</td><td class='p'>/diagnostics/export</td><td class='f'>export_diagnostics</td></tr><tr><td class='m'>GET</td><td class='p'>/audit</td><td class='f'>get_ops_audit</td></tr><tr><td class='m'>GET</td><td class='p'>/maintenance/tasks</td><td class='f'>get_maintenance_tasks</td></tr><tr><td class='m'>POST</td><td class='p'>/maintenance/tasks/&lt;name&gt;/run</td><td class='f'>run_maintenance_task</td></tr></tbody></table></details>
+      <details><summary><strong>api_performance.py</strong> · 3 个端点</summary>
+        <table class="inner"><thead><tr><th style="width:14%">方法</th><th style="width:56%">路径</th><th>处理函数</th></tr></thead>
+        <tbody><tr><td class='m'>GET</td><td class='p'>/metrics/realtime</td><td class='f'>get_realtime_metrics</td></tr><tr><td class='m'>GET</td><td class='p'>/metrics/history</td><td class='f'>get_metrics_history</td></tr><tr><td class='m'>GET</td><td class='p'>/metrics/summary</td><td class='f'>get_metrics_summary</td></tr></tbody></table></details>
+      <details><summary><strong>api_resilience.py</strong> · 20 个端点</summary>
+        <table class="inner"><thead><tr><th style="width:14%">方法</th><th style="width:56%">路径</th><th>处理函数</th></tr></thead>
+        <tbody><tr><td class='m'>GET</td><td class='p'>/circuit-breaker</td><td class='f'>get_all_circuit_breakers</td></tr><tr><td class='m'>GET</td><td class='p'>/circuit-breaker/&lt;name&gt;</td><td class='f'>get_circuit_breaker</td></tr><tr><td class='m'>POST</td><td class='p'>/circuit-breaker/&lt;name&gt;/reset</td><td class='f'>reset_circuit_breaker</td></tr><tr><td class='m'>POST</td><td class='p'>/circuit-breaker/reset-all</td><td class='f'>reset_all_circuit_breakers</td></tr><tr><td class='m'>GET</td><td class='p'>/rate-limiter</td><td class='f'>get_rate_limiter_status</td></tr><tr><td class='m'>GET</td><td class='p'>/rate-limiter/profiles</td><td class='f'>get_rate_limiter_profiles</td></tr><tr><td class='m'>PUT</td><td class='p'>/rate-limiter/profile</td><td class='f'>update_rate_limiter_profile</td></tr><tr><td class='m'>GET</td><td class='p'>/degradation</td><td class='f'>get_degradation_status</td></tr><tr><td class='m'>GET</td><td class='p'>/degradation/levels</td><td class='f'>get_degradation_levels</td></tr><tr><td class='m'>POST</td><td class='p'>/degradation/degrade</td><td class='f'>manual_degrade</td></tr><tr><td class='m'>POST</td><td class='p'>/degradation/restore</td><td class='f'>manual_restore</td></tr><tr><td class='m'>GET</td><td class='p'>/degradation/feature/&lt;feature_name&gt;</td><td class='f'>check_feature_enabled</td></tr><tr><td class='m'>GET</td><td class='p'>/fault-injection</td><td class='f'>get_fault_injection_status</td></tr><tr><td class='m'>POST</td><td class='p'>/fault-injection/inject</td><td class='f'>inject_fault</td></tr><tr><td class='m'>DELETE</td><td class='p'>/fault-injection/&lt;target&gt;</td><td class='f'>remove_fault</td></tr><tr><td class='m'>POST</td><td class='p'>/fault-injection/clear</td><td class='f'>clear_all_faults</td></tr><tr><td class='m'>GET</td><td class='p'>/chaos</td><td class='f'>get_chaos_status</td></tr><tr><td class='m'>POST</td><td class='p'>/chaos/experiment</td><td class='f'>create_experiment</td></tr><tr><td class='m'>POST</td><td class='p'>/chaos/experiment/&lt;name&gt;/run</td><td class='f'>run_experiment</td></tr><tr><td class='m'>GET</td><td class='p'>/chaos/experiment/&lt;name&gt;/report</td><td class='f'>get_experiment_report</td></tr></tbody></table></details>
+      <details><summary><strong>api_system.py</strong> · 9 个端点</summary>
+        <table class="inner"><thead><tr><th style="width:14%">方法</th><th style="width:56%">路径</th><th>处理函数</th></tr></thead>
+        <tbody><tr><td class='m'>GET</td><td class='p'>/system/status</td><td class='f'>get_system_status</td></tr><tr><td class='m'>GET</td><td class='p'>/system/database</td><td class='f'>get_database_stats</td></tr><tr><td class='m'>GET</td><td class='p'>/system/simulation-mode</td><td class='f'>get_simulation_mode</td></tr><tr><td class='m'>POST</td><td class='p'>/system/simulation-mode</td><td class='f'>toggle_simulation_mode</td></tr><tr><td class='m'>GET</td><td class='p'>/config</td><td class='f'>get_config</td></tr><tr><td class='m'>GET</td><td class='p'>/system/ha-status</td><td class='f'>get_ha_status</td></tr><tr><td class='m'>POST</td><td class='p'>/system/ha-force-role</td><td class='f'>ha_force_role</td></tr><tr><td class='m'>PUT</td><td class='p'>/config</td><td class='f'>update_config</td></tr><tr><td class='m'>POST</td><td class='p'>/system/client-errors</td><td class='f'>report_client_errors</td></tr></tbody></table></details>
+
+ <h2><span class="n">4</span>业务包（12 个）</h2>
+ <table><thead><tr><th style="width:22%">包名</th><th style="width:10%">.py 数</th><th>职责（取自包 docstring 首行）</th></tr></thead>
+ <tbody><tr><td class='p'>core</td><td class='n'>36</td><td>核心抽象层</td></tr><tr><td class='p'>gateway</td><td class='n'>11</td><td>工业4.0 SCADA系统 — 协议网关服务</td></tr><tr><td class='p'>tests</td><td class='n'>186</td><td>—</td></tr><tr><td class='p'>timeseries</td><td class='n'>7</td><td>工业4.0 SCADA系统 — 时序数据库模块</td></tr><tr><td class='p'>tools</td><td class='n'>29</td><td>—</td></tr><tr><td class='p'>存储层</td><td class='n'>4</td><td>数据存储模块</td></tr><tr><td class='p'>展示层</td><td class='n'>4</td><td>Web展示模块</td></tr><tr><td class='p'>报警层</td><td class='n'>6</td><td>报警管理模块</td></tr><tr><td class='p'>智能层</td><td class='n'>9</td><td>智能层 — 工业4.0核心模块</td></tr><tr><td class='p'>测试</td><td class='n'>9</td><td>—</td></tr><tr><td class='p'>用户层</td><td class='n'>2</td><td>用户层模块</td></tr><tr><td class='p'>采集层</td><td class='n'>17</td><td>数据采集模块</td></tr></tbody></table>
+
+ <h2><span class="n">5</span>配置项（12 份 yaml）</h2>
+ <table><thead><tr><th style="width:30%">文件</th><th>顶层键</th></tr></thead><tbody><tr><td class='p'>alarm_templates.yaml</td><td>templates</td></tr><tr><td class='p'>alarms.yaml</td><td>alarm_output, alarm_rules, dedup, notification, escalation</td></tr><tr><td class='p'>devices.yaml</td><td>devices</td></tr><tr><td class='p'>devices_modbus_sim.yaml</td><td>byte_order, writable_hold_seconds, read_only_hold_seconds, devices</td></tr><tr><td class='p'>devices_real.yaml</td><td>devices</td></tr><tr><td class='p'>devices_simulated.yaml</td><td>devices</td></tr><tr><td class='p'>energy.yaml</td><td>tariff, tariff_periods, carbon_factor, anomaly</td></tr><tr><td class='p'>fault_presets.yaml</td><td>scenarios, severity_levels, fault_types</td></tr><tr><td class='p'>iec104_example.yaml</td><td>gateway, devices</td></tr><tr><td class='p'>interlocks.yaml</td><td>interlocks</td></tr><tr><td class='p'>simulation_presets.yaml</td><td>presets, categories</td></tr><tr><td class='p'>system.yaml</td><td>alarm, collection, database, export, logging, performance, system, mqtt, web</td></tr></tbody></table>
+
+ <h2><span class="n">6</span>关键设计决策（人工补充，非自动生成）</h2>
+ <div class="note">
+  <strong>为什么时间序列化要自定义 JSON Provider</strong>：后端大量用 naive datetime（本地时间），
+  Flask 默认按 HTTP-date 输出成 <code>... GMT</code>，把本地时间谎报成 UTC，前端解析后 +8 小时。
+  统一输出带偏移的 ISO8601 是唯一不会错的做法。
+ </div>
+ <div class="note">
+  <strong>为什么采集用「线程 + 批量事务」而不是每点一事务</strong>：30 台设备 × 2 秒周期会产生
+  十几点/秒的写入，逐条提交在 SQLite 上会把 WAL 撑大且拖慢；批量提交 + WAL 才能在 kill -9 时不丢数据
+  （已由 crash-recovery 演练证实）。
+ </div>
+ <div class="note">
+  <strong>为什么状态量（*_status / *_state）必须离散化</strong>：OEE 的可用率依赖设备状态码（0–5），
+  连续浮点会被采集器整体丢弃，实时状态跟踪等于空转。这条在模拟器和采集器两侧都要拦。
+ </div>
+
+ <footer>由 tools/fds-report.py 生成 · 源码 C:\Users\cxx\wb_tmp\back-head2 · 库 C:\Users\cxx\scada-app\backend\_internal\data\scada_simulated.db ·
+  2026-10-25 03:11</footer>
+</div></body></html>
