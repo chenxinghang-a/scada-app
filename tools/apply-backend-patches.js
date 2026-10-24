@@ -434,5 +434,40 @@ patch('存储层/database.py',
     def _migrate_realtime_unique(self, cursor):`,
   'replace', '新增 history 迁移方法')
 
+// ---- 12. 历史聚合查询返回质量（库里有列了，接口也要吐出来，否则前端看不到） ----
+patch('存储层/database.py',
+  `                        AVG(value) as avg_value,
+                        MIN(value) as min_value,
+                        MAX(value) as max_value,
+                        COUNT(*) as sample_count`,
+  `                        AVG(value) as avg_value,
+                        MIN(value) as min_value,
+                        MAX(value) as max_value,
+                        COUNT(*) as sample_count,
+                        -- 桶内最差质量（一个桶混进坏值就整桶标坏，保守口径）。
+                        -- NULL = 该桶历史行未记录质量（2026-10-25 之前入库），不是 Good。
+                        MIN(quality) as quality`,
+  'replace', '历史聚合（5 分钟桶）带质量')
+
+patch('存储层/database.py',
+  `                    AVG(value) as avg_value,
+                    MIN(value) as min_value,
+                    MAX(value) as max_value,
+                    COUNT(*) as sample_count
+                FROM history_data`,
+  `                    AVG(value) as avg_value,
+                    MIN(value) as min_value,
+                    MAX(value) as max_value,
+                    COUNT(*) as sample_count,
+                    MIN(quality) as quality   -- 桶内最差质量；NULL = 该桶未记录质量
+                FROM history_data`,
+  'replace', '历史聚合（可配间隔）带质量')
+
+// ---- 13. 历史「原始行」查询也返回质量（不传 interval 时走这条分支） ----
+patch('存储层/database.py',
+  '                    SELECT timestamp, value, unit\n                    FROM history_data',
+  '                    SELECT timestamp, value, unit, quality\n                    FROM history_data',
+  'replace', '历史原始行带 quality')
+
 console.log(bad ? `\n有 ${bad} 处锚点未命中` : '\n全部补丁应用成功')
 process.exit(bad ? 1 : 0)

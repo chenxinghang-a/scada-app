@@ -118,6 +118,16 @@
           <el-table-column label="采样数" width="90" align="right" class-name="mono-cell">
             <template v-slot:default="{ row }">{{ row.sample_count ?? row.count ?? '-' }}</template>
           </el-table-column>
+          <!-- 质量：区分「Good」和「未知」是重点。
+               2026-10-25 之前入库的历史行 quality 为 NULL —— 那是「当时没记录」，
+               不是「当时是好的」。两者必须视觉可分，否则等于伪造质量。 -->
+          <el-table-column label="质量" width="92" align="center">
+            <template v-slot:default="{ row }">
+              <span v-if="row.quality === 192 || row.quality === 0xC0" class="q-tag q-good">Good</span>
+              <span v-else-if="row.quality == null" class="q-tag q-unknown">未记录</span>
+              <span v-else class="q-tag q-bad" :title="'quality=' + row.quality">异常 {{ row.quality }}</span>
+            </template>
+          </el-table-column>
           <template #empty>
             <el-empty description="无数据" :image-size="80" />
           </template>
@@ -713,4 +723,9 @@ async function exportData() {
   .query-window__body { flex-direction: column; align-items: stretch; }
   .window-operator { display: none; }
 }
+
+.q-tag { display:inline-block; padding:1px 7px; border-radius:9px; font-size:11px; font-weight:600 }
+.q-good { background:#dafbe1; color:#1a7f37 }
+.q-bad { background:#ffebe9; color:#cf222e }
+.q-unknown { background:#eef1f4; color:#8b949e }
 </style>

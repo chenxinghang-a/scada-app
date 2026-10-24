@@ -20,6 +20,12 @@ export interface RealtimeData {
 export interface HistoryRecord {
   timestamp: string
   value: number
+  /** 桶内最差质量（OPC UA 风格，192/0xC0 = Good）；null = 该桶的历史行未记录质量 */
+  quality?: number | null
+  min_value?: number
+  max_value?: number
+  sample_count?: number
+  time_bucket?: string
 }
 
 export interface LatestValue {
