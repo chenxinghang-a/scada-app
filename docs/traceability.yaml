@@ -104,8 +104,8 @@ requirements:
     source: 功能需求
     implementation: 展示层/api/api_data.py 的 _parse_time（主仓已修，非本次补丁）
     verification: 见 reports/ 早期探测记录；查询 1 小时窗口返回 14 条而非 0 条
-    evidence: ""
-    status: partial
+    evidence: reports/evidence/data-04-history-timezone.json
+    status: verified
     note: 修好了但当时没落盘 JSON 证据，属"验证过但没留证"
 
   # ========== 控制与安全 ==========

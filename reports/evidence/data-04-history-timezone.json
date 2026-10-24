@@ -1,0 +1,28 @@
+{
+  "requirement": "DATA-04 历史查询的时间范围参数应正确映射（不能整体偏移时区）",
+  "collected_at": "2026-10-25T02:59:12",
+  "device": "siemens_1500_01",
+  "register": "boiler_temperature",
+  "window": "最近 1 小时",
+  "probes": [
+    {
+      "param_format": "UTC_ISO",
+      "start": "2026-10-24T17:59:11Z",
+      "end": "2026-10-24T18:59:11Z",
+      "http": 200,
+      "rows": 50,
+      "first_bucket": null,
+      "last_bucket": null
+    },
+    {
+      "param_format": "LOCAL_STR",
+      "start": "2026-10-25 01:59:11",
+      "end": "2026-10-25 02:59:11",
+      "http": 200,
+      "rows": 50,
+      "first_bucket": null,
+      "last_bucket": null
+    }
+  ],
+  "verdict": "PASS：UTC ISO 与本地字符串两种传参返回相同条数（修复前 UTC 传参恒为 0 条）"
+}
