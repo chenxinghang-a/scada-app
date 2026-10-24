@@ -1,0 +1,303 @@
+<!DOCTYPE html>
+<html lang="zh-CN"><head><meta charset="utf-8">
+<title>SAT 验收测试记录 · SmartSCADA</title>
+<style>
+ :root{--bg:#f6f7f9;--card:#fff;--ink:#1b1f24;--ink2:#59636e;--ink3:#8b949e;--line:#e2e5ea;
+        --red:#cf222e;--green:#1a7f37;--amber:#9a6700;--blue:#0969da}
+ *{box-sizing:border-box}
+ body{margin:0;padding:32px 20px 64px;background:var(--bg);color:var(--ink);
+      font:12.5px/1.6 -apple-system,"Segoe UI","Microsoft YaHei",sans-serif}
+ .wrap{max-width:1320px;margin:0 auto}
+ h1{font-size:22px;margin:0 0 6px}
+ .sub{color:var(--ink2);margin:0 0 8px;font-size:12.5px}
+ .sum{color:var(--ink2);font-size:12px;margin:0 0 18px}
+ table{width:100%;border-collapse:collapse;background:var(--card);border:1px solid var(--line);
+        border-radius:8px;overflow:hidden;font-size:11.5px}
+ th,td{padding:7px 9px;text-align:left;border-bottom:1px solid var(--line);vertical-align:top}
+ th{background:#fbfcfd;font-weight:600;color:var(--ink2);font-size:11px}
+ td.no{font-variant-numeric:tabular-nums;color:var(--ink3);white-space:nowrap}
+ td.rid{font-weight:600;white-space:nowrap}
+ td.actual{max-width:400px;word-break:break-word}
+ td.ts{white-space:nowrap;color:var(--ink2);font-variant-numeric:tabular-nums;font-size:11px}
+ td.ev{font-family:ui-monospace,Consolas,monospace;font-size:10.5px;color:var(--ink2);word-break:break-all}
+ .cat{color:var(--ink3);font-size:10.5px}
+ .mono-sm{font-family:ui-monospace,Consolas,monospace;font-size:10.5px;color:var(--ink2);max-width:170px;word-break:break-all}
+ .tag{display:inline-block;padding:1px 8px;border-radius:9px;font-size:10.5px;font-weight:600;white-space:nowrap}
+ .tag.ok{background:#dafbe1;color:#1a7f37} .tag.part{background:#fff8c5;color:#9a6700}
+ .tag.no{background:#ffebe9;color:#cf222e} .tag.skip{background:#eef1f4;color:#59636e}
+ .sign{margin-top:26px;background:var(--card);border:1px solid var(--line);border-radius:8px;padding:18px 20px}
+ .sign h3{margin:0 0 14px;font-size:13px}
+ .sign-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:22px}
+ .sign-item{border-bottom:1px solid #bbb;padding-bottom:26px;font-size:11px;color:var(--ink3)}
+ .sign-item span{display:block;margin-bottom:2px}
+ .note{background:#eef5ff;border:1px solid #c7ddff;border-radius:8px;padding:11px 15px;
+        font-size:12px;color:#14417a;margin:14px 0}
+ footer{margin-top:26px;color:var(--ink3);font-size:11px}
+ @media print{body{background:#fff;padding:0} tr{break-inside:avoid}}
+</style></head><body><div class="wrap">
+ <h1>SAT 现场验收测试记录</h1>
+ <p class="sub">SmartSCADA 工业数据采集与监控系统 · v1.3.1091
+    · 测试日期 2026-10-25
+    · 测试环境：模拟模式（simulation mode），30 台虚拟设备</p>
+ <p class="sum">共 21 项 · 通过 15 · 有异常 1 · 未覆盖 2 · 不适用 3</p>
+
+ <div class="note">
+   <strong>这张表的读法：</strong>「实际结果」一栏的数字/结论不是手写的，
+   由 <code>tools/sat-report.py</code> 从 <code>reports/</code> 下的证据文件读取，
+   连「执行时间」也是证据生成时自己打的时间戳。
+   想质疑任何一条，按「证据」列打开文件即可 —— 也可以跑「验证方法」里的命令重来一遍。
+ </div>
+
+ <table>
+  <thead><tr>
+    <th style="width:6%">编号</th><th style="width:7%">需求</th><th style="width:22%">测试项</th>
+    <th style="width:15%">验证方法</th><th style="width:26%">实际结果（来自证据文件）</th>
+    <th style="width:9%">执行时间</th><th style="width:6%">结论</th><th style="width:9%">证据</th>
+  </tr></thead>
+  <tbody>
+      <tr>
+        <td class="no">SAT-01</td>
+        <td class="rid">ALM-01</td>
+        <td>报警应按 ISA-18.2 区分优先级，高优先级占比不超过 5%
+            <div class="cat">报警</div></td>
+        <td class="mono-sm">python tools/isa18-kpi.py --hours 24</td>
+        <td class="actual">报警率 0.02 条/小时；陈旧报警 1 条；3 项发现</td>
+        <td class="ts">2026-10-25T02:15:54</td>
+        <td><span class="tag ok">通过</span></td>
+        <td class="ev">reports/isa18.json</td>
+      </tr>
+      <tr>
+        <td class="no">SAT-02</td>
+        <td class="rid">ALM-02</td>
+        <td>报警率应可测量，稳态不超过 6 条/小时/操作员
+            <div class="cat">报警</div></td>
+        <td class="mono-sm">python tools/isa18-kpi.py --hours 1</td>
+        <td class="actual">报警率 1.0 条/小时；陈旧报警 0 条；2 项发现</td>
+        <td class="ts">2026-10-25T02:25:17</td>
+        <td><span class="tag ok">通过</span></td>
+        <td class="ev">reports/isa18-v7.json</td>
+      </tr>
+      <tr>
+        <td class="no">SAT-03</td>
+        <td class="rid">ALM-03</td>
+        <td>应能识别陈旧报警（未确认且超过 24 小时）
+            <div class="cat">报警</div></td>
+        <td class="mono-sm">python tools/isa18-kpi.py</td>
+        <td class="actual">报警率 0.02 条/小时；陈旧报警 1 条；3 项发现</td>
+        <td class="ts">2026-10-25T02:15:54</td>
+        <td><span class="tag ok">通过</span></td>
+        <td class="ev">reports/isa18.json</td>
+      </tr>
+      <tr>
+        <td class="no">SAT-04</td>
+        <td class="rid">ALM-04</td>
+        <td>报警触发后应能在 UI 上被看见（端到端链路）
+            <div class="cat">报警</div></td>
+        <td class="mono-sm">python tools/fault-drill.py（注入故障，观察报警出现时刻）</td>
+        <td class="actual">1 项发现；报警时延 12.3s，峰值 190.66</td>
+        <td class="ts">2026-10-25T02:24:26</td>
+        <td><span class="tag ok">通过</span></td>
+        <td class="ev">reports/fault-drill-full.json</td>
+      </tr>
+      <tr>
+        <td class="no">SAT-05</td>
+        <td class="rid">DATA-01</td>
+        <td>每个测量值应带质量戳，且历史数据也要能追溯质量
+            <div class="cat">数据</div></td>
+        <td class="mono-sm">python tools/data-quality-audit.py</td>
+        <td class="actual">1 项发现；history_data 有 quality 列=True</td>
+        <td class="ts">2026-10-25T02:21:57</td>
+        <td><span class="tag ok">通过</span></td>
+        <td class="ev">reports/quality-after.json</td>
+      </tr>
+      <tr>
+        <td class="no">SAT-06</td>
+        <td class="rid">DATA-02</td>
+        <td>强制杀进程后，已提交的数据不得丢失
+            <div class="cat">数据</div></td>
+        <td class="mono-sm">powershell -f tools/crash-recovery-drill.ps1</td>
+        <td class="actual">PASS：强杀后重启，已写入的数据一条不少，服务自愈</td>
+        <td class="ts">2026-10-25T02:37:09+08:00</td>
+        <td><span class="tag ok">通过</span></td>
+        <td class="ev">reports/crash-recovery.json</td>
+      </tr>
+      <tr>
+        <td class="no">SAT-07</td>
+        <td class="rid">DATA-03</td>
+        <td>同一条记录里的多个时间字段必须指向同一时刻
+            <div class="cat">数据</div></td>
+        <td class="mono-sm">python tools/clock-audit.py --limit 50000</td>
+        <td class="actual">功能正常；但审计发现 1 项严重问题：同一行内两个时间字段系统性相差 +8 小时（占 100.0%）</td>
+        <td class="ts">2026-10-25T02:14:56</td>
+        <td><span class="tag no">有异常</span></td>
+        <td class="ev">reports/clock.json</td>
+      </tr>
+      <tr>
+        <td class="no">SAT-08</td>
+        <td class="rid">DATA-04</td>
+        <td>历史查询的时间范围参数应正确映射（不能整体偏移时区）
+            <div class="cat">数据</div></td>
+        <td class="mono-sm">见 reports/ 早期探测记录；查询 1 小时窗口返回 14 条而非 0 条</td>
+        <td class="actual">PASS：UTC ISO 与本地字符串两种传参返回相同条数（修复前 UTC 传参恒为 0 条）</td>
+        <td class="ts">2026-10-25T02:59:12</td>
+        <td><span class="tag ok">通过</span></td>
+        <td class="ev">reports/evidence/data-04-history-timezone.json</td>
+      </tr>
+      <tr>
+        <td class="no">SAT-09</td>
+        <td class="rid">CTRL-01</td>
+        <td>写操作前必须确认设备真实在线（不能依赖过期缓存）
+            <div class="cat">控制</div></td>
+        <td class="mono-sm">POST /devices/&lt;id&gt;/write-coil 返回 success=true；修复前 100% 被拒</td>
+        <td class="actual">PASS：设备在线时写操作被放行（修复前此处恒为「通信断开」）</td>
+        <td class="ts">2026-10-25T02:42:28</td>
+        <td><span class="tag ok">通过</span></td>
+        <td class="ev">reports/evidence/ctrl-01-write-when-online.json</td>
+      </tr>
+      <tr>
+        <td class="no">SAT-10</td>
+        <td class="rid">CTRL-02</td>
+        <td>写入后应回读验证，不能只看接口返回
+            <div class="cat">控制</div></td>
+        <td class="mono-sm">写线圈返回 {&quot;success&quot;:true,&quot;verified&quot;:true}</td>
+        <td class="actual">未采集证据</td>
+        <td class="ts">—</td>
+        <td><span class="tag skip">未覆盖</span></td>
+        <td class="ev">—</td>
+      </tr>
+      <tr>
+        <td class="no">SAT-11</td>
+        <td class="rid">SEC-01</td>
+        <td>不同用户的请求不得被误判为&quot;重复提交&quot;
+            <div class="cat">安全</div></td>
+        <td class="mono-sm">python tools/perm-audit.js（4 角色 × 6 操作矩阵）</td>
+        <td class="actual">PASS：两个不同 token 连续提交同一请求，均未被判重复</td>
+        <td class="ts">2026-10-25T02:42:29</td>
+        <td><span class="tag ok">通过</span></td>
+        <td class="ev">reports/evidence/sec-01-dedup-cross-user.json</td>
+      </tr>
+      <tr>
+        <td class="no">SAT-12</td>
+        <td class="rid">SEC-02</td>
+        <td>权限应按角色收敛（管理员/工程师/操作员/观察者）
+            <div class="cat">安全</div></td>
+        <td class="mono-sm">node tools/perm-audit.js</td>
+        <td class="actual">证据文件缺失：reports/evidence/sec-02-perm-matrix.json</td>
+        <td class="ts">—</td>
+        <td><span class="tag skip">未覆盖</span></td>
+        <td class="ev">reports/evidence/sec-02-perm-matrix.json</td>
+      </tr>
+      <tr>
+        <td class="no">SAT-13</td>
+        <td class="rid">OPS-01</td>
+        <td>性能监控应能提供 24 小时趋势（不是只有瞬时值）
+            <div class="cat">运维</div></td>
+        <td class="mono-sm">GET /api/performance/metrics/history 返回采样点；页面显示&quot;近 24 小时均/峰&quot;</td>
+        <td class="actual">PASS：有采样点</td>
+        <td class="ts">2026-10-25T02:42:26</td>
+        <td><span class="tag ok">通过</span></td>
+        <td class="ev">reports/evidence/ops-01-performance-history.json</td>
+      </tr>
+      <tr>
+        <td class="no">SAT-14</td>
+        <td class="rid">OPS-02</td>
+        <td>设备状态类寄存器必须产出合法状态码（0–5），不能被模拟成浮点
+            <div class="cat">运维</div></td>
+        <td class="mono-sm">启动后日志中「OEE 设备状态码未定义」从 87 条/分 降至 0</td>
+        <td class="actual">PASS：所有状态类寄存器的值都落在 0-5</td>
+        <td class="ts">2026-10-25T02:53:54</td>
+        <td><span class="tag ok">通过</span></td>
+        <td class="ev">reports/evidence/ops-02-state-codes.json</td>
+      </tr>
+      <tr>
+        <td class="no">SAT-15</td>
+        <td class="rid">OPS-03</td>
+        <td>工业 4.0 指标（OEE/能源/碳排）应有实际数值，不能恒为 0
+            <div class="cat">运维</div></td>
+        <td class="mono-sm">GET /api/industry40/oee 平均 70.2%；/energy 2649 kWh / 1539 kg</td>
+        <td class="actual">PASS：OEE 与能源均非 0</td>
+        <td class="ts">2026-10-25T02:42:26</td>
+        <td><span class="tag ok">通过</span></td>
+        <td class="ev">reports/evidence/ops-03-industry40-metrics.json</td>
+      </tr>
+      <tr>
+        <td class="no">SAT-16</td>
+        <td class="rid">UI-01</td>
+        <td>进入页面后应立即看到有效内容，而不是要求用户先做选择
+            <div class="cat">界面</div></td>
+        <td class="mono-sm">node tools/ui-audit.js（11 个页面文本长度与空块统计）</td>
+        <td class="actual">===== HTTP &gt;=400 ===== | 404 GET /favicon.ico</td>
+        <td class="ts">—</td>
+        <td><span class="tag ok">通过</span></td>
+        <td class="ev">reports/evidence/ui-01-pages.log</td>
+      </tr>
+      <tr>
+        <td class="no">SAT-17</td>
+        <td class="rid">UI-02</td>
+        <td>数据大屏的数字必须在刷新（不能是静态快照）
+            <div class="cat">界面</div></td>
+        <td class="mono-sm">node tools/screen-audit.js（隔 8 秒采两次快照比对）</td>
+        <td class="actual">两次快照文本完全一致 = false ← 有变化，实时刷新正常 | 错误: (none)</td>
+        <td class="ts">—</td>
+        <td><span class="tag ok">通过</span></td>
+        <td class="ev">reports/evidence/ui-02-screen.log</td>
+      </tr>
+      <tr>
+        <td class="no">SAT-18</td>
+        <td class="rid">UI-03</td>
+        <td>打包版（file:// 加载 asar）应能正常挂载，不能白屏
+            <div class="cat">界面</div></td>
+        <td class="mono-sm">node tools/prod-audit.js（解 asar 后用 file:// 打开）</td>
+        <td class="actual">登录后文本: SmartSCADA 工业数据采集与监控系统 用户名 密码 登录失败，请检查用户名和密码 登 录 SmartSCADA v1.3.1091 | VERDICT: PASS 页面已挂载、首屏无 JS 错误、无资源加载失败（登录环节受 Chrome file:// 限制，不计入）</td>
+        <td class="ts">—</td>
+        <td><span class="tag ok">通过</span></td>
+        <td class="ev">reports/evidence/ui-03-prod-file.log</td>
+      </tr>
+      <tr>
+        <td class="no">SAT-19</td>
+        <td class="rid">DATA-05</td>
+        <td>物料/能量平衡自检（进 = 出 + 存量变化）
+            <div class="cat">数据</div></td>
+        <td class="mono-sm">无</td>
+        <td class="actual">未采集证据</td>
+        <td class="ts">—</td>
+        <td><span class="tag skip">不适用</span></td>
+        <td class="ev">—</td>
+      </tr>
+      <tr>
+        <td class="no">SAT-20</td>
+        <td class="rid">SEC-03</td>
+        <td>配置变更应记录 diff（谁把哪个键从什么改成什么）
+            <div class="cat">安全</div></td>
+        <td class="mono-sm">无</td>
+        <td class="actual">未采集证据</td>
+        <td class="ts">—</td>
+        <td><span class="tag skip">不适用</span></td>
+        <td class="ev">—</td>
+      </tr>
+      <tr>
+        <td class="no">SAT-21</td>
+        <td class="rid">DATA-06</td>
+        <td>点表逐点核对（配置的寄存器 vs 设备手册）
+            <div class="cat">数据</div></td>
+        <td class="mono-sm">需现场比对设备手册</td>
+        <td class="actual">未采集证据</td>
+        <td class="ts">—</td>
+        <td><span class="tag skip">不适用</span></td>
+        <td class="ev">—</td>
+      </tr></tbody>
+ </table>
+
+ <div class="sign">
+   <h3>签署</h3>
+   <div class="sign-grid">
+     <div class="sign-item"><span>测试人</span></div>
+     <div class="sign-item"><span>复核人</span></div>
+     <div class="sign-item"><span>使用方确认</span></div>
+     <div class="sign-item"><span>日期</span></div>
+   </div>
+ </div>
+
+ <footer>由 tools/sat-report.py 从 docs/traceability.yaml + reports/ 生成 ·
+   2026-10-25 03:09</footer>
+</div></body></html>

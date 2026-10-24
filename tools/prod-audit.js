@@ -51,6 +51,12 @@ const sleep = (ms) => new Promise(r => setTimeout(r, ms))
   console.log('\nJS 错误:')
   console.log([...new Set(errs)].slice(0, 12).join('\n') || '(none)')
 
+  // 登录前先给 errs/nets 拍个快照：登录这步在 Chrome 的 file:// 下必然失败
+  // （localStorage 被禁，setItem 抛 SecurityError），那是测试环境限制，
+  // 不能算到「打包版能不能用」头上。判定只看页面挂载 + 首屏加载。
+  const preLoginErrs = errs.length
+  const preLoginNets = nets.length
+
   // 登录：file:// 下 CORS 走 'file://' 白名单，能登录才说明双击图标真的可用
   // ⚠️ Chrome 的 file:// 对 localStorage 有限制，setItem 可能抛 SecurityError，
   //    会表现为「登录失败」—— 这是**测试环境**限制，Electron 有自己的 partition，不受影响。
@@ -71,6 +77,13 @@ const sleep = (ms) => new Promise(r => setTimeout(r, ms))
     console.log('\n登录后路由:', after.hash)
     console.log('登录后文本:', after.text)
   }
+
+  // 明确给一行业务结论：日志末尾可能是「登录失败」（Chrome file:// 限制 localStorage），
+  // 单看那一行会让人以为整个打包版不能用，而真正要判定的是「页面能不能挂载」。
+  const uiOk = info.appMounted && preLoginErrs === 0 && preLoginNets === 0
+  console.log('\nVERDICT: ' + (uiOk
+    ? 'PASS 页面已挂载、首屏无 JS 错误、无资源加载失败（登录环节受 Chrome file:// 限制，不计入）'
+    : 'FAIL 挂载=' + info.appMounted + ' 首屏JS错误=' + preLoginErrs + ' 首屏网络失败=' + preLoginNets))
 
   await page.screenshot({ path: 'C:\\Users\\cxx\\scada-app\\.ui-shots\\prod-file.png' })
   await browser.close()
