@@ -44,3 +44,6 @@ dist-dbg/
 .tmp-shot.png
 backend/metrics/
 backend/prev-*/
+
+# asar 解包检查目录（tools/prod-audit.js 用）
+.prod-check/
