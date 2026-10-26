@@ -29,6 +29,7 @@ python tools/make-evidence-fixture.py                          # 2.3MB 固定种
 python tools/deep-verify.py all --db tests/fixtures/evidence.db  # 16 个检测器 + 负向控制
 python tools/audit-chain-selftest.py                            # 审计链 9 个篡改对抗用例
 python tools/evidence-manifest.py --verify                      # 核对代码是否就是清单里那份
+python tools/cleanroom-check.py                                 # 换空目录 clone 一遍，结论必须相同
 ```
 
 > 上面第一条命令跑在**夹具**上，所以换任何机器、没有现场数据都能复现。

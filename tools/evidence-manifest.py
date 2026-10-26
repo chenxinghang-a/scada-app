@@ -49,6 +49,7 @@ INCLUDE = [
     'tools/audit-anchor.py',
     'tools/write-readback-check.py',
     'tools/check-mechanism.py',
+    'tools/cleanroom-check.py',
     '.github/workflows/deep-verify.yml',
     'tools/make-deep-report.py',
     'tools/deepcheck/anchor.py',
