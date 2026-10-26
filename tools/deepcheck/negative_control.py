@@ -171,6 +171,43 @@ def seed_anchor_truncate(conn: sqlite3.Connection) -> dict:
     return {'seeded': f'删除 seq={victims}，剩 {left} 条'}
 
 
+def seed_write_path_null(conn: sqlite3.Connection) -> dict:
+    """插入一条"应用刚写下、但漏了 ts_utc"的行 —— 模拟写入路径少传一个字段。
+
+    这正是我上一轮真实制造过的缺陷：insert_data_batch 的参数从 6 元组变 7 元组，
+    realtime 的 INSERT 仍写 6 个占位符，导致每一批写入都失败。回填过的历史数据
+    让所有检测器都绿着，只有"看最近写入的行"才能发现。
+    """
+    now = datetime.now()
+    conn.execute('''
+        INSERT INTO history_data (device_id, register_name, value, unit, timestamp, ts_utc, created_at)
+        VALUES ('seed_dev', 'seed_reg', 1.0, 'x', ?, NULL, ?)
+    ''', (now.strftime('%Y-%m-%d %H:%M:%S.%f'),
+           (now - timedelta(hours=8)).strftime('%Y-%m-%d %H:%M:%S')))
+    conn.commit()
+    return {'seeded': '新增 1 行 ts_utc 为 NULL 的近期数据'}
+
+
+def _prep_recent_rows(db: Path, ctx: dict) -> dict:
+    """造几条"刚刚写入且 ts_utc 正确"的行，让写入路径体检有东西可看。"""
+    conn = connect_rw(db)
+    try:
+        now = datetime.now()
+        rows = [(f'dev_{i:02d}', 'boiler_temperature', 100.0 + i, '°C',
+                 now.strftime('%Y-%m-%d %H:%M:%S.%f'),
+                 (now - timedelta(hours=8)).strftime('%Y-%m-%d %H:%M:%S.%f'),
+                 (now - timedelta(hours=8)).strftime('%Y-%m-%d %H:%M:%S'))
+                for i in range(5)]
+        conn.executemany('''
+            INSERT INTO history_data (device_id, register_name, value, unit, timestamp, ts_utc, created_at)
+            VALUES (?,?,?,?,?,?,?)
+        ''', rows)
+        conn.commit()
+        return {'recent_rows': len(rows)}
+    finally:
+        conn.close()
+
+
 # ---------------------------------------------------------------- 用例表
 
 CASES = [
@@ -237,6 +274,14 @@ CASES = [
         'prepare': 'chain_fixture',
         'seed': 'db',
         'seed_fn': seed_chain,
+    },
+    {
+        'detector': 'write_path',
+        'defect': '写入路径漏了 ts_utc（近期行没有权威时间）',
+        'expect_code': 'WRITE_PATH_NULL',
+        'prepare': 'recent_rows',
+        'seed': 'db',
+        'seed_fn': seed_write_path_null,
     },
     {
         'detector': 'timebase_all',
@@ -346,6 +391,7 @@ PREPARES = {
     'timebase_migrate': _prep_timebase_migrate,
     'timebase_twins': _prep_timebase_twins,
     'lint_tree': _prep_lint_tree,
+    'recent_rows': _prep_recent_rows,
     'backup_fixture': _prep_backup_fixture,
     'chain_fixture': _prep_chain_fixture,
 }

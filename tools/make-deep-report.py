@@ -83,6 +83,7 @@ def main():
     tball = load('timebase_all.json')
     lint = load('clock_lint.json')
     an = load('anchor.json')
+    wp = load('write_path.json')
     pt = load('pointtable.json')
     ac = load('audit-chain-selftest.json')
     man_path = REPO / 'reports' / 'evidence' / 'MANIFEST.json'
@@ -154,6 +155,7 @@ def main():
   <div><b>{esc(tb_m.get('rows', '—'))}</b><span>行级时间不变量校验</span></div>
   <div><b>{esc(pt_m.get('points', '—'))}</b><span>点表已核对（4 字节序 × 6 哨兵值）</span></div>
   <div><b>{esc(tball.get('metrics', {}).get('columns_checked', '—'))}</b><span>列时间口径已登记并逐行校验</span></div>
+  <div><b>{esc(wp.get('metrics', {}).get('recent_rows', '—'))}</b><span>最近 30 分钟写入的行<br>（ts_utc 空值 {esc(wp.get('metrics', {}).get('null_ts_utc', '—'))}）</span></div>
   <div><b>{esc(cert)}</b><span>机器判定结论<br><code>reports/deep/verdict.json</code></span></div>
 </div>
 
@@ -235,6 +237,13 @@ integrity_check / backup、<code>hashlib</code>、<code>importlib</code>、<code
 </table>
 <p class="small">结论 {tag(tb.get('verdict'))}　原始记录：<code>reports/deep/timebase.json</code>、
 <code>reports/deep/timebase-migration.json</code>（含备份路径与幂等标记）。</p>
+<p><b>写入路径体检</b>（{tag(wp.get('verdict'))}）：只看<b>最近 30 分钟由应用写入</b>的行，
+不看迁移回填过的历史数据。本次实测 {esc(wp.get('metrics', {}).get('recent_rows', '—'))} 行，
+<code>ts_utc</code> 空值 {esc(wp.get('metrics', {}).get('null_ts_utc', '—'))} 行，
+<code>created_at</code> 与 <code>ts_utc</code> 最大差 {esc(wp.get('metrics', {}).get('max_skew_seconds', '—'))} 秒。
+这条检测器是被一个真实事故逼出来的：上一轮改了 <code>insert_data_batch</code> 的参数个数
+却没改 <code>realtime_data</code> 的占位符，启动后每批写入失败，而当时所有检测器全绿——
+<b>因为它们看的都是回填过的旧数据</b>。</p>
 
 <h2>四、全库口径：五张表、两种钟 → 一份登记表</h2>
 <p>根因不是"某一列存错了"，而是<b>没人知道每列用的是哪个钟</b>：

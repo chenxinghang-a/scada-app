@@ -50,3 +50,8 @@ backend/prev-*/
 
 # 证据夹具与临时用例库（可用 tools/make-evidence-fixture.py 重建，不入库）
 tests/fixtures/
+
+# 源码模式运行时生成（含随机密钥/诊断数据），禁止入库
+backend/src/.env
+backend/src/data/
+backend/src/metrics/

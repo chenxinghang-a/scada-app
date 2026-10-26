@@ -1,9 +1,9 @@
 {
-  "generated_at": "2026-10-26T12:02:10",
+  "generated_at": "2026-10-26T12:11:42",
   "source_db": "C:\\Users\\cxx\\scada-app\\tests\\fixtures\\evidence.db",
   "snapshot_size_mb": 2.3,
-  "cases": 11,
-  "discriminating": 11,
+  "cases": 12,
+  "discriminating": 12,
   "all_ok": true,
   "principle": "检测器未能在播种后报错 = 该检测器的\"通过\"无效",
   "rows": [
@@ -250,7 +250,7 @@
         "BACKUP_SCHEMA_DRIFT"
       ],
       "seeded_metrics": {
-        "file": "C:\\Users\\cxx\\AppData\\Local\\Temp\\scada-negctl-y_gzc0_k\\ops_backup\\backup.db",
+        "file": "C:\\Users\\cxx\\AppData\\Local\\Temp\\scada-negctl-mrv5nwal\\ops_backup\\backup.db",
         "size": 2412544,
         "integrity": "*** in database main ***\nTree 5 page 295 cell 17: Rowid 6555972108016934573 out of order\nTree 5 page 295 cell 17: invalid page number 862217590\nTree 5 page 295 cell 16: Rowid 6555972108016934573 out of order\nTree 5 page 295 cell 16: invalid page number 862217590\nTree 5 page 295 cell 15: Rowid 6555972108016934573 out of order\nTree 5 page 295 cell 15: invalid page number 862217590\nTree 5 page 295 cell 14: Rowid 6555972108016934573 out of order\nTree 5 page 295 cell 14: invalid page number 862217590\nTree 5 page 295 cell 13: Rowid 6555972108016934573 out of order\nTree 5 page 295 cell 13: invalid page number 862217590\nMultiple uses for byte 2176 of page 295",
         "counts": {
@@ -272,7 +272,7 @@
         "quality_bad_points": 0
       },
       "prepare": {
-        "backup": "C:\\Users\\cxx\\AppData\\Local\\Temp\\scada-negctl-y_gzc0_k\\ops_backup\\backup.db",
+        "backup": "C:\\Users\\cxx\\AppData\\Local\\Temp\\scada-negctl-mrv5nwal\\ops_backup\\backup.db",
         "counts": {
           "history_data": 20000,
           "realtime_data": 50,
@@ -304,16 +304,45 @@
       ],
       "seeded_metrics": {
         "entries": 5,
-        "head_hash": "577831a45d001cf1cd737f265e911153f79cbc1cf91fe127e7e6d3f344f1a8ca"
+        "head_hash": "24d51dc7d99b430fbc5ced4f224e3fb76276afdfa80616033caa56699c2e4d29"
       },
       "prepare": {
         "entries": 5,
         "ok": true,
-        "head": "577831a45d001cf1cd737f265e911153f79cbc1cf91fe127e7e6d3f344f1a8ca",
-        "anchor": "38a10c0215af"
+        "head": "24d51dc7d99b430fbc5ced4f224e3fb76276afdfa80616033caa56699c2e4d29",
+        "anchor": "7269c0cd4d88"
       },
       "seed": {
         "seeded": "篡改 seq=8 的 diff_json（after 值被改写）"
+      },
+      "discriminating": true,
+      "verdict": "OK"
+    },
+    {
+      "detector": "write_path",
+      "title": "写入路径体检（最近写入的行）",
+      "claim": "DATA-03",
+      "defect": "写入路径漏了 ts_utc（近期行没有权威时间）",
+      "expect_code": "WRITE_PATH_NULL",
+      "clean_verdict": "pass",
+      "clean_codes": [],
+      "clean_sample": 5,
+      "seeded_verdict": "fail",
+      "seeded_codes": [
+        "WRITE_PATH_NULL"
+      ],
+      "seeded_metrics": {
+        "window_minutes": 30,
+        "recent_rows": 6,
+        "null_ts_utc": 1,
+        "skewed_rows": 0,
+        "max_skew_seconds": 0.5
+      },
+      "prepare": {
+        "recent_rows": 5
+      },
+      "seed": {
+        "seeded": "新增 1 行 ts_utc 为 NULL 的近期数据"
       },
       "discriminating": true,
       "verdict": "OK"
@@ -530,7 +559,7 @@
         "utc": 1
       },
       "prepare": {
-        "scanned_root": "C:\\Users\\cxx\\AppData\\Local\\Temp\\scada-negctl-y_gzc0_k\\clock_lint\\src_copy"
+        "scanned_root": "C:\\Users\\cxx\\AppData\\Local\\Temp\\scada-negctl-mrv5nwal\\clock_lint\\src_copy"
       },
       "seed": {
         "seeded": "新增 新增_未登记时间口径.py（batch_runs.finished_at 未登记）"
@@ -560,8 +589,8 @@
       "prepare": {
         "entries": 5,
         "ok": true,
-        "head": "af039b4e9816c755eb9e942fea1c92a53eed2791a9a8c03227078a8377fca85c",
-        "anchor": "1eb4cc0c543f"
+        "head": "c80d595d8b076b6e45944313cf13b1bdd3da145d4b2428ed63035603218d7447",
+        "anchor": "f012b37a9b1b"
       },
       "seed": {
         "seeded": "删除 seq=[9, 10]，剩 3 条"

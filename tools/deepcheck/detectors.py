@@ -31,6 +31,8 @@ MIN_POINT_SAMPLE = 10
 LAG_MAX_SEC = 3600
 #: ts_utc 晚于 created_at 超过这个秒数 = 物理上不可能（先采样后入库）。
 LAG_MIN_SEC = -60
+#: 最近写入行的 created_at 与 ts_utc 允许的最大差（写入即时性，不是缓冲）
+WRITE_SKEW_MAX_SEC = 600
 
 
 def _local_now_str() -> str:
@@ -310,6 +312,67 @@ def det_data_io(config_path: Path, out_csv: Path | None = None) -> Result:
     return pointtable.run(Path(config_path), out_csv)
 
 
+def det_write_path(db: Path, window_minutes: int = 30) -> Result:
+    """写入路径体检：**最近写进来的**行，携带的时间对不对。
+
+    为什么必须有这一项：迁移能把历史行回填得很漂亮，但回填掩盖了写入路径的
+    真实状态。上一轮我给 history_data 加了 ts_utc 之后，`insert_data_batch`
+    的参数从 6 元组变成 7 元组，而 realtime_data 的 INSERT 仍是 6 个占位符——
+    系统启动后**每一批写入都失败**（日志里刷 "Incorrect number of bindings"），
+    而当时所有检测器都是绿的：因为它们看的是迁移过的旧数据。
+
+    这条检测器只看"最近 N 分钟由应用写入的行"，因此回填无法掩盖它。
+    没有近期数据时判 insufficient（而不是 pass）——"没跑"不等于"对"。
+    """
+    cutoff_minus = window_minutes
+    with connect_ro(db) as conn:
+        row = conn.execute(f'''
+            SELECT COUNT(*) AS recent,
+                   SUM(CASE WHEN ts_utc IS NULL THEN 1 ELSE 0 END) AS nulls,
+                   SUM(CASE WHEN ts_utc IS NOT NULL
+                             AND ABS((julianday(created_at) - julianday(ts_utc)) * 86400) > ?
+                            THEN 1 ELSE 0 END) AS skew,
+                   MAX(ABS(CASE WHEN ts_utc IS NOT NULL
+                                 THEN (julianday(created_at) - julianday(ts_utc)) * 86400 END)) AS max_skew
+            FROM history_data
+            WHERE julianday(created_at) >= julianday('now') - ? / 1440.0
+        ''', (WRITE_SKEW_MAX_SEC, cutoff_minus)).fetchone()
+
+    recent = row['recent'] or 0
+    nulls = row['nulls'] or 0
+    skew = row['skew'] or 0
+    max_skew = row['max_skew']
+
+    findings = []
+    if nulls:
+        findings.append(Finding(
+            'WRITE_PATH_NULL',
+            f'最近 {window_minutes} 分钟写入的 {recent} 行里，{nulls} 行没有 ts_utc'
+            '—— 写入路径漏了权威时间（迁移回填掩盖不了这一条）',
+            'critical', nulls))
+    if skew:
+        findings.append(Finding(
+            'WRITE_PATH_SKEW',
+            f'最近写入的 {skew} 行 created_at 与 ts_utc 相差超过 600 秒'
+            f'（最大 {max_skew:.0f}s）—— 换算方向或来源错',
+            'critical', skew, {'max_skew_s': round(max_skew or 0, 1)}))
+
+    verdict = PASS if not findings else FAIL
+    if recent == 0:
+        verdict = INSUFFICIENT      # 系统没跑，就不能说写入路径是对的
+
+    return Result(
+        id='write_path', title='写入路径体检（最近写入的行）', claim='DATA-03',
+        verdict=verdict,
+        metrics={'window_minutes': window_minutes, 'recent_rows': recent,
+                 'null_ts_utc': nulls, 'skewed_rows': skew,
+                 'max_skew_seconds': round(max_skew, 1) if max_skew is not None else None},
+        findings=findings,
+        ground_truth='回填不可作为写入路径的证据；只看最近 N 分钟由应用写入的行',
+        sample=recent,
+    )
+
+
 # ---------------------------------------------------------------- 口径类
 
 def det_timebase_all(db: Path) -> Result:
@@ -527,6 +590,7 @@ REGISTRY = {
     'alm_chattering': (det_alarm_chattering, 'db'),
     'data_quality': (det_data_quality, 'db'),
     'data_time': (det_data_time, 'db'),
+    'write_path': (det_write_path, 'db'),
     'timebase_all': (det_timebase_all, 'db'),
     'data_io': (det_data_io, 'config'),
     'ops_backup': (det_ops_backup, 'file'),

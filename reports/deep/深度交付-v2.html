@@ -37,23 +37,24 @@ table{page-break-inside:avoid}pre{page-break-inside:avoid}}
 </style></head><body><div class="wrap">
 
 <h1>SmartSCADA 深度交付报告</h1>
-<div class="sub">生成时间 2026-10-26T12:02:10　·　
-代码锚点 <code>1b0bcbb6b5df</code>　·　
+<div class="sub">生成时间 2026-10-26T12:11:42　·　
+代码锚点 <code>b95b7fd58a94</code>　·　
 本页所有数字由 <code>tools/make-deep-report.py</code> 从 JSON 证据自动渲染</div>
 
 <div class="lede">
 <b>这份报告只主张一件事：本项目的检查是"会失败"的。</b><br>
 判据：<b>能证明你错的，才算证据；只能证明你对的，是营销。</b>
 因此每条检测器都必须先通过"播种缺陷 → 必须报错"的检验，其"通过"才算数。
-本次 11/11 个检测器通过该检验。
+本次 12/12 个检测器通过该检验。
 </div>
 
 <div class="kpi">
-  <div><b>11/11</b><span>检测器具备分辨力<br>（负向控制）</span></div>
+  <div><b>12/12</b><span>检测器具备分辨力<br>（负向控制）</span></div>
   <div><b>9/9</b><span>审计链篡改对抗用例</span></div>
-  <div><b>315146</b><span>行级时间不变量校验</span></div>
+  <div><b>323059</b><span>行级时间不变量校验</span></div>
   <div><b>69</b><span>点表已核对（4 字节序 × 6 哨兵值）</span></div>
   <div><b>7</b><span>列时间口径已登记并逐行校验</span></div>
+  <div><b>7934</b><span>最近 30 分钟写入的行<br>（ts_utc 空值 0）</span></div>
   <div><b>CERTIFIED</b><span>机器判定结论<br><code>reports/deep/verdict.json</code></span></div>
 </div>
 
@@ -114,7 +115,7 @@ integrity_check / backup、<code>hashlib</code>、<code>importlib</code>、<code
 </div>
 <table>
 <tr><th>检测器</th><th>播种的缺陷</th><th>干净状态</th><th>播种后</th><th>有分辨力</th></tr>
-<tr><td><code>alm_stale</code><br><span class=small>陈旧报警（ISA-18.2）</span></td><td>一条报警未确认且搁置 48 小时</td><td><span class="tag ok">PASS</span></td><td><span class="tag bad">FAIL</span><br><code>STALE_ALARM</code></td><td>是</td></tr><tr><td><code>alm_priority</code><br><span class=small>报警优先级分布</span></td><td>critical 占比从 2% 抬到 30%</td><td><span class="tag ok">PASS</span></td><td><span class="tag bad">FAIL</span><br><code>ALM_CRITICAL_SHARE_EXCEEDED</code></td><td>是</td></tr><tr><td><code>alm_chattering</code><br><span class=small>抖动报警</span></td><td>同一报警号 1 小时内触发 8 次</td><td><span class="tag ok">PASS</span></td><td><span class="tag bad">FAIL</span><br><code>ALARM_CHATTERING</code></td><td>是</td></tr><tr><td><code>data_quality</code><br><span class=small>数据质量戳覆盖</span></td><td>20% 实时点质量为 Bad</td><td><span class="tag ok">PASS</span></td><td><span class="tag bad">FAIL</span><br><code>QUALITY_BAD_PRESENT</code></td><td>是</td></tr><tr><td><code>data_time</code><br><span class=small>时间基准一致性</span></td><td>500 行 ts_utc 偏移 1 小时（写入路径漏换算）</td><td><span class="tag ok">PASS</span></td><td><span class="tag bad">FAIL</span><br><code>TIME_INSERT_LAG</code></td><td>是</td></tr><tr><td><code>data_io</code><br><span class=small>点表一致性（字节序 / 长度 / 地址 / 单位）</span></td><td>设备字节序配错（ABCD → BADC）</td><td><span class="tag ok">PASS</span></td><td><span class="tag bad">FAIL</span><br><code>IO_BYTE_ORDER_MISMATCH</code></td><td>是</td></tr><tr><td><code>ops_backup</code><br><span class=small>备份可恢复性</span></td><td>备份中部 512 字节被写坏（可打开、可 count，但页已损坏）</td><td><span class="tag ok">PASS</span></td><td><span class="tag bad">FAIL</span><br><code>BACKUP_CORRUPT, BACKUP_SCHEMA_DRIFT</code></td><td>是</td></tr><tr><td><code>sec_chain</code><br><span class=small>配置变更审计链</span></td><td>事后篡改审计日志中间一条</td><td><span class="tag ok">PASS</span></td><td><span class="tag bad">FAIL</span><br><code>CHAIN_BROKEN</code></td><td>是</td></tr><tr><td><code>timebase_all</code><br><span class=small>全库时间口径（登记 / 孪生列 / 漂移）</span></td><td>某张表没执行迁移（孪生列被删）</td><td><span class="tag ok">PASS</span></td><td><span class="tag bad">FAIL</span><br><code>TB_MISSING_TWIN, TB_SUMMARY</code></td><td>是</td></tr><tr><td><code>clock_lint</code><br><span class=small>时间口径静态门禁</span></td><td>新增一张表用了 finished_at，但没登记时间口径</td><td><span class="tag ok">PASS</span></td><td><span class="tag bad">FAIL</span><br><code>CLOCK_UNREGISTERED_COLUMN</code></td><td>是</td></tr><tr><td><code>anchor</code><br><span class=small>审计链外部锚点（防尾部截断）</span></td><td>删掉审计链最后两条（链内自洽，只有锚点能发现）</td><td><span class="tag ok">PASS</span></td><td><span class="tag bad">FAIL</span><br><code>ANCHOR_TAIL_TRUNCATED</code></td><td>是</td></tr>
+<tr><td><code>alm_stale</code><br><span class=small>陈旧报警（ISA-18.2）</span></td><td>一条报警未确认且搁置 48 小时</td><td><span class="tag ok">PASS</span></td><td><span class="tag bad">FAIL</span><br><code>STALE_ALARM</code></td><td>是</td></tr><tr><td><code>alm_priority</code><br><span class=small>报警优先级分布</span></td><td>critical 占比从 2% 抬到 30%</td><td><span class="tag ok">PASS</span></td><td><span class="tag bad">FAIL</span><br><code>ALM_CRITICAL_SHARE_EXCEEDED</code></td><td>是</td></tr><tr><td><code>alm_chattering</code><br><span class=small>抖动报警</span></td><td>同一报警号 1 小时内触发 8 次</td><td><span class="tag ok">PASS</span></td><td><span class="tag bad">FAIL</span><br><code>ALARM_CHATTERING</code></td><td>是</td></tr><tr><td><code>data_quality</code><br><span class=small>数据质量戳覆盖</span></td><td>20% 实时点质量为 Bad</td><td><span class="tag ok">PASS</span></td><td><span class="tag bad">FAIL</span><br><code>QUALITY_BAD_PRESENT</code></td><td>是</td></tr><tr><td><code>data_time</code><br><span class=small>时间基准一致性</span></td><td>500 行 ts_utc 偏移 1 小时（写入路径漏换算）</td><td><span class="tag ok">PASS</span></td><td><span class="tag bad">FAIL</span><br><code>TIME_INSERT_LAG</code></td><td>是</td></tr><tr><td><code>data_io</code><br><span class=small>点表一致性（字节序 / 长度 / 地址 / 单位）</span></td><td>设备字节序配错（ABCD → BADC）</td><td><span class="tag ok">PASS</span></td><td><span class="tag bad">FAIL</span><br><code>IO_BYTE_ORDER_MISMATCH</code></td><td>是</td></tr><tr><td><code>ops_backup</code><br><span class=small>备份可恢复性</span></td><td>备份中部 512 字节被写坏（可打开、可 count，但页已损坏）</td><td><span class="tag ok">PASS</span></td><td><span class="tag bad">FAIL</span><br><code>BACKUP_CORRUPT, BACKUP_SCHEMA_DRIFT</code></td><td>是</td></tr><tr><td><code>sec_chain</code><br><span class=small>配置变更审计链</span></td><td>事后篡改审计日志中间一条</td><td><span class="tag ok">PASS</span></td><td><span class="tag bad">FAIL</span><br><code>CHAIN_BROKEN</code></td><td>是</td></tr><tr><td><code>write_path</code><br><span class=small>写入路径体检（最近写入的行）</span></td><td>写入路径漏了 ts_utc（近期行没有权威时间）</td><td><span class="tag ok">PASS</span></td><td><span class="tag bad">FAIL</span><br><code>WRITE_PATH_NULL</code></td><td>是</td></tr><tr><td><code>timebase_all</code><br><span class=small>全库时间口径（登记 / 孪生列 / 漂移）</span></td><td>某张表没执行迁移（孪生列被删）</td><td><span class="tag ok">PASS</span></td><td><span class="tag bad">FAIL</span><br><code>TB_MISSING_TWIN, TB_SUMMARY</code></td><td>是</td></tr><tr><td><code>clock_lint</code><br><span class=small>时间口径静态门禁</span></td><td>新增一张表用了 finished_at，但没登记时间口径</td><td><span class="tag ok">PASS</span></td><td><span class="tag bad">FAIL</span><br><code>CLOCK_UNREGISTERED_COLUMN</code></td><td>是</td></tr><tr><td><code>anchor</code><br><span class=small>审计链外部锚点（防尾部截断）</span></td><td>删掉审计链最后两条（链内自洽，只有锚点能发现）</td><td><span class="tag ok">PASS</span></td><td><span class="tag bad">FAIL</span><br><code>ANCHOR_TAIL_TRUNCATED</code></td><td>是</td></tr>
 </table>
 <p class="small">原始记录：<code>reports/deep/negative-control.json</code>。矩阵基于 2.3 MB 可复现夹具，
 与现场数据无关——所以任何人重跑都得到同一张表。</p>
@@ -122,19 +123,26 @@ integrity_check / backup、<code>hashlib</code>、<code>importlib</code>、<code
 <h2>三、时间基准：从 8 小时错位到 0.4 秒</h2>
 <p>库内 <code>history_data.timestamp</code>（业务代码 <code>datetime.now()</code>，本地时间）与
 <code>created_at</code>（SQLite <code>CURRENT_TIMESTAMP</code>，UTC）恒定相差
-<b>8.000031 小时</b>，样本 315146 行、标准差≈0。
+<b>8.000031 小时</b>，样本 323059 行、标准差≈0。
 标准差≈0 说明这不是"时钟慢了一点"，而是<b>两个时间基准</b>——看数据就能得结论，不需要读代码。</p>
 <table>
 <tr><th style="width:34%">指标</th><th>迁移后实测</th><th>含义</th></tr>
 <tr><td>ts_utc 为 NULL 的行</td><td>0</td><td>每行都有权威 UTC 时间</td></tr>
-<tr><td>入库延迟均值</td><td>0.4 秒</td><td>应用换算与数据库自写时间吻合</td></tr>
-<tr><td>延迟区间</td><td>0.0 … 628.0 秒</td>
+<tr><td>入库延迟均值</td><td>0.9 秒</td><td>应用换算与数据库自写时间吻合</td></tr>
+<tr><td>延迟区间</td><td>-0.9 … 628.0 秒</td>
 <td>99.995% 同秒；少数行为队列缓冲</td></tr>
 <tr><td>超过 3600 秒的行</td><td>0</td><td>时区级错位为 0</td></tr>
 <tr><td>采样晚于入库（物理不可能）</td><td>0</td><td>换算方向正确</td></tr>
 </table>
 <p class="small">结论 <span class="tag ok">PASS</span>　原始记录：<code>reports/deep/timebase.json</code>、
 <code>reports/deep/timebase-migration.json</code>（含备份路径与幂等标记）。</p>
+<p><b>写入路径体检</b>（<span class="tag ok">PASS</span>）：只看<b>最近 30 分钟由应用写入</b>的行，
+不看迁移回填过的历史数据。本次实测 7934 行，
+<code>ts_utc</code> 空值 0 行，
+<code>created_at</code> 与 <code>ts_utc</code> 最大差 89.5 秒。
+这条检测器是被一个真实事故逼出来的：上一轮改了 <code>insert_data_batch</code> 的参数个数
+却没改 <code>realtime_data</code> 的占位符，启动后每批写入失败，而当时所有检测器全绿——
+<b>因为它们看的都是回填过的旧数据</b>。</p>
 
 <h2>四、全库口径：五张表、两种钟 → 一份登记表</h2>
 <p>根因不是"某一列存错了"，而是<b>没人知道每列用的是哪个钟</b>：
@@ -174,7 +182,7 @@ integrity_check / backup、<code>hashlib</code>、<code>importlib</code>、<code
 <h2>六、审计链：改了日志也要被发现</h2>
 <table>
 <tr><th style="width:44%">篡改手法</th><th>预期</th><th>实际</th><th>说明</th></tr>
-<tr><td>未篡改：链应通过</td><td>应抓到</td><td>抓到</td><td><span class=small>entries=5, head=72a88b7306bf</span></td></tr><tr><td>篡改第 2 条的值（仅追加一个空格）：应报「记录被修改」</td><td>应抓到</td><td>抓到</td><td><span class=small>entry_hash 与内容不符（记录被修改）</span></td></tr><tr><td>篡改第 3 条的操作人：应被抓到</td><td>应抓到</td><td>抓到</td><td><span class=small>entry_hash 与内容不符（记录被修改）</span></td></tr><tr><td>删除中间一条：应报断号/前哈希不连续</td><td>应抓到</td><td>抓到</td><td><span class=small>prev_hash 不连续（此前的记录被删除或替换）</span></td></tr><tr><td>调换两条的内容：应被抓到</td><td>应抓到</td><td>抓到</td><td><span class=small>entry_hash 与内容不符（记录被修改）</span></td></tr><tr><td>截断最后两条：链内**抓不到**（已知局限，靠外部锚点）</td><td>已知抓不到</td><td>未抓到</td><td><span class=small>链内自洽=True（所以链自己抓不到）；head 从 72a88b7306bf 变为 c69f0f7dcb64，头部哈希变化只能被 git/MANIFEST 这类外部锚点发现</span></td></tr><tr><td>canonical_json 键序无关（否则链会无故断裂）</td><td>应抓到</td><td>抓到</td><td><span class=small>两种键序输出一致=True</span></td></tr><tr><td>同一内容重复保存不产生审计噪音</td><td>应抓到</td><td>抓到</td><td><span class=small>写入=0 条（应为 0）</span></td></tr><tr><td>PUT /api/config 确实带 before/after 调用了审计记录</td><td>应抓到</td><td>抓到</td><td><span class=small>update_config 中 record_config_change 调用参数: [{'before', 'ip', 'actor', 'section', 'after'}]</span></td></tr>
+<tr><td>未篡改：链应通过</td><td>应抓到</td><td>抓到</td><td><span class=small>entries=5, head=15bf59e448c7</span></td></tr><tr><td>篡改第 2 条的值（仅追加一个空格）：应报「记录被修改」</td><td>应抓到</td><td>抓到</td><td><span class=small>entry_hash 与内容不符（记录被修改）</span></td></tr><tr><td>篡改第 3 条的操作人：应被抓到</td><td>应抓到</td><td>抓到</td><td><span class=small>entry_hash 与内容不符（记录被修改）</span></td></tr><tr><td>删除中间一条：应报断号/前哈希不连续</td><td>应抓到</td><td>抓到</td><td><span class=small>prev_hash 不连续（此前的记录被删除或替换）</span></td></tr><tr><td>调换两条的内容：应被抓到</td><td>应抓到</td><td>抓到</td><td><span class=small>entry_hash 与内容不符（记录被修改）</span></td></tr><tr><td>截断最后两条：链内**抓不到**（已知局限，靠外部锚点）</td><td>已知抓不到</td><td>未抓到</td><td><span class=small>链内自洽=True（所以链自己抓不到）；head 从 15bf59e448c7 变为 a70916c44a42，头部哈希变化只能被 git/MANIFEST 这类外部锚点发现</span></td></tr><tr><td>canonical_json 键序无关（否则链会无故断裂）</td><td>应抓到</td><td>抓到</td><td><span class=small>两种键序输出一致=True</span></td></tr><tr><td>同一内容重复保存不产生审计噪音</td><td>应抓到</td><td>抓到</td><td><span class=small>写入=0 条（应为 0）</span></td></tr><tr><td>PUT /api/config 确实带 before/after 调用了审计记录</td><td>应抓到</td><td>抓到</td><td><span class=small>update_config 中 record_config_change 调用参数: [{'ip', 'actor', 'section', 'before', 'after'}]</span></td></tr>
 </table>
 <p class="small">结论 <span class="tag ok">PASS</span>。
 哈希链的数学盲区是<b>尾部截断</b>（删掉最后几条，链内仍自洽）——这个盲区已用
@@ -188,7 +196,7 @@ integrity_check / backup、<code>hashlib</code>、<code>importlib</code>、<code
 <h2>七、未关闭的发现（不藏）</h2>
 <table>
 <tr><th style="width:26%">检查项</th><th>判定</th><th>finding</th></tr>
-<tr><td><code>auditchain</code></td><td><span class="tag warn">不可判定</span></td><td><code>CHAIN_EMPTY</code></td></tr><tr><td><code>alm_stale</code></td><td><span class="tag bad">FAIL</span></td><td><code>STALE_ALARM</code></td></tr><tr><td><code>alm_priority</code></td><td><span class="tag warn">不可判定</span></td><td><code></code></td></tr><tr><td><code>anchor</code></td><td><span class="tag warn">不可判定</span></td><td><code>ANCHOR_MISSING</code></td></tr>
+<tr><td><code>auditchain</code></td><td><span class="tag warn">不可判定</span></td><td><code>CHAIN_EMPTY</code></td></tr><tr><td><code>alm_priority</code></td><td><span class="tag warn">不可判定</span></td><td><code></code></td></tr><tr><td><code>anchor</code></td><td><span class="tag warn">不可判定</span></td><td><code>ANCHOR_MISSING</code></td></tr>
 </table>
 <p class="small">1 条报警自 2026-10-23 18:40 起未确认、已陈旧 3 天；报警 KPI 在 24 小时窗口内
 0 条样本，<b>统计上不可判定</b>（不是"达标"）。二者均未代为处理——代签等于伪造运行记录。</p>
@@ -200,7 +208,7 @@ python tools/audit-chain-selftest.py         # 9 个篡改对抗用例
 python tools/evidence-manifest.py --verify   # 核对代码是否就是清单里那份
 python tools/make-deep-report.py             # 重新渲染本页</code></pre>
 <p>清单锚定 <b>23</b> 个关键文件（代码+配置+文档），
-HEAD <code>1b0bcbb6b5df</code>。
+HEAD <code>b95b7fd58a94</code>。
 <b>若你重跑本页数字不一致，那这些数字就是假的。</b></p>
 
 <footer>

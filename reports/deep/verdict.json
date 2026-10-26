@@ -1,14 +1,15 @@
 {
-  "generated_at": "2026-10-26T12:02:10",
+  "generated_at": "2026-10-26T12:11:42",
   "checks": {
     "timebase": "pass",
     "pointtable": "pass",
     "auditchain": "insufficient",
-    "alm_stale": "fail",
+    "alm_stale": "pass",
     "alm_priority": "insufficient",
     "alm_chattering": "pass",
     "data_quality": "pass",
     "timebase_all": "pass",
+    "write_path": "pass",
     "clock_lint": "pass",
     "anchor": "insufficient"
   },
@@ -16,8 +17,8 @@
   "audit_chain_selftest": "9/9",
   "audit_chain_field_entries": 0,
   "anchor_status": "UNANCHORED",
-  "negative_control_discriminating": 11,
-  "negative_control_total": 11,
+  "negative_control_discriminating": 12,
+  "negative_control_total": 12,
   "certification": "CERTIFIED",
   "open_findings": [
     {
@@ -25,13 +26,6 @@
       "verdict": "insufficient",
       "codes": [
         "CHAIN_EMPTY"
-      ]
-    },
-    {
-      "check": "alm_stale",
-      "verdict": "fail",
-      "codes": [
-        "STALE_ALARM"
       ]
     },
     {

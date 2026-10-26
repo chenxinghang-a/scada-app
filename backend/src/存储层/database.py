@@ -555,7 +555,7 @@ class Database:
                 ON CONFLICT(device_id, register_name) DO UPDATE SET
                     value = excluded.value, unit = excluded.unit,
                     timestamp = excluded.timestamp, quality = excluded.quality
-            ''', valid_rows)
+            ''', [r[:6] for r in valid_rows])
 
             # history_data: 批量INSERT（timestamp 保留本地语义，ts_utc 为权威 UTC）
             cursor.executemany('''

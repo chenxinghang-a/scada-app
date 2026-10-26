@@ -227,6 +227,19 @@ requirements:
     「干净快照=PASS / 播种后=FAIL 且报出预期 finding code」两个方向上都对，
     才计 1 分。8 个全过。运行库被 .gitignore 排除，故另做 2.3MB 夹具，
     保证任何人克隆仓库后一条命令即可重算。
+- id: DATA-10
+  category: 数据
+  requirement: 写入路径必须携带权威时间；不得靠"迁移回填"证明写入正确
+  source: ACID 之外的工程约束 —— 回填证据与被测行为必须是两件事
+  implementation: tools/deepcheck/detectors.py:det_write_path（只看最近 N 分钟写入的行）
+  verification: python tools/deep-verify.py all → det_write_path（窗口 30 分钟）
+  evidence: reports/deep/write_path.json
+  status: verified
+  note: 现场实测（源码模式运行 8.5 分钟）：近期写入 8582 行，ts_utc 空值 0，
+    created_at 与 ts_utc 最大差 89.5 秒（队列缓冲）。
+    诞生原因：上一轮改了 insert_data_batch 的参数个数却没改 realtime_data 的占位符，
+    启动后每批写入失败，而当时 8 个检测器全绿——因为它们看的都是迁移回填过的旧数据。
+    这条检测器的存在就是为了让同类错误在 30 分钟内暴露。
 - id: DATA-09
   category: 数据
   requirement: 新增表/列不得引入第三种时间口径；时间口径必须可查、可校验、可回归
