@@ -165,6 +165,21 @@ def main():
   <div><b style="color:{'#b3261e' if verdict.get('field_verdict') == 'FAIL' else '#0f7b4f'}">{esc(verdict.get('field_verdict', '—'))}</b><span>系统体检<br>{esc('未通过：' + '、'.join(verdict.get('field_failed_checks') or []) if verdict.get('field_verdict') == 'FAIL' else '全部通过')}</span></div>
 </div>
 
+<h2>〇、先确认审的是哪个库</h2>
+<div class="lede">
+<b>这一条比后面所有检查都靠前：如果审错了对象，全部结论都成立且毫无意义。</b><br>
+本项目真实踩到过：应用（源码模式）写 <code>backend/src/data/scada_simulated.db</code>，
+检测器按默认路径读 <code>%LOCALAPPDATA%/.../data/scada_simulated.db</code>。
+两份库<b>同名同结构、都很"干净"</b>，检测器一路绿灯；差异只有启动日志里一行
+<code>运维清理工具已接线: ...\src\data\...</code>——没人会去看那一行。
+</div>
+<p>判据是机器可查的：读应用自己写的 <code>runtime.json</code>（含 port / pid / mode /
+started_at），按 <code>mode</code> 推出它<b>应该</b>在写哪个库，再和正在审的库比。
+对不上判 <code>SUBJECT_MISMATCH</code> 并列出两边绝对路径；没有实例在跑则判
+<code>INSUFFICIENT</code>（此时任何"现场结论"都不成立）。当前：
+{tag((load('subject.json') or {}).get('verdict'))}　
+审 <code>{esc(((load('subject.json') or {}).get('metrics', {}) or {}).get('audited_db', '—'))}</code></p>
+
 <h2>一、四个问题（结论摘要）</h2>
 
 <h3>1. 顶尖专家会做、但没被要求的事</h3>
@@ -273,9 +288,10 @@ integrity_check / backup、<code>hashlib</code>、<code>importlib</code>、<code
 
 <h2>五、数据可信吗：覆盖率 / 报警有效性 / 物理域</h2>
 <p>把后端按源码模式真跑起来之后，两条检查给出了本轮最重要的发现：
-<b>配置了 {esc(pc.get('metrics', {}).get('configured_points', '—'))} 个点位，
-实际只有 55 个进过库（27%）</b>——所有 Modbus 设备只入库第一个点，
-而 REST / MQTT / OPC-UA 设备是全量的。</p>
+配置了 {esc(pc.get('metrics', {}).get('configured_points', '—'))} 个点位，
+<b>修复前只有 55 个进过库（27%）</b>——所有 Modbus 设备只入库第一个点，
+而 REST / MQTT / OPC-UA 设备是全量的。修复后当前实测
+<b>{esc(pc.get('metrics', {}).get('collected_points', '—'))}/{esc(pc.get('metrics', {}).get('configured_points', '—'))}</b>。</p>
 <table>
 <tr><th style="width:38%">阶段</th><th>Modbus 设备入库点数</th><th>整体覆盖率</th></tr>
 <tr><td>修复前（实测）</td><td>hvac 1/12、abb 1/10、siemens 1/8、signal_tower 2/6</td><td><b>27%</b>（55/201）</td></tr>
@@ -301,14 +317,21 @@ integrity_check / backup、<code>hashlib</code>、<code>importlib</code>、<code
 （时间对得上、质量戳在、字节序没反），这一层问更根本的问题——
 <b>这个数在物理上可能存在吗</b>。判据全部来自外部（SI 单位制、量纲、工程语义），
 不来自项目自己的阈值配置。</p>
+<p class="small">下表是<b>修复前</b>抓到的东西；括号里是修复后的当前值。</p>
 <table>
-<tr><th style="width:34%">现象</th><th>实测</th><th>为什么不可能</th></tr>
+<tr><th style="width:34%">现象</th><th>修复前实测</th><th>为什么不可能</th></tr>
 <tr><td><code>sealing_temperature</code></td><td>0 ~ <b>5242.9 °C</b></td><td>钢在 1500 °C 就熔了</td></tr>
 <tr><td><code>cnc_mazak_01</code> 全部 10 个点</td><td>值域<b>完全相同</b>：54.75 ~ 149.0</td><td>含程序号 51.19、报警码、刀具号——同一路均匀随机</td></tr>
 <tr><td>整数/枚举语义的点</td><td>5 个带小数</td><td>程序号 / 报警码 / 生产计数不可能是 54.76</td></tr>
 <tr><td>状态量</td><td>16 个<b>整段只有一个取值</b></td><td>OEE 可用率没有输入，分母恒定</td></tr>
 <tr><td>百分比点位</td><td>3 个超出 0~100（149%）</td><td>过载还是标定错，必须给工艺解释</td></tr>
 </table>
+<p>当前实测（同一检测器，判 <b>{tag(pdm.get('verdict'))}</b>）：
+越域 <b>{esc(pdm.get('metrics', {}).get('out_of_domain', '—'))}</b>、
+整数语义带小数 <b>{esc(pdm.get('metrics', {}).get('non_integer', '—'))}</b>、
+状态量恒常 <b>{esc(pdm.get('metrics', {}).get('frozen_status', '—'))}</b>、
+百分比越界 <b>{esc(pdm.get('metrics', {}).get('suspect_range', '—'))}</b>。
+剩下的恒常状态量是"设备一直在运行"的合法常量（判据已改为"整段历史恒定且同设备过程量在变"）。</p>
 <p>根因很清楚：<b>Modbus 设备有位点级行为模型，REST 设备是一路 uniform(50,150)</b>。
 所以同一套配置里，一半点位物理上合理，另一半是纯噪声。
 <b>物料平衡</b>（{tag(mb.get('verdict'))}）：锅炉回路有蒸汽流量、有汽包水位，

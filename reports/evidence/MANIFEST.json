@@ -1,7 +1,7 @@
 {
-  "generated_at": "2026-10-26T13:03:48",
-  "git_head": "78aff6427093292defe72c4d712ba50fdca6f8cf",
-  "git_dirty": false,
+  "generated_at": "2026-10-26T13:05:32",
+  "git_head": "11a143759779b04b19085b7c38a1887f9dc917dc",
+  "git_dirty": true,
   "python": "3.14.3",
   "platform": "win32",
   "files": {
@@ -74,8 +74,8 @@
       "size": 2595
     },
     "tools/make-deep-report.py": {
-      "sha256": "751941aa050ca31e8eef4a0ccfcae247eb190e3a7071c59ed9a8acb6e27a087c",
-      "size": 24610
+      "sha256": "da54f98efe7d3e96315837d9617bfad9c8d63eb0005483d58b756f484960ad14",
+      "size": 26584
     },
     "tools/deepcheck/anchor.py": {
       "sha256": "e85f9c87e0704d484e1a0d7afdbb4b2e5012cf57066b9f652b4dc9d40c033283",
