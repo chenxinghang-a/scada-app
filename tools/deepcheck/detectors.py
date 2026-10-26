@@ -310,6 +310,91 @@ def det_data_io(config_path: Path, out_csv: Path | None = None) -> Result:
     return pointtable.run(Path(config_path), out_csv)
 
 
+# ---------------------------------------------------------------- 口径类
+
+def det_timebase_all(db: Path) -> Result:
+    """全库时间口径：每张业务表的时间列都必须有 UTC 孪生列，且不漂移。
+
+    与 ``det_data_time`` 的分工：那个查 history_data 一条深的（31 万行 + 第三方
+    时间源交叉验证），这个查**广度**——所有表的口径是否都登记、都落实。
+    """
+    from . import schema_clock
+    conn = connect_ro(db)
+    try:
+        rep = schema_clock.verify(conn)
+    finally:
+        conn.close()
+
+    findings = []
+    for p in rep['problems']:
+        code = ('TB_FUTURE' if '在未来' in p else
+                'TB_EXPRESSION' if '表达式' in p else
+                'TB_DRIFT' if '相差' in p else
+                'TB_MISSING_TWIN')
+        findings.append(Finding(code, p, 'critical', 1))
+    if rep['problems']:
+        findings.append(Finding('TB_SUMMARY', f"{len(rep['problems'])} 处口径问题",
+                                'critical', len(rep['problems'])))
+
+    return Result(
+        id='timebase_all', title='全库时间口径（登记 / 孪生列 / 漂移）', claim='DATA-03',
+        verdict=PASS if rep['ok'] else FAIL,
+        metrics={'offset_hours': rep['offset_hours'], 'columns_checked': rep['columns_checked'],
+                 'registered': len(schema_clock.REGISTRY),
+                 'tables': [{k: t[k] for k in ('table', 'column', 'convention', 'status')
+                             if k in t} for t in rep['tables']]},
+        findings=findings,
+        ground_truth='schema_clock.REGISTRY（单一真源）+ 生成列表达式 + 逐行差值',
+        sample=rep['columns_checked'],
+    )
+
+
+def det_clock_lint(root: Path | None = None) -> Result:
+    """静态口径门禁：新增表/列没登记时间口径，直接失败。"""
+    from . import clock_lint as cl
+    rep = cl.lint(Path(root) if root else None)
+    findings = []
+    for v in rep['violations']:
+        findings.append(Finding(v['code'], f"{v['file']}:{v['line']} {v['message']}",
+                                'critical', 1, {'table': v['table'], 'column': v['column']}))
+    return Result(
+        id='clock_lint', title='时间口径静态门禁', claim='DATA-03',
+        verdict=PASS if rep['ok'] else FAIL,
+        metrics={k: rep[k] for k in ('scanned_files', 'registered', 'local', 'utc') },
+        findings=findings,
+        ground_truth='REGISTRY 单一真源 + 源码扫描（ast 取 SQL 字符串）',
+        sample=rep['scanned_files'],
+    )
+
+
+def det_anchor(db: Path, anchor_path: Path | None = None) -> Result:
+    """审计链外部锚点：抓"尾部截断"这个哈希链的数学盲区。"""
+    from . import anchor as anchor_mod
+    conn = sqlite3.connect(str(db), timeout=30)
+    try:
+        rep = anchor_mod.verify(conn, Path(anchor_path) if anchor_path else anchor_mod.ANCHOR_FILE)
+    finally:
+        conn.close()
+
+    code = {'UNANCHORED': 'ANCHOR_MISSING', 'TAIL_TRUNCATED': 'ANCHOR_TAIL_TRUNCATED',
+            'HISTORY_REWRITTEN': 'ANCHOR_HISTORY_REWRITTEN',
+            'ANCHOR_FILE_TAMPERED': 'ANCHOR_FILE_TAMPERED',
+            'CHAIN_BROKEN': 'CHAIN_BROKEN'}.get(rep['status'], 'ANCHOR_UNKNOWN')
+    findings = [] if rep['ok'] else [Finding(code, rep['reason'], 'critical', 1)]
+
+    verdict = PASS if rep['ok'] else (INSUFFICIENT if rep['status'] == 'UNANCHORED' else FAIL)
+    return Result(
+        id='anchor', title='审计链外部锚点（防尾部截断）', claim='SEC-03',
+        verdict=verdict,
+        metrics={'status': rep['status'], 'anchors': rep.get('anchors'),
+                 'anchored_entries': rep.get('anchored_entries'),
+                 'current_entries': rep.get('current_entries')},
+        findings=findings,
+        ground_truth='外部锚点（条数 + 链头哈希）随 git 提交；链内自校验无法覆盖截断',
+        sample=rep.get('anchors') or 0,
+    )
+
+
 # ---------------------------------------------------------------- 运维类
 
 def det_ops_backup(backup_path: Path, baseline: dict | None = None) -> Result:
@@ -354,6 +439,35 @@ def det_ops_backup(backup_path: Path, baseline: dict | None = None) -> Result:
                     'BACKUP_COUNT_MISMATCH',
                     f'{t} 行数 {got} < 源库 {n}（{n - got} 行丢失）',
                     'critical', n - got, {'table': t}))
+
+    # 业务级：备份不只是"能打开"，恢复出来的库还得满足业务不变量。
+    # 只做 integrity_check 等于只验了"文件没坏"，不验"时间口径、质量戳是否还成立"。
+    try:
+        from . import schema_clock
+        conn = sqlite3.connect(f'file:{path.as_posix()}?mode=ro', uri=True)
+        try:
+            schema = schema_clock.verify(conn)
+            q = conn.execute('SELECT quality, COUNT(*) FROM realtime_data GROUP BY quality'
+                             ).fetchall()
+        finally:
+            conn.close()
+        metrics['schema_ok'] = schema['ok']
+        metrics['schema_problems'] = schema['problems'][:5]
+        if not schema['ok']:
+            findings.append(Finding(
+                'BACKUP_SCHEMA_DRIFT',
+                f"恢复出的库有 {len(schema['problems'])} 处时间口径问题（口径未随备份一起还原）",
+                'critical', len(schema['problems']), {'problems': schema['problems'][:5]}))
+        bad_q = sum(c for qv, c in q if qv is not None and int(qv) != 192)
+        metrics['quality_bad_points'] = bad_q
+        if bad_q:
+            findings.append(Finding(
+                'BACKUP_QUALITY_BAD',
+                f'恢复出的库有 {bad_q} 个点位质量为非 Good（备份时已是坏值）',
+                'warning', bad_q))
+    except sqlite3.Error as e:
+        findings.append(Finding('BACKUP_INVARIANT_ERROR',
+                                f'在备份上执行业务不变量时出错: {e}', 'warning', 1))
 
     return Result(
         id='ops_backup', title='备份可恢复性', claim='DATA-07',
@@ -413,7 +527,10 @@ REGISTRY = {
     'alm_chattering': (det_alarm_chattering, 'db'),
     'data_quality': (det_data_quality, 'db'),
     'data_time': (det_data_time, 'db'),
+    'timebase_all': (det_timebase_all, 'db'),
     'data_io': (det_data_io, 'config'),
     'ops_backup': (det_ops_backup, 'file'),
     'sec_chain': (det_sec_chain, 'db'),
+    'anchor': (det_anchor, 'db_anchor'),
+    'clock_lint': (det_clock_lint, 'none'),
 }

@@ -1,9 +1,9 @@
 {
-  "generated_at": "2026-10-26T11:51:32",
+  "generated_at": "2026-10-26T12:02:10",
   "source_db": "C:\\Users\\cxx\\scada-app\\tests\\fixtures\\evidence.db",
   "snapshot_size_mb": 2.3,
-  "cases": 8,
-  "discriminating": 8,
+  "cases": 11,
+  "discriminating": 11,
   "all_ok": true,
   "principle": "检测器未能在播种后报错 = 该检测器的\"通过\"无效",
   "rows": [
@@ -246,12 +246,13 @@
       "clean_sample": 20270,
       "seeded_verdict": "fail",
       "seeded_codes": [
-        "BACKUP_CORRUPT"
+        "BACKUP_CORRUPT",
+        "BACKUP_SCHEMA_DRIFT"
       ],
       "seeded_metrics": {
-        "file": "C:\\Users\\cxx\\AppData\\Local\\Temp\\scada-negctl-g0sy0nt0\\ops_backup\\backup.db",
-        "size": 2404352,
-        "integrity": "*** in database main ***\nTree 5 page 294 cell 17: invalid page number 946234725\nTree 5 page 294 cell 16: Rowid 6555972108016934573 out of order\nTree 5 page 294 cell 16: invalid page number 571080729\nTree 5 page 294 cell 15: invalid page number 1918856293\nTree 5 page 294 cell 14: Rowid 6555972108016934573 out of order\nTree 5 page 294 cell 14: invalid page number 862217590\nMultiple uses for byte 2228 of page 294",
+        "file": "C:\\Users\\cxx\\AppData\\Local\\Temp\\scada-negctl-y_gzc0_k\\ops_backup\\backup.db",
+        "size": 2412544,
+        "integrity": "*** in database main ***\nTree 5 page 295 cell 17: Rowid 6555972108016934573 out of order\nTree 5 page 295 cell 17: invalid page number 862217590\nTree 5 page 295 cell 16: Rowid 6555972108016934573 out of order\nTree 5 page 295 cell 16: invalid page number 862217590\nTree 5 page 295 cell 15: Rowid 6555972108016934573 out of order\nTree 5 page 295 cell 15: invalid page number 862217590\nTree 5 page 295 cell 14: Rowid 6555972108016934573 out of order\nTree 5 page 295 cell 14: invalid page number 862217590\nTree 5 page 295 cell 13: Rowid 6555972108016934573 out of order\nTree 5 page 295 cell 13: invalid page number 862217590\nMultiple uses for byte 2176 of page 295",
         "counts": {
           "history_data": 20000,
           "realtime_data": 50,
@@ -263,10 +264,15 @@
           "realtime_data": 50,
           "alarm_records": 200,
           "operation_logs": 20
-        }
+        },
+        "schema_ok": false,
+        "schema_problems": [
+          "history_data.timestamp 统计失败: database disk image is malformed"
+        ],
+        "quality_bad_points": 0
       },
       "prepare": {
-        "backup": "C:\\Users\\cxx\\AppData\\Local\\Temp\\scada-negctl-g0sy0nt0\\ops_backup\\backup.db",
+        "backup": "C:\\Users\\cxx\\AppData\\Local\\Temp\\scada-negctl-y_gzc0_k\\ops_backup\\backup.db",
         "counts": {
           "history_data": 20000,
           "realtime_data": 50,
@@ -277,8 +283,8 @@
       },
       "seed": {
         "seeded": "备份文件中部 512 字节被写坏（文件仍可打开）",
-        "size": 2404352,
-        "offset": 1202176
+        "size": 2412544,
+        "offset": 1206272
       },
       "discriminating": true,
       "verdict": "OK"
@@ -298,15 +304,267 @@
       ],
       "seeded_metrics": {
         "entries": 5,
-        "head_hash": "229d3ff14536c21829eb803b56525636123fd345bb16fa3912a235ee5c89c1d8"
+        "head_hash": "577831a45d001cf1cd737f265e911153f79cbc1cf91fe127e7e6d3f344f1a8ca"
       },
       "prepare": {
         "entries": 5,
         "ok": true,
-        "head": "229d3ff14536c21829eb803b56525636123fd345bb16fa3912a235ee5c89c1d8"
+        "head": "577831a45d001cf1cd737f265e911153f79cbc1cf91fe127e7e6d3f344f1a8ca",
+        "anchor": "38a10c0215af"
       },
       "seed": {
         "seeded": "篡改 seq=8 的 diff_json（after 值被改写）"
+      },
+      "discriminating": true,
+      "verdict": "OK"
+    },
+    {
+      "detector": "timebase_all",
+      "title": "全库时间口径（登记 / 孪生列 / 漂移）",
+      "claim": "DATA-03",
+      "defect": "某张表没执行迁移（孪生列被删）",
+      "expect_code": "TB_MISSING_TWIN",
+      "clean_verdict": "pass",
+      "clean_codes": [],
+      "clean_sample": 7,
+      "seeded_verdict": "fail",
+      "seeded_codes": [
+        "TB_MISSING_TWIN",
+        "TB_SUMMARY"
+      ],
+      "seeded_metrics": {
+        "offset_hours": 8.0,
+        "columns_checked": 7,
+        "registered": 20,
+        "tables": [
+          {
+            "table": "history_data",
+            "column": "timestamp",
+            "convention": "local",
+            "status": "OK"
+          },
+          {
+            "table": "realtime_data",
+            "column": "timestamp",
+            "convention": "local",
+            "status": "OK"
+          },
+          {
+            "table": "alarm_records",
+            "column": "timestamp",
+            "convention": "local",
+            "status": "OK"
+          },
+          {
+            "table": "alarm_records",
+            "column": "last_trigger_time",
+            "convention": "local",
+            "status": "OK"
+          },
+          {
+            "table": "alarm_records",
+            "column": "acknowledged_at",
+            "convention": "local",
+            "status": "OK"
+          },
+          {
+            "table": "operation_logs",
+            "column": "timestamp",
+            "convention": "utc",
+            "status": "OK"
+          },
+          {
+            "table": "device_status",
+            "column": "timestamp",
+            "convention": "local",
+            "status": "MISSING_TWIN"
+          },
+          {
+            "table": "users",
+            "column": "created_at",
+            "convention": "exempt",
+            "status": "EXEMPT"
+          },
+          {
+            "table": "users",
+            "column": "updated_at",
+            "convention": "exempt",
+            "status": "EXEMPT"
+          },
+          {
+            "table": "users",
+            "column": "last_login",
+            "convention": "exempt",
+            "status": "EXEMPT"
+          },
+          {
+            "table": "users",
+            "column": "locked_until",
+            "convention": "exempt",
+            "status": "EXEMPT"
+          },
+          {
+            "table": "jwt_blacklist",
+            "column": "blacklisted_at",
+            "convention": "exempt",
+            "status": "EXEMPT"
+          },
+          {
+            "table": "history_archive",
+            "column": "archive_date",
+            "convention": "exempt",
+            "status": "EXEMPT"
+          },
+          {
+            "table": "history_data",
+            "column": "created_at",
+            "convention": "exempt",
+            "status": "EXEMPT"
+          },
+          {
+            "table": "realtime_data",
+            "column": "created_at",
+            "convention": "exempt",
+            "status": "EXEMPT"
+          },
+          {
+            "table": "alarm_records",
+            "column": "created_at",
+            "convention": "exempt",
+            "status": "EXEMPT"
+          },
+          {
+            "table": "device_status",
+            "column": "created_at",
+            "convention": "exempt",
+            "status": "EXEMPT"
+          },
+          {
+            "table": "cache",
+            "column": "created_at",
+            "convention": "exempt",
+            "status": "EXEMPT"
+          },
+          {
+            "table": "cache",
+            "column": "expires_at",
+            "convention": "exempt",
+            "status": "EXEMPT"
+          },
+          {
+            "table": "schema_migrations",
+            "column": "applied_at",
+            "convention": "exempt",
+            "status": "EXEMPT"
+          }
+        ]
+      },
+      "prepare": {
+        "offset_hours": 8.0,
+        "modifier": "-8 hours",
+        "added": [],
+        "skipped": [
+          {
+            "table": "history_data",
+            "column": "timestamp→ts_utc",
+            "reason": "已存在"
+          },
+          {
+            "table": "realtime_data",
+            "column": "timestamp→ts_utc",
+            "reason": "已存在"
+          },
+          {
+            "table": "alarm_records",
+            "column": "timestamp→ts_utc",
+            "reason": "已存在"
+          },
+          {
+            "table": "alarm_records",
+            "column": "last_trigger_time→last_trigger_time_utc",
+            "reason": "已存在"
+          },
+          {
+            "table": "alarm_records",
+            "column": "acknowledged_at→acknowledged_at_utc",
+            "reason": "已存在"
+          },
+          {
+            "table": "device_status",
+            "column": "timestamp→ts_utc",
+            "reason": "已存在"
+          }
+        ]
+      },
+      "seed": {
+        "seeded": "device_status.ts_utc 被删除",
+        "columns": [
+          "created_at",
+          "device_id",
+          "id",
+          "message",
+          "status",
+          "timestamp"
+        ]
+      },
+      "discriminating": true,
+      "verdict": "OK"
+    },
+    {
+      "detector": "clock_lint",
+      "title": "时间口径静态门禁",
+      "claim": "DATA-03",
+      "defect": "新增一张表用了 finished_at，但没登记时间口径",
+      "expect_code": "CLOCK_UNREGISTERED_COLUMN",
+      "clean_verdict": "pass",
+      "clean_codes": [],
+      "clean_sample": 137,
+      "seeded_verdict": "fail",
+      "seeded_codes": [
+        "CLOCK_UNREGISTERED_COLUMN"
+      ],
+      "seeded_metrics": {
+        "scanned_files": 138,
+        "registered": 20,
+        "local": 6,
+        "utc": 1
+      },
+      "prepare": {
+        "scanned_root": "C:\\Users\\cxx\\AppData\\Local\\Temp\\scada-negctl-y_gzc0_k\\clock_lint\\src_copy"
+      },
+      "seed": {
+        "seeded": "新增 新增_未登记时间口径.py（batch_runs.finished_at 未登记）"
+      },
+      "discriminating": true,
+      "verdict": "OK"
+    },
+    {
+      "detector": "anchor",
+      "title": "审计链外部锚点（防尾部截断）",
+      "claim": "SEC-03",
+      "defect": "删掉审计链最后两条（链内自洽，只有锚点能发现）",
+      "expect_code": "ANCHOR_TAIL_TRUNCATED",
+      "clean_verdict": "pass",
+      "clean_codes": [],
+      "clean_sample": 1,
+      "seeded_verdict": "fail",
+      "seeded_codes": [
+        "ANCHOR_TAIL_TRUNCATED"
+      ],
+      "seeded_metrics": {
+        "status": "TAIL_TRUNCATED",
+        "anchors": 1,
+        "anchored_entries": null,
+        "current_entries": null
+      },
+      "prepare": {
+        "entries": 5,
+        "ok": true,
+        "head": "af039b4e9816c755eb9e942fea1c92a53eed2791a9a8c03227078a8377fca85c",
+        "anchor": "1eb4cc0c543f"
+      },
+      "seed": {
+        "seeded": "删除 seq=[9, 10]，剩 3 条"
       },
       "discriminating": true,
       "verdict": "OK"

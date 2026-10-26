@@ -62,17 +62,22 @@ requirements:
   category: 数据
   requirement: 同一条记录里的多个时间字段必须指向同一时刻；跨表可直接按时间关联
   source: 时钟一致性（工业系统通用要求）
-  implementation: core/timebase.py（存储=UTC 朴素，输出=ISO+偏移）+ history_data.ts_utc 权威列双写
-    + tools/migrate-timebase.py 存量回填（幂等）
-  verification: python tools/deep-verify.py timebase  →  tools/deepcheck/detectors.py:det_data_time
-  evidence: reports/deep/timebase.json、reports/deep/timebase-migration.json
+  implementation: core/timebase.py + history_data.ts_utc 实体列（31 万行回填）
+    + tools/deepcheck/schema_clock.py（口径登记表 + 生成列派生 *_utc）
+    + tools/deepcheck/clock_lint.py（静态门禁）
+  verification: python tools/deep-verify.py timebase  →  det_data_time / det_timebase_all / det_clock_lint
+  evidence: reports/deep/timebase.json、timebase_all.json、clock_lint.json、timebase-migration.json
   status: verified
   note: 实测库内 timestamp 与 created_at 恒定相差 8.000031 小时（315146 行样本，标准差≈0）
     —— 不是时钟漂移，是「本地时间 vs UTC」的基准混用。迁移后 ts_utc 与 created_at 平均
     相差 0.4 秒、99.995% 完全同秒，另 17 行系队列缓冲（最大 628 秒）。
     判据用「入库延迟 lag 的双边界」而不是平均差：2 万行里 500 行偏 2 小时，均值只动 180 秒，
     会被平均抹平——负向控制第 5 项即用此手法验证。
-    未覆盖：users/device_status 等表仍混用 CURRENT_TIMESTAMP，已列入 open_findings。
+    全库收口：5 张业务表 7 个时间列全部登记口径，local 列由 SQLite **生成列**派生
+    *_utc（不存在第二条写入路径，漏写与漂移在结构上不可能）；operation_logs 标为 UTC；
+    users/jwt_blacklist/cache 登记 exempt 并写理由。clock_lint 扫描 136 个源文件，
+    新增未登记的时间列会直接失败。
+    仍未覆盖：跨进程时钟同步（需 NTP 部署）、真实设备侧时钟。
 - id: DATA-04
   category: 数据
   requirement: 历史查询的时间范围参数应正确映射（不能整体偏移时区）
@@ -190,9 +195,11 @@ requirements:
   evidence: reports/deep/audit-chain-selftest.json、reports/deep/auditchain.json
   status: verified
   note: 不只记 diff，还让"改了日志"这件事可被发现 —— 改值/改操作人/删中间/调顺序 4 类
-    篡改全部被抓到。已知局限：**尾部截断在链内自洽**（删掉最后几条不会断链），
-    只能靠 head_hash 与外部锚点（git / MANIFEST）比对发现；该局限写成对应用例而非隐瞒。
-    现场链为空（尚无配置变更），故 auditchain 判 INSUFFICIENT，机制有效性由自证承担。
+    篡改全部被抓到。尾部截断（哈希链的数学盲区）已由 tools/deepcheck/anchor.py 关闭：
+    把 (条数, 最大 seq, 链头哈希) 钉进 reports/evidence/audit-anchors.json 并随 git 提交，
+    负向控制第 11 项"删掉最后两条"被判 ANCHOR_TAIL_TRUNCATED。
+    现场链为空（尚无配置变更），故 auditchain/anchor 判 INSUFFICIENT，机制有效性由自证承担。
+    仍存边界：可重写整个 git 历史者可伪造，需 WORM/外部时间戳。
 - id: DATA-06
   category: 数据
   requirement: 点表逐点核对（地址/长度/数据类型/字节序/量程/单位）
@@ -220,6 +227,18 @@ requirements:
     「干净快照=PASS / 播种后=FAIL 且报出预期 finding code」两个方向上都对，
     才计 1 分。8 个全过。运行库被 .gitignore 排除，故另做 2.3MB 夹具，
     保证任何人克隆仓库后一条命令即可重算。
+- id: DATA-09
+  category: 数据
+  requirement: 新增表/列不得引入第三种时间口径；时间口径必须可查、可校验、可回归
+  source: 变更管理（MOC）+ 可维护性
+  implementation: tools/deepcheck/schema_clock.py 的 REGISTRY（唯一真源，含 exempt 理由）
+    + tools/deepcheck/clock_lint.py（ast 扫 SQL，未登记即失败）
+  verification: python tools/deep-verify.py all → det_clock_lint（136 文件 / 20 条登记）
+  evidence: reports/deep/clock_lint.json
+  status: verified
+  note: 规则只有两条：CLOCK_UNREGISTERED_COLUMN（新表用了时间列但没登记）、
+    CLOCK_WRONG_DEFAULT（本地口径的列被赋 CURRENT_TIMESTAMP）。
+    规则少是故意的 —— 规则多到没人记得住，等于没有门禁。
 - id: DATA-07
   category: 数据
   requirement: 备份必须验证「能恢复」，而不只是「生成了文件」

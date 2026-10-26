@@ -393,6 +393,21 @@ class Database:
             self._migrate_alarm_table(cursor)
             self._migrate_realtime_quality(cursor)
 
+            # 时间口径收口：按登记表补齐 *_utc 生成列（幂等）。
+            # 放在建表之后、提交之前 —— 全新安装的库也必须立刻有这些列，
+            # 否则"修好了"只在这台机器上成立，换台机器就退回去。
+            # 失败不阻断启动（旧 SQLite 不支持生成列时仍要能跑），但必须 WARNING 留痕：
+            # 静默降级会让 tools/deep-verify.py timebase_all 变成永远绿的摆设。
+            try:
+                from core.schema_clock import ensure_columns
+                _twin = ensure_columns(conn)
+                if _twin.get('added'):
+                    logger.info(f"时间口径：新增 {len(_twin['added'])} 个 UTC 生成列")
+                if _twin.get('error'):
+                    logger.warning(f"时间口径孪生列未补齐（不影响启动）: {_twin['error']}")
+            except Exception as e:
+                logger.warning(f"时间口径孪生列补齐异常（不影响启动）: {e}")
+
             logger.info("数据库初始化完成")
 
     # 预构建迁移SQL（避免f-string拼接，消除SQL注入风险）

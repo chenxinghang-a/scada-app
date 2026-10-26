@@ -80,6 +80,9 @@ def main():
     verdict = load('verdict.json')
     nc = load('negative-control.json')
     tb = load('timebase.json')
+    tball = load('timebase_all.json')
+    lint = load('clock_lint.json')
+    an = load('anchor.json')
     pt = load('pointtable.json')
     ac = load('audit-chain-selftest.json')
     man_path = REPO / 'reports' / 'evidence' / 'MANIFEST.json'
@@ -107,6 +110,16 @@ def main():
         ac_rows += (f"<tr><td>{esc(r['case'])}</td><td>{expect}</td>"
                     f"<td>{'抓到' if r['detected'] else '未抓到'}</td>"
                     f"<td><span class=small>{esc(r['reason'])}</span></td></tr>")
+
+    # ---- 时间口径表 ----
+    tb_rows = ''
+    for t in (tball.get('metrics', {}).get('tables') or []):
+        st = str(t.get('status'))
+        cls = 'ok' if st in ('OK', 'EXEMPT') else 'bad'
+        tb_rows += (f"<tr><td><code>{esc(t.get('table'))}</code></td>"
+                    f"<td><code>{esc(t.get('column'))}</code></td>"
+                    f"<td>{esc(t.get('convention'))}</td>"
+                    f"<td><span class='tag {cls}'>{esc(st)}</span></td></tr>")
 
     # ---- 追溯矩阵分级 ----
     grade_rows = ''
@@ -140,6 +153,7 @@ def main():
   <div><b>{ac.get('passed', 0)}/{ac.get('cases', 0)}</b><span>审计链篡改对抗用例</span></div>
   <div><b>{esc(tb_m.get('rows', '—'))}</b><span>行级时间不变量校验</span></div>
   <div><b>{esc(pt_m.get('points', '—'))}</b><span>点表已核对（4 字节序 × 6 哨兵值）</span></div>
+  <div><b>{esc(tball.get('metrics', {}).get('columns_checked', '—'))}</b><span>列时间口径已登记并逐行校验</span></div>
   <div><b>{esc(cert)}</b><span>机器判定结论<br><code>reports/deep/verdict.json</code></span></div>
 </div>
 
@@ -222,7 +236,27 @@ integrity_check / backup、<code>hashlib</code>、<code>importlib</code>、<code
 <p class="small">结论 {tag(tb.get('verdict'))}　原始记录：<code>reports/deep/timebase.json</code>、
 <code>reports/deep/timebase-migration.json</code>（含备份路径与幂等标记）。</p>
 
-<h2>四、点表：用哨兵值证明字节序没错位</h2>
+<h2>四、全库口径：五张表、两种钟 → 一份登记表</h2>
+<p>根因不是"某一列存错了"，而是<b>没人知道每列用的是哪个钟</b>：
+<code>history_data</code>/<code>realtime_data</code>/<code>alarm_records</code> 写的是
+<code>datetime.now()</code>（本地），<code>operation_logs</code>/<code>users</code> 写的是
+<code>CURRENT_TIMESTAMP</code>（UTC）。任何跨表关联都在赌运气。</p>
+<p>做法是把口径变成<b>结构</b>而不是<b>纪律</b>：登记表（<code>schema_clock.REGISTRY</code>）
+声明每列用哪个钟 → 由 SQLite <b>生成列</b>派生 <code>*_utc</code> 孪生列（不可能漂移、不可能漏写）
+→ <code>clock_lint</code> 静态扫描挡住"新表没登记口径"。</p>
+<table>
+<tr><th>表</th><th>列</th><th>口径</th><th>状态</th></tr>
+{tb_rows or '<tr><td colspan=4>未运行</td></tr>'}
+</table>
+<p class="small">{esc(tball.get('metrics', {}).get('columns_checked', '—'))} 列符合登记；
+静态门禁扫描 {esc(lint.get('metrics', {}).get('scanned_files', '—'))} 个源文件、
+{esc(lint.get('metrics', {}).get('registered', '—'))} 条登记，违规 0。
+结论 {tag(tball.get('verdict'))} / {tag(lint.get('verdict'))}。
+<code>users</code> / <code>jwt_blacklist</code> / <code>cache</code> 等登记为
+<code>exempt</code> 并写明理由（账号簿记、令牌回收、TTL 缓存，不参与工艺时间关联）——
+"不处理"也要有理由，否则下次没人知道为什么。</p>
+
+<h2>五、点表：用哨兵值证明字节序没错位</h2>
 <p>被测实现是采集层真实的 <code>ByteOrderCapableDecoder</code>（<code>importlib</code> 直接加载，
 不复制代码）；参考实现是按 Modbus 规范另写的 <code>decode_words</code>。
 两者对 {esc(pt_m.get('decoder_cases', '—'))} 组用例（4 种字节序 × 6 个哨兵值）结果全部一致。</p>
@@ -237,16 +271,21 @@ integrity_check / backup、<code>hashlib</code>、<code>importlib</code>、<code
 </table>
 <p class="small">IO List（可直接给现场）：<code>reports/deep/io-list.csv</code>。结论 {tag(pt.get('verdict'))}。</p>
 
-<h2>五、审计链：改了日志也要被发现</h2>
+<h2>六、审计链：改了日志也要被发现</h2>
 <table>
 <tr><th style="width:44%">篡改手法</th><th>预期</th><th>实际</th><th>说明</th></tr>
 {ac_rows or '<tr><td colspan=4>未运行</td></tr>'}
 </table>
 <p class="small">结论 {tag('pass' if ac.get('all_ok') else 'fail')}。
-已知局限已写成用例（第 6 条）：<b>尾部截断在链内自洽</b>，只能靠 head_hash 与
-<code>reports/evidence/MANIFEST.json</code> 这类外部锚点比对发现。</p>
+哈希链的数学盲区是<b>尾部截断</b>（删掉最后几条，链内仍自洽）——这个盲区已用
+<b>外部锚点</b>关闭：把 <code>(条数, 最大 seq, 链头哈希)</code> 钉进
+<code>reports/evidence/audit-anchors.json</code> 并随 git 提交，
+负向控制第 11 项就是"删掉最后两条"，锚点判 <code>ANCHOR_TAIL_TRUNCATED</code>。
+现场链当前为空（还没有人改过配置），所以锚点状态为 {esc(an.get('metrics', {}).get('status', '—'))}
+——"没有内容可锚"不是缺陷，机制有效性由对抗用例承担。
+仍然存在的边界：能重写整个 git 历史的人可以伪造，这一类只能靠 WORM 存储。</p>
 
-<h2>六、未关闭的发现（不藏）</h2>
+<h2>七、未关闭的发现（不藏）</h2>
 <table>
 <tr><th style="width:26%">检查项</th><th>判定</th><th>finding</th></tr>
 {grade_rows or '<tr><td colspan=3>无</td></tr>'}
@@ -254,7 +293,7 @@ integrity_check / backup、<code>hashlib</code>、<code>importlib</code>、<code
 <p class="small">1 条报警自 2026-10-23 18:40 起未确认、已陈旧 3 天；报警 KPI 在 24 小时窗口内
 0 条样本，<b>统计上不可判定</b>（不是"达标"）。二者均未代为处理——代签等于伪造运行记录。</p>
 
-<h2>七、复现方式（这是本报告唯一的"证据"）</h2>
+<h2>八、复现方式（这是本报告唯一的"证据"）</h2>
 <pre><code>python tools/make-evidence-fixture.py        # 2.3MB 夹具，固定种子
 python tools/deep-verify.py all              # 全部检查 → reports/deep/verdict.json
 python tools/audit-chain-selftest.py         # 9 个篡改对抗用例

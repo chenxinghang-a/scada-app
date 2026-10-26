@@ -1,26 +1,16 @@
 {
   "db": "C:\\Users\\cxx\\AppData\\Local\\Programs\\SmartSCADA\\resources\\backend\\_internal\\data\\scada_simulated.db",
   "rows_total": 315146,
-  "rows_missing_ts_utc": 315146,
-  "column_exists": false,
+  "rows_missing_ts_utc": 0,
+  "column_exists": true,
   "offset_hours": 8.0,
   "modifier": "-8 hours",
-  "already_applied": null,
-  "apply": true,
-  "backup": "C:\\Users\\cxx\\AppData\\Local\\Programs\\SmartSCADA\\resources\\backend\\_internal\\data\\backups\\scada_simulated-before-timebase-20261026-114537.db",
-  "migration": {
-    "applied": true,
-    "rows": 315146,
+  "already_applied": {
+    "scope": "history_data.timestamp",
     "offset_hours": 8.0,
-    "column_added": true,
-    "modifier": "-8 hours"
+    "rows_done": 315146,
+    "applied_at": "2026-10-26 11:45:39"
   },
-  "invariant": {
-    "ok": true,
-    "rows": 315146,
-    "nulls": 0,
-    "mean_delta_seconds": -0.38,
-    "max_delta_seconds": 628.0,
-    "tol_seconds": 120.0
-  }
+  "apply": true,
+  "needs_work": false
 }

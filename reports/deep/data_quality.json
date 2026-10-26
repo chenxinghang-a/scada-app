@@ -1,0 +1,18 @@
+{
+  "id": "data_quality",
+  "title": "数据质量戳覆盖",
+  "claim": "DATA-01",
+  "verdict": "pass",
+  "metrics": {
+    "points": 83,
+    "distribution": {
+      "192": 83
+    },
+    "bad": 0,
+    "unknown": 0,
+    "bad_share": 0.0
+  },
+  "findings": [],
+  "ground_truth": "OPC UA StatusCode：192=Good；坏值必须可数、可见",
+  "sample": 83
+}

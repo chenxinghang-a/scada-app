@@ -1,6 +1,6 @@
 {
-  "generated_at": "2026-10-26T11:51:47",
-  "git_head": "240555c0c11f624c5b0044e7e0a3e61e3c37a1ce",
+  "generated_at": "2026-10-26T12:02:16",
+  "git_head": "1b0bcbb6b5dfc99c2478f53021c4fb47378d834c",
   "git_dirty": true,
   "python": "3.14.3",
   "platform": "win32",
@@ -14,8 +14,8 @@
       "size": 7107
     },
     "backend/src/存储层/database.py": {
-      "sha256": "812de3833f06a88fc94acc825b33e1c9db8a39613a22daf938700038ab2f8822",
-      "size": 67161
+      "sha256": "18229fed85f28a87727e273c70a434afbc8f3061ea699341a6e8039472b142a5",
+      "size": 68204
     },
     "backend/src/展示层/api/api_system.py": {
       "sha256": "dd8b1ac912ac2510e83b7b356d28974df6cdbd95afbb71b08743a84da6b06a42",
@@ -30,56 +30,81 @@
       "size": 13731
     },
     "tools/deep-verify.py": {
-      "sha256": "5ab23ee03d2368cb876924325ea8b66338274a7306e24c0ca45e8141c5ea1fef",
-      "size": 9057
+      "sha256": "ed1fe70a41e072aacbf1d6c4da0f3f6c949b20f4f35512f72be725ddae9273cb",
+      "size": 10427
     },
     "tools/make-evidence-fixture.py": {
       "sha256": "b2aac59610746fe655dc670c2541f0f03b974542798d163a876386e7014940c8",
       "size": 8353
     },
     "tools/migrate-timebase.py": {
-      "sha256": "3ea82f0a1a7622241cd0f7e127cc156ea20844efea6084f3026d32e50c36b296",
-      "size": 4581
+      "sha256": "d4fa4e88d31a13f09af615e54332fa23078f26d397f7e97d6424a2eb33c24276",
+      "size": 6536
     },
     "tools/audit-chain-selftest.py": {
       "sha256": "7775481bbad3027d93bfccb9e1685dfc6be95efd08695654931f77eb297be4c8",
       "size": 8614
+    },
+    "tools/audit-anchor.py": {
+      "sha256": "3e9b4fa4032b99a9d14511b3feeb65266e46308d93e49052ddff64bdcf2a2dc6",
+      "size": 2746
+    },
+    "tools/make-deep-report.py": {
+      "sha256": "e8bca25e8f2fbdc42c7235f23b232a958d56b2224276c7cd40fad768de10d1c6",
+      "size": 19038
+    },
+    "tools/deepcheck/anchor.py": {
+      "sha256": "e85f9c87e0704d484e1a0d7afdbb4b2e5012cf57066b9f652b4dc9d40c033283",
+      "size": 6497
+    },
+    "tools/deepcheck/clock_lint.py": {
+      "sha256": "459020d940b02df772ccba2cc3c4eb16fa88170a066079cbe0041d5ff3216462",
+      "size": 4734
     },
     "tools/deepcheck/common.py": {
       "sha256": "0be377b30d434c00cd1fb481d8f25b013ef2ac0ad822ba2306a6ff3b7aa0e67d",
       "size": 4672
     },
     "tools/deepcheck/detectors.py": {
-      "sha256": "4bace7662b2980ec61454a8fdf618e3540f87e88218d6c9504afcbac80b10b8e",
-      "size": 18455
+      "sha256": "38d878f6f98e4aebb53d6d1f9b40b87ef91af137da9262e36954ff271f6f3865",
+      "size": 24038
     },
     "tools/deepcheck/fixtures.py": {
       "sha256": "5091f7ffc1e34dbfc95bf3810aec3481d2e39bd7f9fc13d6c635a14950bda967",
       "size": 4123
     },
     "tools/deepcheck/negative_control.py": {
-      "sha256": "e82d695403733a8c4d0bbfd0cc24b80a9dc77bb376d2df7d0ce9f5d003a83d15",
-      "size": 13960
+      "sha256": "37ada329228194c17a37c4003b0a4d94b76982a2533d6e6c471016787c047a62",
+      "size": 18289
     },
     "tools/deepcheck/pointtable.py": {
       "sha256": "b9dff4698b31c433b8277e88b23b288747cc3c09d9440d33a3891c21bfc2f36a",
       "size": 13748
+    },
+    "tools/deepcheck/schema_clock.py": {
+      "sha256": "b87b58c71439403016166f8a90253ea2273d0bf66bf09a55a140594f130186a2",
+      "size": 843
     },
     "tools/deepcheck/timebase.py": {
       "sha256": "271c811eb43d1b1a6b9d55b072ddae44efaa41600d608c23c28c710db4be57e2",
       "size": 4238
     },
     "docs/traceability.yaml": {
-      "sha256": "b67731e592b8ffc6339c8522c3043c9584ff5263f9ebd83e45e010e3928cbb8d",
-      "size": 13580
+      "sha256": "c3b830b031fa5c86b8f9ec937e3817053e677f58f3fb32d33af170ae65fec76e",
+      "size": 14989
+    },
+    "docs/深度-专家会做什么.md": {
+      "sha256": "8039d39b0f09ca74d49d4d3b0506548168d596c478c9e59212c3f708b75de3ed",
+      "size": 17774
     }
   },
-  "file_count": 17,
+  "file_count": 23,
   "missing": [],
   "reproduce": [
     "python tools/make-evidence-fixture.py",
     "python tools/deep-verify.py all",
     "python tools/audit-chain-selftest.py",
+    "python tools/fresh-install-check.py",
     "python tools/migrate-timebase.py            # 只出计划",
     "python tools/evidence-manifest.py --verify"
   ],

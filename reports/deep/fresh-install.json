@@ -1,0 +1,55 @@
+{
+  "ok": true,
+  "columns_checked": 7,
+  "problems": [],
+  "twins": [
+    {
+      "table": "history_data",
+      "column": "timestamp",
+      "twin": "ts_utc",
+      "status": "OK"
+    },
+    {
+      "table": "realtime_data",
+      "column": "timestamp",
+      "twin": "ts_utc",
+      "status": "OK"
+    },
+    {
+      "table": "alarm_records",
+      "column": "timestamp",
+      "twin": "ts_utc",
+      "status": "OK"
+    },
+    {
+      "table": "alarm_records",
+      "column": "last_trigger_time",
+      "twin": "last_trigger_time_utc",
+      "status": "OK"
+    },
+    {
+      "table": "alarm_records",
+      "column": "acknowledged_at",
+      "twin": "acknowledged_at_utc",
+      "status": "OK"
+    },
+    {
+      "table": "operation_logs",
+      "column": "timestamp",
+      "twin": null,
+      "status": "ABSENT"
+    },
+    {
+      "table": "device_status",
+      "column": "timestamp",
+      "twin": "ts_utc",
+      "status": "OK"
+    }
+  ],
+  "meta": {
+    "local_offset_hours": "8.0",
+    "canonical": "UTC",
+    "compat_note": "timestamp 列保留现场本地语义，*_utc 为权威"
+  },
+  "db": "C:\\Users\\cxx\\AppData\\Local\\Temp\\scada-fresh-12648.db"
+}

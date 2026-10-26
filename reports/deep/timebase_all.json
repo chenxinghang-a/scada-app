@@ -1,0 +1,136 @@
+{
+  "id": "timebase_all",
+  "title": "全库时间口径（登记 / 孪生列 / 漂移）",
+  "claim": "DATA-03",
+  "verdict": "pass",
+  "metrics": {
+    "offset_hours": 8.0,
+    "columns_checked": 7,
+    "registered": 20,
+    "tables": [
+      {
+        "table": "history_data",
+        "column": "timestamp",
+        "convention": "local",
+        "status": "OK"
+      },
+      {
+        "table": "realtime_data",
+        "column": "timestamp",
+        "convention": "local",
+        "status": "OK"
+      },
+      {
+        "table": "alarm_records",
+        "column": "timestamp",
+        "convention": "local",
+        "status": "OK"
+      },
+      {
+        "table": "alarm_records",
+        "column": "last_trigger_time",
+        "convention": "local",
+        "status": "OK"
+      },
+      {
+        "table": "alarm_records",
+        "column": "acknowledged_at",
+        "convention": "local",
+        "status": "OK"
+      },
+      {
+        "table": "operation_logs",
+        "column": "timestamp",
+        "convention": "utc",
+        "status": "OK"
+      },
+      {
+        "table": "device_status",
+        "column": "timestamp",
+        "convention": "local",
+        "status": "OK"
+      },
+      {
+        "table": "users",
+        "column": "created_at",
+        "convention": "exempt",
+        "status": "EXEMPT"
+      },
+      {
+        "table": "users",
+        "column": "updated_at",
+        "convention": "exempt",
+        "status": "EXEMPT"
+      },
+      {
+        "table": "users",
+        "column": "last_login",
+        "convention": "exempt",
+        "status": "EXEMPT"
+      },
+      {
+        "table": "users",
+        "column": "locked_until",
+        "convention": "exempt",
+        "status": "EXEMPT"
+      },
+      {
+        "table": "jwt_blacklist",
+        "column": "blacklisted_at",
+        "convention": "exempt",
+        "status": "EXEMPT"
+      },
+      {
+        "table": "history_archive",
+        "column": "archive_date",
+        "convention": "exempt",
+        "status": "EXEMPT"
+      },
+      {
+        "table": "history_data",
+        "column": "created_at",
+        "convention": "exempt",
+        "status": "EXEMPT"
+      },
+      {
+        "table": "realtime_data",
+        "column": "created_at",
+        "convention": "exempt",
+        "status": "EXEMPT"
+      },
+      {
+        "table": "alarm_records",
+        "column": "created_at",
+        "convention": "exempt",
+        "status": "EXEMPT"
+      },
+      {
+        "table": "device_status",
+        "column": "created_at",
+        "convention": "exempt",
+        "status": "EXEMPT"
+      },
+      {
+        "table": "cache",
+        "column": "created_at",
+        "convention": "exempt",
+        "status": "EXEMPT"
+      },
+      {
+        "table": "cache",
+        "column": "expires_at",
+        "convention": "exempt",
+        "status": "EXEMPT"
+      },
+      {
+        "table": "schema_migrations",
+        "column": "applied_at",
+        "convention": "exempt",
+        "status": "EXEMPT"
+      }
+    ]
+  },
+  "findings": [],
+  "ground_truth": "schema_clock.REGISTRY（单一真源）+ 生成列表达式 + 逐行差值",
+  "sample": 7
+}

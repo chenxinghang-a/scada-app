@@ -1,0 +1,23 @@
+{
+  "id": "anchor",
+  "title": "审计链外部锚点（防尾部截断）",
+  "claim": "SEC-03",
+  "verdict": "insufficient",
+  "metrics": {
+    "status": "UNANCHORED",
+    "anchors": 0,
+    "anchored_entries": null,
+    "current_entries": null
+  },
+  "findings": [
+    {
+      "code": "ANCHOR_MISSING",
+      "message": "没有锚点：尾部截断无法被发现（跑 tools/audit-anchor.py 生成）",
+      "severity": "critical",
+      "count": 1,
+      "detail": {}
+    }
+  ],
+  "ground_truth": "外部锚点（条数 + 链头哈希）随 git 提交；链内自校验无法覆盖截断",
+  "sample": 0
+}

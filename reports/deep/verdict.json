@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-10-26T11:51:32",
+  "generated_at": "2026-10-26T12:02:10",
   "checks": {
     "timebase": "pass",
     "pointtable": "pass",
@@ -7,13 +7,17 @@
     "alm_stale": "fail",
     "alm_priority": "insufficient",
     "alm_chattering": "pass",
-    "data_quality": "pass"
+    "data_quality": "pass",
+    "timebase_all": "pass",
+    "clock_lint": "pass",
+    "anchor": "insufficient"
   },
-  "field_checks_pass": 2,
+  "field_checks_pass": 4,
   "audit_chain_selftest": "9/9",
   "audit_chain_field_entries": 0,
-  "negative_control_discriminating": 8,
-  "negative_control_total": 8,
+  "anchor_status": "UNANCHORED",
+  "negative_control_discriminating": 11,
+  "negative_control_total": 11,
   "certification": "CERTIFIED",
   "open_findings": [
     {
@@ -34,6 +38,13 @@
       "check": "alm_priority",
       "verdict": "insufficient",
       "codes": []
+    },
+    {
+      "check": "anchor",
+      "verdict": "insufficient",
+      "codes": [
+        "ANCHOR_MISSING"
+      ]
     }
   ],
   "reason": "现场检查全部通过，负向控制证明每个检测器都能失败，审计链通过全部篡改对抗用例"

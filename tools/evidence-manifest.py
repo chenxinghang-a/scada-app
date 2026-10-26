@@ -43,19 +43,26 @@ INCLUDE = [
     'tools/make-evidence-fixture.py',
     'tools/migrate-timebase.py',
     'tools/audit-chain-selftest.py',
+    'tools/audit-anchor.py',
+    'tools/make-deep-report.py',
+    'tools/deepcheck/anchor.py',
+    'tools/deepcheck/clock_lint.py',
     'tools/deepcheck/common.py',
     'tools/deepcheck/detectors.py',
     'tools/deepcheck/fixtures.py',
     'tools/deepcheck/negative_control.py',
     'tools/deepcheck/pointtable.py',
+    'tools/deepcheck/schema_clock.py',
     'tools/deepcheck/timebase.py',
     'docs/traceability.yaml',
+    'docs/深度-专家会做什么.md',
 ]
 
 REPRO = [
     'python tools/make-evidence-fixture.py',
     'python tools/deep-verify.py all',
     'python tools/audit-chain-selftest.py',
+    'python tools/fresh-install-check.py',
     'python tools/migrate-timebase.py            # 只出计划',
     'python tools/evidence-manifest.py --verify',
 ]

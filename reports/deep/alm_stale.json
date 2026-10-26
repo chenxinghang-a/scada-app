@@ -1,0 +1,30 @@
+{
+  "id": "alm_stale",
+  "title": "陈旧报警（ISA-18.2）",
+  "claim": "ALM-03",
+  "verdict": "fail",
+  "metrics": {
+    "alarms_total": 1,
+    "stale": 1,
+    "stale_hours": 24
+  },
+  "findings": [
+    {
+      "code": "STALE_ALARM",
+      "message": "1 条报警超过 24h 未确认",
+      "severity": "warning",
+      "count": 1,
+      "detail": {
+        "alarms": [
+          {
+            "alarm_id": "temp_high",
+            "device_id": "siemens_1500_01",
+            "ts": "2026-10-25 03:25:04.569647"
+          }
+        ]
+      }
+    }
+  ],
+  "ground_truth": "ANSI/ISA-18.2-2016：陈旧报警数应为 0",
+  "sample": 1
+}

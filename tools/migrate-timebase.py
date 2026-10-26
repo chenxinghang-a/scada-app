@@ -22,7 +22,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from deepcheck import timebase  # noqa: E402
+from deepcheck import schema_clock, timebase  # noqa: E402
 from deepcheck.common import REPO, find_db, say, write_json  # noqa: E402
 
 
@@ -91,8 +91,33 @@ def main():
     if done:
         say('  幂等跳过：本次不会重复换算（如需强制，用 --force 逻辑另行处理）')
 
+    # 先探一遍"到底有没有活要干"：没有就退出，别为了幂等每次都留一份 100MB 备份。
+
+    probe = sqlite3.connect(f'file:{db.as_posix()}?mode=ro', uri=True)
+    try:
+        missing_twins = 0
+        for (table, column), (conv, _n) in schema_clock.REGISTRY.items():
+            if conv != schema_clock.LOCAL:
+                continue
+            try:
+                cols = {r[1] for r in probe.execute(f'PRAGMA table_xinfo("{table}")')}
+            except sqlite3.Error:
+                continue
+            if column in cols and schema_clock.twin_name(table, column) not in cols:
+                missing_twins += 1
+    finally:
+        probe.close()
+
     if not args.apply:
         say('\n这是 dry-run。加 --apply 才会写入（会先自动备份）。')
+        plan['missing_twins'] = missing_twins
+        plan['needs_work'] = bool(nulls or missing_twins)
+        write_json(Path(args.json), plan)
+        return
+
+    if not nulls and not missing_twins:
+        say('\n没有需要迁移的行，也没有缺失的孪生列 —— 跳过（不产生新备份）。')
+        plan['needs_work'] = False
         write_json(Path(args.json), plan)
         return
 
@@ -103,18 +128,31 @@ def main():
     try:
         rep = timebase.backfill(conn, offset_hours=offset)
         inv = timebase.check_invariant(conn)
+        # 第二步：给其余所有 local 口径的表补 *_utc 生成列（schema_clock 注册表驱动）
+        twins = schema_clock.install(conn, offset=offset)
+        schema = schema_clock.verify(conn)
     finally:
         conn.close()
 
     plan['migration'] = rep
     plan['invariant'] = inv
+    plan['twin_columns'] = twins
+    plan['schema_check'] = {'ok': schema['ok'], 'problems': schema['problems'],
+                            'columns_checked': schema['columns_checked']}
     write_json(Path(args.json), plan)
 
-    say(f"\n写入 {rep['rows']} 行，ts_utc 已补全")
+    say(f"\n历史表：写入 {rep['rows']} 行，ts_utc 已补全")
     say(f"自检：ts_utc 与 created_at 平均相差 {inv['mean_delta_seconds']} 秒"
         f"（最大 {inv['max_delta_seconds']} 秒，容差 {inv['tol_seconds']}）")
-    say('结论：' + ('通过 —— 两条独立来源的 UTC 时间对得上' if inv['ok'] else '未通过 —— 见 json'))
-    if not inv['ok']:
+    say(f"其余表：新增 {len(twins['added'])} 个 UTC 生成列（已存在跳过 "
+        f"{len(twins['skipped'])} 个）")
+    for a in twins['added']:
+        say(f"  + {a['table']}.{a['column']}  ({a.get('modifier', '')})")
+    say(f"口径校验：{schema['columns_checked']} 列，"
+        + ('全部符合登记' if schema['ok'] else f"{len(schema['problems'])} 处问题"))
+    for p in schema['problems']:
+        say(f"  ! {p}")
+    if not inv['ok'] or not schema['ok']:
         sys.exit(2)
 
 

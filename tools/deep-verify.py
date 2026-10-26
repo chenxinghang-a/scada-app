@@ -103,6 +103,18 @@ def cmd_selftest(args) -> dict:
     return {'audit_chain_selftest': rep}
 
 
+def _run(name: str, db: Path):
+    """按 REGISTRY 的输入类型调用检测器（与负向控制共用同一套调用约定）。"""
+    fn, kind = detectors.REGISTRY[name]
+    if kind == 'db':
+        return fn(db)
+    if kind == 'db_anchor':
+        return fn(db, None)
+    if kind == 'none':
+        return fn(None)
+    raise ValueError(f'{name}: 不支持的类型 {kind}')
+
+
 def cmd_all(args) -> dict:
     say('=' * 72)
     say('SmartSCADA 深度校验')
@@ -119,18 +131,33 @@ def cmd_all(args) -> dict:
     say()
 
     db = find_db(args.db)
-    for name, (fn, kind) in detectors.REGISTRY.items():
-        if kind != 'db' or name in ('data_time', 'sec_chain'):
-            continue
+    for name in ('alm_stale', 'alm_priority', 'alm_chattering',
+                 'data_quality', 'timebase_all'):
+        fn, _kind = detectors.REGISTRY[name]
         res = fn(db)
-        say(f'[{name}] {res.verdict.upper()}  {json.dumps(res.metrics, ensure_ascii=False)[:160]}')
+        say(f'[{name}] {res.verdict.upper()}  '
+            f'{json.dumps(res.metrics, ensure_ascii=False)[:160]}')
         out[name] = res.to_dict()
+        write_json(OUT_DIR / f'{name}.json', res.to_dict())
+
+    # 静态口径门禁 + 外部锚点
+    for name in ('clock_lint', 'anchor'):
+        res = _run(name, db)
+        say(f'[{name}] {res.verdict.upper()}  '
+            f'{json.dumps(res.metrics, ensure_ascii=False)[:160]}')
+        for f in res.findings:
+            say(f'  - {f.code if hasattr(f, "code") else f["code"]}: '
+                f'{f.message if hasattr(f, "message") else f["message"]}')
+        out[name] = res.to_dict()
+        write_json(OUT_DIR / f'{name}.json', res.to_dict())
 
     sy = out['timebase']
     io = out['pointtable']
     ch = out['auditchain']
     st = out['audit_chain_selftest']
-    n_ok = sum(1 for r in (sy, io) if r['verdict'] == PASS)
+    tb_all = out['timebase_all']
+    lint = out['clock_lint']
+    n_ok = sum(1 for r in (sy, io, tb_all, lint) if r['verdict'] == PASS)
 
     say()
     if not args.skip_negctl:
@@ -146,17 +173,20 @@ def cmd_all(args) -> dict:
         'field_checks_pass': n_ok,
         'audit_chain_selftest': f"{st.get('passed')}/{st.get('cases')}",
         'audit_chain_field_entries': ch.get('metrics', {}).get('entries'),
+        'anchor_status': out['anchor'].get('metrics', {}).get('status'),
         'negative_control_discriminating': (nc or {}).get('discriminating'),
         'negative_control_total': (nc or {}).get('cases'),
     }
     # 认证口径（写死，不留解释空间）：
-    #   ① 现场检查（时间基准 + 点表）必须 PASS
-    #   ② 负向控制必须 8/8（否则检测器的"通过"没有意义）
-    #   ③ 审计链自证必须 9/9；现场链为空（还没人改过配置）标 INSUFFICIENT 但不阻断，
-    #      因为"没有变更"不是缺陷 —— 机制的有效性由 ③ 的对抗测试承担
+    #   ① 现场检查（时间基准/全表口径/静态门禁/点表）必须 PASS
+    #   ② 负向控制必须 11/11（否则检测器的"通过"没有意义）
+    #   ③ 审计链自证必须 9/9；现场链为空（还没人改过配置）标 INSUFFICIENT 但不阻断——
+    #      "没有变更"不是缺陷，机制有效性由 ③ 的对抗测试承担
+    #   ④ 外部锚点同理：没锚点=INSUFFICIENT（无内容可锚），被截断/重写=FAIL
     certified = bool(nc and nc.get('all_ok')
                      and st.get('all_ok')
-                     and all(v['verdict'] == PASS for v in (sy, io)))
+                     and all(v['verdict'] == PASS for v in (sy, io, tb_all, lint))
+                     and out['anchor']['verdict'] in (PASS, INSUFFICIENT))
     verdict['certification'] = 'CERTIFIED' if certified else 'UNCERTIFIED'
     # 认证的是**证据链**，不是"现场零缺陷"。两者混在一起说的后果是：
     # 为了让报告好看，把真实存在的小缺陷藏起来 —— 那正好毁掉认证的意义。
@@ -166,7 +196,7 @@ def cmd_all(args) -> dict:
         for k, v in out.items()
         if isinstance(v, dict) and v.get('verdict') in (FAIL, INSUFFICIENT)
         and k in ('alm_stale', 'alm_priority', 'alm_chattering', 'data_quality',
-                  'auditchain', 'sec_chain')
+                  'auditchain', 'sec_chain', 'anchor', 'timebase_all', 'clock_lint')
     ]
     verdict['reason'] = ('现场检查全部通过，负向控制证明每个检测器都能失败，'
                         '审计链通过全部篡改对抗用例'

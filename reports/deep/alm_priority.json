@@ -1,0 +1,15 @@
+{
+  "id": "alm_priority",
+  "title": "报警优先级分布",
+  "claim": "ALM-01",
+  "verdict": "insufficient",
+  "metrics": {
+    "total": 0,
+    "distribution": {},
+    "critical_share": 0.0,
+    "min_sample": 30
+  },
+  "findings": [],
+  "ground_truth": "ISA-18.2：critical ≤ 5%；样本 ≥ 30",
+  "sample": 0
+}

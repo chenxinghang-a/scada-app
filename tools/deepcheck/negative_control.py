@@ -131,6 +131,46 @@ def seed_chain(conn: sqlite3.Connection) -> dict:
     return {'seeded': f'篡改 seq={row[0]} 的 diff_json（after 值被改写）'}
 
 
+def seed_time_twin_drop(conn: sqlite3.Connection) -> dict:
+    """删掉 device_status 的孪生列 —— 模拟"某张表没执行迁移" 。"""
+    conn.execute('ALTER TABLE device_status DROP COLUMN ts_utc')
+    conn.commit()
+    cols = {r[1] for r in conn.execute('PRAGMA table_info(device_status)')}
+    return {'seeded': 'device_status.ts_utc 被删除', 'columns': sorted(cols)}
+
+
+def seed_lint_unregistered(root: Path) -> dict:
+    """往扫描根塞一个"新表用了时间列但没登记口径"的文件。"""
+    p = root / '新增_未登记时间口径.py'
+    p.write_text(
+        "DDL = '''\n"
+        "CREATE TABLE IF NOT EXISTS batch_runs (\n"
+        "    id INTEGER PRIMARY KEY,\n"
+        "    batch_no TEXT,\n"
+        "    finished_at DATETIME,\n"
+        "    created_at DATETIME DEFAULT CURRENT_TIMESTAMP\n"
+        ")\n"
+        "'''\n", encoding='utf-8')
+    return {'seeded': f'新增 {p.name}（batch_runs.finished_at 未登记）'}
+
+
+def seed_anchor_truncate(conn: sqlite3.Connection) -> dict:
+    """删掉链的最后两条 —— 链内自洽，只有外部锚点能发现。
+
+    必须按 seq 删，不能按 count 删：``DELETE`` 之后 AUTOINCREMENT 不回落，
+    第 N 条记录的 seq 可能远大于 N。第一版按 count 删，删错了行还自以为对。
+    """
+    seqs = [r[0] for r in conn.execute(
+        'SELECT seq FROM config_change_log ORDER BY seq').fetchall()]
+    if len(seqs) < 3:
+        return {'seeded': '链太短，无法播种'}
+    victims = seqs[-2:]
+    conn.executemany('DELETE FROM config_change_log WHERE seq = ?', [(s,) for s in victims])
+    conn.commit()
+    left = conn.execute('SELECT COUNT(*) FROM config_change_log').fetchone()[0]
+    return {'seeded': f'删除 seq={victims}，剩 {left} 条'}
+
+
 # ---------------------------------------------------------------- 用例表
 
 CASES = [
@@ -198,6 +238,30 @@ CASES = [
         'seed': 'db',
         'seed_fn': seed_chain,
     },
+    {
+        'detector': 'timebase_all',
+        'defect': '某张表没执行迁移（孪生列被删）',
+        'expect_code': 'TB_MISSING_TWIN',
+        'prepare': 'timebase_twins',
+        'seed': 'db',
+        'seed_fn': seed_time_twin_drop,
+    },
+    {
+        'detector': 'clock_lint',
+        'defect': '新增一张表用了 finished_at，但没登记时间口径',
+        'expect_code': 'CLOCK_UNREGISTERED_COLUMN',
+        'prepare': 'lint_tree',
+        'seed': 'lint_root',
+        'seed_fn': seed_lint_unregistered,
+    },
+    {
+        'detector': 'anchor',
+        'defect': '删掉审计链最后两条（链内自洽，只有锚点能发现）',
+        'expect_code': 'ANCHOR_TAIL_TRUNCATED',
+        'prepare': 'chain_fixture',
+        'seed': 'db',
+        'seed_fn': seed_anchor_truncate,
+    },
 ]
 
 
@@ -247,14 +311,41 @@ def _prep_chain_fixture(db: Path, ctx: dict) -> dict:
             mod.record_config_change(conn, actor, section, before, after, ip='127.0.0.1')
         conn.commit()
         rep = mod.verify_chain(conn)
-        return {'entries': rep['entries'], 'ok': rep['ok'], 'head': rep['head_hash']}
+        # 顺手钉一个外部锚点（防尾部截断靠它）
+        from . import anchor as anchor_mod
+        apath = ctx['dir'] / 'audit-anchors.json'
+        anch = anchor_mod.make(conn, apath, note='负向控制夹具')
+        ctx['anchor_path'] = apath
+        return {'entries': rep['entries'], 'ok': rep['ok'], 'head': rep['head_hash'],
+                'anchor': anch.get('anchor', {}).get('anchor_hash', '')[:12]}
     finally:
         conn.close()
+
+
+def _prep_timebase_twins(db: Path, ctx: dict) -> dict:
+    from . import schema_clock
+    conn = connect_rw(db)
+    try:
+        return schema_clock.install(conn)
+    finally:
+        conn.close()
+
+
+def _prep_lint_tree(db: Path, ctx: dict) -> dict:
+    """复制一份 backend/src 作为静态检查的扫描根（播种时往里加坏文件）。"""
+    src = REPO / 'backend' / 'src'
+    dst = ctx['dir'] / 'src_copy'
+    if not dst.exists():
+        shutil.copytree(src, dst, ignore=shutil.ignore_patterns('__pycache__', '*.pyc'))
+    ctx['lint_root'] = dst
+    return {'scanned_root': str(dst)}
 
 
 PREPARES = {
     'alarm_fixture': _prep_alarm_fixture,
     'timebase_migrate': _prep_timebase_migrate,
+    'timebase_twins': _prep_timebase_twins,
+    'lint_tree': _prep_lint_tree,
     'backup_fixture': _prep_backup_fixture,
     'chain_fixture': _prep_chain_fixture,
 }
@@ -270,6 +361,10 @@ def _run_detector(name: str, ctx: dict):
         return fn(ctx['config'])
     if kind == 'file':
         return fn(ctx['backup_path'], ctx.get('backup_baseline'))
+    if kind == 'db_anchor':
+        return fn(ctx['db'], ctx.get('anchor_path'))
+    if kind == 'none':
+        return fn(ctx.get('lint_root'))
     raise ValueError(name)
 
 
@@ -314,6 +409,8 @@ def run(src_db: Path, config_path: Path, out_json: Path, keep_dir: bool = False)
                            encoding='utf-8')
         elif case['seed'] == 'file':
             seed_info = case['seed_fn'](ctx['backup_path'])
+        elif case['seed'] == 'lint_root':
+            seed_info = case['seed_fn'](ctx['lint_root'])
 
         seeded = _run_detector(name, ctx)
 
