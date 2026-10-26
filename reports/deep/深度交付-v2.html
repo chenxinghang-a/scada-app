@@ -37,8 +37,8 @@ table{page-break-inside:avoid}pre{page-break-inside:avoid}}
 </style></head><body><div class="wrap">
 
 <h1>SmartSCADA 深度交付报告</h1>
-<div class="sub">生成时间 2026-10-26T11:48:24　·　
-代码锚点 <code>009411fdd670</code>　·　
+<div class="sub">生成时间 2026-10-26T11:51:32　·　
+代码锚点 <code>997eccd5cf3f</code>　·　
 本页所有数字由 <code>tools/make-deep-report.py</code> 从 JSON 证据自动渲染</div>
 
 <div class="lede">
@@ -153,7 +153,7 @@ integrity_check / backup、<code>hashlib</code>、<code>importlib</code>、<code
 <h2>五、审计链：改了日志也要被发现</h2>
 <table>
 <tr><th style="width:44%">篡改手法</th><th>预期</th><th>实际</th><th>说明</th></tr>
-<tr><td>未篡改：链应通过</td><td>应抓到</td><td>抓到</td><td><span class=small>entries=5, head=4417f7bb1035</span></td></tr><tr><td>篡改第 2 条的值（仅追加一个空格）：应报「记录被修改」</td><td>应抓到</td><td>抓到</td><td><span class=small>entry_hash 与内容不符（记录被修改）</span></td></tr><tr><td>篡改第 3 条的操作人：应被抓到</td><td>应抓到</td><td>抓到</td><td><span class=small>entry_hash 与内容不符（记录被修改）</span></td></tr><tr><td>删除中间一条：应报断号/前哈希不连续</td><td>应抓到</td><td>抓到</td><td><span class=small>prev_hash 不连续（此前的记录被删除或替换）</span></td></tr><tr><td>调换两条的内容：应被抓到</td><td>应抓到</td><td>抓到</td><td><span class=small>entry_hash 与内容不符（记录被修改）</span></td></tr><tr><td>截断最后两条：链内**抓不到**（已知局限，靠外部锚点）</td><td>已知抓不到</td><td>未抓到</td><td><span class=small>链内自洽=True（所以链自己抓不到）；head 从 4417f7bb1035 变为 0b090971fff7，头部哈希变化只能被 git/MANIFEST 这类外部锚点发现</span></td></tr><tr><td>canonical_json 键序无关（否则链会无故断裂）</td><td>应抓到</td><td>抓到</td><td><span class=small>两种键序输出一致=True</span></td></tr><tr><td>同一内容重复保存不产生审计噪音</td><td>应抓到</td><td>抓到</td><td><span class=small>写入=0 条（应为 0）</span></td></tr><tr><td>PUT /api/config 确实带 before/after 调用了审计记录</td><td>应抓到</td><td>抓到</td><td><span class=small>update_config 中 record_config_change 调用参数: [{'before', 'section', 'actor', 'after', 'ip'}]</span></td></tr>
+<tr><td>未篡改：链应通过</td><td>应抓到</td><td>抓到</td><td><span class=small>entries=5, head=aabc9bef5d8f</span></td></tr><tr><td>篡改第 2 条的值（仅追加一个空格）：应报「记录被修改」</td><td>应抓到</td><td>抓到</td><td><span class=small>entry_hash 与内容不符（记录被修改）</span></td></tr><tr><td>篡改第 3 条的操作人：应被抓到</td><td>应抓到</td><td>抓到</td><td><span class=small>entry_hash 与内容不符（记录被修改）</span></td></tr><tr><td>删除中间一条：应报断号/前哈希不连续</td><td>应抓到</td><td>抓到</td><td><span class=small>prev_hash 不连续（此前的记录被删除或替换）</span></td></tr><tr><td>调换两条的内容：应被抓到</td><td>应抓到</td><td>抓到</td><td><span class=small>entry_hash 与内容不符（记录被修改）</span></td></tr><tr><td>截断最后两条：链内**抓不到**（已知局限，靠外部锚点）</td><td>已知抓不到</td><td>未抓到</td><td><span class=small>链内自洽=True（所以链自己抓不到）；head 从 aabc9bef5d8f 变为 b5ffcd795b1b，头部哈希变化只能被 git/MANIFEST 这类外部锚点发现</span></td></tr><tr><td>canonical_json 键序无关（否则链会无故断裂）</td><td>应抓到</td><td>抓到</td><td><span class=small>两种键序输出一致=True</span></td></tr><tr><td>同一内容重复保存不产生审计噪音</td><td>应抓到</td><td>抓到</td><td><span class=small>写入=0 条（应为 0）</span></td></tr><tr><td>PUT /api/config 确实带 before/after 调用了审计记录</td><td>应抓到</td><td>抓到</td><td><span class=small>update_config 中 record_config_change 调用参数: [{'section', 'actor', 'after', 'ip', 'before'}]</span></td></tr>
 </table>
 <p class="small">结论 <span class="tag ok">PASS</span>。
 已知局限已写成用例（第 6 条）：<b>尾部截断在链内自洽</b>，只能靠 head_hash 与
@@ -162,7 +162,7 @@ integrity_check / backup、<code>hashlib</code>、<code>importlib</code>、<code
 <h2>六、未关闭的发现（不藏）</h2>
 <table>
 <tr><th style="width:26%">检查项</th><th>判定</th><th>finding</th></tr>
-<tr><td colspan=3>无</td></tr>
+<tr><td><code>auditchain</code></td><td><span class="tag warn">不可判定</span></td><td><code>CHAIN_EMPTY</code></td></tr><tr><td><code>alm_stale</code></td><td><span class="tag bad">FAIL</span></td><td><code>STALE_ALARM</code></td></tr><tr><td><code>alm_priority</code></td><td><span class="tag warn">不可判定</span></td><td><code></code></td></tr>
 </table>
 <p class="small">1 条报警自 2026-10-23 18:40 起未确认、已陈旧 3 天；报警 KPI 在 24 小时窗口内
 0 条样本，<b>统计上不可判定</b>（不是"达标"）。二者均未代为处理——代签等于伪造运行记录。</p>
@@ -174,7 +174,7 @@ python tools/audit-chain-selftest.py         # 9 个篡改对抗用例
 python tools/evidence-manifest.py --verify   # 核对代码是否就是清单里那份
 python tools/make-deep-report.py             # 重新渲染本页</code></pre>
 <p>清单锚定 <b>17</b> 个关键文件（代码+配置+文档），
-HEAD <code>009411fdd670</code>。
+HEAD <code>997eccd5cf3f</code>。
 <b>若你重跑本页数字不一致，那这些数字就是假的。</b></p>
 
 <footer>

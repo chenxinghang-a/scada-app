@@ -114,16 +114,27 @@ def det_alarm_priority(db: Path) -> Result:
 
 
 def det_alarm_chattering(db: Path) -> Result:
-    """抖动报警：同一报警号在一小时内反复触发，是操作员最痛的点。"""
+    """抖动报警：同一报警号在**一小时内**反复触发。
+
+    ``trigger_count`` 是**累计**计数，不是"这一小时触发了几次"。把累计值按
+    ``last_trigger_time`` 归到某个小时里，会把「两天里触发 21 次」误判成
+    「一小时内 21 次」——这是本检测器第一版真实犯过的错，被现场数据打了出来。
+    因此先用 ``last_trigger_time - timestamp`` 把「触发跨度 ≤1 小时」的行
+    挑出来，跨度更长的行不能参与小时分桶。
+    """
     with connect_ro(db) as conn:
         rows = conn.execute('''
-            SELECT alarm_id,
-                   strftime('%Y-%m-%d %H', COALESCE(last_trigger_time, timestamp)) AS hour,
-                   COUNT(*) AS rows_in_hour,
-                   SUM(COALESCE(trigger_count, 1)) AS triggers
-            FROM alarm_records
-            GROUP BY alarm_id, hour
-            HAVING rows_in_hour > 5 OR triggers > 10
+            SELECT alarm_id, hour, rows_in_hour, triggers FROM (
+                SELECT alarm_id,
+                       strftime('%Y-%m-%d %H', COALESCE(last_trigger_time, timestamp)) AS hour,
+                       COUNT(*) AS rows_in_hour,
+                       SUM(COALESCE(trigger_count, 1)) AS triggers
+                FROM alarm_records
+                WHERE (julianday(COALESCE(last_trigger_time, timestamp))
+                       - julianday(timestamp)) * 24 <= 1.0
+                GROUP BY alarm_id, hour
+            )
+            WHERE rows_in_hour > 5 OR triggers > 5
             ORDER BY triggers DESC
         ''').fetchall()
 
@@ -131,19 +142,25 @@ def det_alarm_chattering(db: Path) -> Result:
     if rows:
         findings.append(Finding(
             'ALARM_CHATTERING',
-            f'{len(rows)} 个「报警号 × 小时」组合触发过密（>5 行或 >10 次）',
+            f'{len(rows)} 个「报警号 × 小时」组合在一小时内触发过密（>5 次）',
             'warning', len(rows), {'buckets': [dict(r) for r in rows[:10]]}))
 
     with connect_ro(db) as conn:
         total = conn.execute('SELECT COUNT(*) FROM alarm_records').fetchone()[0]
 
-    verdict = PASS if not rows else FAIL
-    if total < MIN_ALARM_SAMPLE:
+    # 抖动是"存在性"判断，不是统计量：一条报警在 1 小时内跳 8 次就是缺陷，
+    # 不需要"样本 ≥30 条"才敢说。所以这里不套 MIN_ALARM_SAMPLE。
+    if rows:
+        verdict = FAIL
+    elif total == 0:
         verdict = INSUFFICIENT
+    else:
+        verdict = PASS
     return Result(
         id='alm_chattering', title='抖动报警', claim='ALM-02',
         verdict=verdict,
-        metrics={'alarms_total': total, 'chattering_buckets': len(rows)},
+        metrics={'alarms_total': total, 'chattering_buckets': len(rows),
+                 'scope': '触发跨度 ≤1 小时的行参与分桶（累计计数不可按小时摊）'},
         findings=findings,
         ground_truth='ISA-18.2：Top10 频繁报警应 < 总报警的 10%',
         sample=total,

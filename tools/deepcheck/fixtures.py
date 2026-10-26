@@ -41,7 +41,12 @@ def build_alarm_population(conn: sqlite3.Connection, seed: int = 20261026) -> di
 
     rows = []
     for i in range(N_ALARMS):
-        ts = now - timedelta(minutes=rnd.randint(5, 20 * 60))
+        # 时间按「槽位」排开：每轮 20 条（覆盖 20 个报警号）占 2 小时，
+        # 同号最多每小时 1 条。若像第一版那样随机撒在 20 小时里，
+        # 就会出现某个号偶然挤进同一小时 ≥6 条 —— 抖动检测器报"抖动"，
+        # 而那是合成样本的取样偏差，不是被测系统的缺陷。夹具本身不能制造假阳性。
+        slot = i // len(ALARM_IDS)
+        ts = now - timedelta(hours=slot * 2 + 1, minutes=rnd.randint(0, 50))
         ack = i >= N_UNACK
         ack_at = (ts + timedelta(minutes=rnd.randint(1, 9))) if ack else None
         rows.append((

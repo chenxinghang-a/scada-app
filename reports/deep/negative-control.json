@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-10-26T11:48:24",
+  "generated_at": "2026-10-26T11:51:32",
   "source_db": "C:\\Users\\cxx\\scada-app\\tests\\fixtures\\evidence.db",
   "snapshot_size_mb": 2.3,
   "cases": 8,
@@ -93,7 +93,8 @@
       ],
       "seeded_metrics": {
         "alarms_total": 208,
-        "chattering_buckets": 1
+        "chattering_buckets": 1,
+        "scope": "触发跨度 ≤1 小时的行参与分桶（累计计数不可按小时摊）"
       },
       "prepare": {
         "total": 200,
@@ -248,9 +249,9 @@
         "BACKUP_CORRUPT"
       ],
       "seeded_metrics": {
-        "file": "C:\\Users\\cxx\\AppData\\Local\\Temp\\scada-negctl-5dbugepw\\ops_backup\\backup.db",
-        "size": 2396160,
-        "integrity": "*** in database main ***\nTree 5 page 293 cell 18: invalid page number 1208614937\nTree 5 page 293 cell 17: Rowid 6555972108016934573 out of order\nTree 5 page 293 cell 17: invalid page number 842411313\nTree 5 page 293 cell 16: Rowid 9060946509237792190 out of order\nTree 5 page 293 cell 16: invalid page number 1702256432\nTree 5 page 293 cell 15: invalid page number 908931376\nTree 5 page 293 cell 14: Rowid -2343723461264359697 out of order\nTree 5 page 293 cell 14: invalid page number 908931376\nTree 5 page 293 cell 13: Rowid 9928 out of order\nMultiple uses for byte 2184 of page 293",
+        "file": "C:\\Users\\cxx\\AppData\\Local\\Temp\\scada-negctl-g0sy0nt0\\ops_backup\\backup.db",
+        "size": 2404352,
+        "integrity": "*** in database main ***\nTree 5 page 294 cell 17: invalid page number 946234725\nTree 5 page 294 cell 16: Rowid 6555972108016934573 out of order\nTree 5 page 294 cell 16: invalid page number 571080729\nTree 5 page 294 cell 15: invalid page number 1918856293\nTree 5 page 294 cell 14: Rowid 6555972108016934573 out of order\nTree 5 page 294 cell 14: invalid page number 862217590\nMultiple uses for byte 2228 of page 294",
         "counts": {
           "history_data": 20000,
           "realtime_data": 50,
@@ -265,7 +266,7 @@
         }
       },
       "prepare": {
-        "backup": "C:\\Users\\cxx\\AppData\\Local\\Temp\\scada-negctl-5dbugepw\\ops_backup\\backup.db",
+        "backup": "C:\\Users\\cxx\\AppData\\Local\\Temp\\scada-negctl-g0sy0nt0\\ops_backup\\backup.db",
         "counts": {
           "history_data": 20000,
           "realtime_data": 50,
@@ -276,8 +277,8 @@
       },
       "seed": {
         "seeded": "备份文件中部 512 字节被写坏（文件仍可打开）",
-        "size": 2396160,
-        "offset": 1198080
+        "size": 2404352,
+        "offset": 1202176
       },
       "discriminating": true,
       "verdict": "OK"
@@ -297,12 +298,12 @@
       ],
       "seeded_metrics": {
         "entries": 5,
-        "head_hash": "cfdc78affebd52d8c8b27e8a379002d077309efea4e56a1be4e3dccd7f016f39"
+        "head_hash": "229d3ff14536c21829eb803b56525636123fd345bb16fa3912a235ee5c89c1d8"
       },
       "prepare": {
         "entries": 5,
         "ok": true,
-        "head": "cfdc78affebd52d8c8b27e8a379002d077309efea4e56a1be4e3dccd7f016f39"
+        "head": "229d3ff14536c21829eb803b56525636123fd345bb16fa3912a235ee5c89c1d8"
       },
       "seed": {
         "seeded": "篡改 seq=8 的 diff_json（after 值被改写）"

@@ -1,6 +1,6 @@
 {
-  "generated_at": "2026-10-26T11:50:40",
-  "git_head": "997eccd5cf3f85fb3798862e6dbaedfa93903179",
+  "generated_at": "2026-10-26T11:51:32",
+  "git_head": "badff869dba41a203b10aace259f6cd5c6e73aad",
   "git_dirty": true,
   "python": "3.14.3",
   "platform": "win32",
@@ -50,12 +50,12 @@
       "size": 4672
     },
     "tools/deepcheck/detectors.py": {
-      "sha256": "bccc75dad080413109963c43c0616037239ba535d2bcf6b60c76b9f00b6281f2",
-      "size": 17463
+      "sha256": "4bace7662b2980ec61454a8fdf618e3540f87e88218d6c9504afcbac80b10b8e",
+      "size": 18455
     },
     "tools/deepcheck/fixtures.py": {
-      "sha256": "8904fd39d7ff1851cb75964dc4244cc7b1cc9a20ea512e4b1d5771c59d4fefaa",
-      "size": 3668
+      "sha256": "5091f7ffc1e34dbfc95bf3810aec3481d2e39bd7f9fc13d6c635a14950bda967",
+      "size": 4123
     },
     "tools/deepcheck/negative_control.py": {
       "sha256": "e82d695403733a8c4d0bbfd0cc24b80a9dc77bb376d2df7d0ce9f5d003a83d15",
