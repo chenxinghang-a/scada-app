@@ -17,7 +17,9 @@ import random
 import re
 import time
 
-INT_RE = re.compile(r'(count|quantity|number|code|shot|total|program)', re.I)
+# ⚠️ 不要把 'total' 放进来：power_factor_total / flow_total / energy_total 都是浮点，
+#    第一版放了，结果功率因数被兜底成 791（整数兜底 100~899）。
+INT_RE = re.compile(r'(count|quantity|number|code|shot|program)', re.I)
 ENUM_RE = re.compile(r'(status|state|mode|level_code|fault)', re.I)
 ID_RE = re.compile(r'(tool|program_number|current_tool)', re.I)
 
@@ -60,6 +62,16 @@ NAME_BAND = [
 ]
 
 
+#: 物理硬边界（与 tools/deepcheck/physical.py 同源，但这里用于**生成时就夹住**）。
+#: 生成端夹住比事后检测更好：检测只能告诉你"数据坏了"，夹住能让数据一开始就不坏。
+CLAMP = [
+    (re.compile(r'power_factor|cos_?phi', re.I), 0.0, 1.0),
+    (re.compile(r'(oxygen|(^|_)o2($|_))', re.I), 0.0, 21.0),
+    (re.compile(r'(^|_)ph($|_)|ph_value', re.I), 0.0, 14.0),
+]
+
+
+
 def plausible(name: str, unit: str = '', seed_phase: float | None = None):
     """给一个"物理上说得过去"的模拟值。
 
@@ -77,6 +89,13 @@ def plausible(name: str, unit: str = '', seed_phase: float | None = None):
         # 但又不能每拍都变（那是抖动）。按 ~3 分钟一个台阶切换。
         step = int(phase // 6)
         return int((abs(hash(n)) // 7 + step) % 4)
+    # 物理硬边界的量永远不是"整数语义"：先看工况带（更贴合），再退回硬边界
+    for _rx, _band in NAME_BAND:
+        if _rx.search(n):
+            return round(_band[0] + (_band[1] - _band[0]) * wobble, 4)
+    for _rx, _lo, _hi in CLAMP:
+        if _rx.search(n):
+            return round(_lo + (_hi - _lo) * wobble, 4)
     if INT_RE.search(n) or ID_RE.search(n):
         lo, hi = 1.0, 999.0
         for rx, band in NAME_BAND:
@@ -94,15 +113,6 @@ def plausible(name: str, unit: str = '', seed_phase: float | None = None):
         lo, hi = UNIT_BAND.get((unit or '').strip(), (40.0, 80.0))
 
     return round(lo + (hi - lo) * wobble, 2)
-
-
-#: 物理硬边界（与 tools/deepcheck/physical.py 同源，但这里用于**生成时就夹住**）。
-#: 生成端夹住比事后检测更好：检测只能告诉你"数据坏了"，夹住能让数据一开始就不坏。
-CLAMP = [
-    (re.compile(r'power_factor|cos_?phi', re.I), 0.0, 1.0),
-    (re.compile(r'(oxygen|(^|_)o2($|_))', re.I), 0.0, 21.0),
-    (re.compile(r'(^|_)ph($|_)|ph_value', re.I), 0.0, 14.0),
-]
 
 
 def clamp_value(name: str, value):

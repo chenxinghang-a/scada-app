@@ -232,6 +232,16 @@ def _prep_coverage_cfg(db: Path, ctx: dict) -> dict:
     try:
         _write_recent(conn, [(f'cov_dev{i}', f'r{i}{s}', 1.0)
                              for i in range(3) for s in ('a', 'b')])
+        # 另给 cov_dev0 补一条**历史**行：播种时只清"最近窗口"，
+        # 它仍然"历史上出现过"，于是能判出"在采但采不全"，而不是"没部署"。
+        old = datetime.now() - timedelta(days=1)
+        old_utc = old - timedelta(hours=8)
+        conn.execute('''
+            INSERT INTO history_data (device_id, register_name, value, unit, timestamp, ts_utc, created_at)
+            VALUES ('cov_dev0','r0a',1.0,'x',?,?,?)
+        ''', (old.strftime('%Y-%m-%d %H:%M:%S.%f'),
+              old_utc.strftime('%Y-%m-%d %H:%M:%S'), old_utc.strftime('%Y-%m-%d %H:%M:%S')))
+        conn.commit()
     finally:
         conn.close()
     ctx['devices_cfg'] = cfg
@@ -240,11 +250,15 @@ def _prep_coverage_cfg(db: Path, ctx: dict) -> dict:
 
 def seed_coverage_gap(conn: sqlite3.Connection) -> dict:
     """删掉一台设备的全部近期数据 —— 模拟"这台设备只采到第一个点"。"""
-    conn.execute("DELETE FROM history_data WHERE device_id = 'cov_dev0'")
+    # 只清"最近窗口内"的数据：设备历史上出现过、但最近一轮没采上来，
+    # 这才是"采不全"。整台设备删干净会让它变成"没部署"，反而判不出来。
+    conn.execute("DELETE FROM history_data WHERE device_id = 'cov_dev0' "
+                 "AND created_at >= datetime((SELECT MAX(created_at) FROM history_data), "
+                 "'-10 minutes')")
     conn.commit()
     left = conn.execute("SELECT COUNT(DISTINCT register_name) FROM history_data "
                         "WHERE device_id='cov_dev0'").fetchone()[0]
-    return {'seeded': 'cov_dev0 的 2 个点全部删除', 'left': left}
+    return {'seeded': 'cov_dev0 最近窗口内的 2 个点被清空（历史保留）', 'left': left}
 
 
 def _prep_alarm_cfg(db: Path, ctx: dict) -> dict:

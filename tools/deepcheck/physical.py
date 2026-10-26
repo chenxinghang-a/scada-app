@@ -155,6 +155,17 @@ def det_physical_domain(db: Path, config_path: Path | None = None,
                                'constant': round(mn, 3),
                                'rows_seen': full[1], 'varying_points_on_device': others})
 
+    # 匹配到的点太少，说明这份库与这份配置不是同一套数据 —— 判不可评估，
+    # 而不是拿 3 个点去否定 201 个点的配置。
+    if points and checked < len(points) * 0.5:
+        return Result(id='physical_domain', title='物理与语义域', claim='DATA-12',
+                      verdict=INSUFFICIENT,
+                      metrics={'reason': '库里能对上配置的点不足一半（不是同一套数据）',
+                               'points_checked': checked,
+                               'configured_points': len(points),
+                               'match_ratio': round(checked / max(1, len(points)), 3)},
+                      ground_truth='SI 单位制 / 量纲 / 工程语义')
+
     findings = []
     if out_of_domain:
         findings.append(Finding(

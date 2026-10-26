@@ -48,6 +48,8 @@ INCLUDE = [
     'tools/audit-chain-selftest.py',
     'tools/audit-anchor.py',
     'tools/write-readback-check.py',
+    'tools/check-mechanism.py',
+    '.github/workflows/deep-verify.yml',
     'tools/make-deep-report.py',
     'tools/deepcheck/anchor.py',
     'tools/deepcheck/clock_lint.py',

@@ -78,11 +78,26 @@ def det_point_coverage(db: Path, config_path: Path | None = None,
     for r in rows:
         present.setdefault(r['device_id'], set()).add(r['register_name'])
 
-    gaps, per_dev = [], []
+    # 库里从来没出现过这台设备 → 可能是没部署 / 这份库不属于这份配置，
+    # 不能判"采不全"。只有"历史上有数据、最近窗口里缺"才是真缺口。
+    with connect_ro(db) as c0:
+        ever = {r[0] for r in c0.execute('SELECT DISTINCT device_id FROM history_data')}
+    overlap = [d for d in devices if d['id'] in ever]
+    if not overlap:
+        return Result(id='point_coverage', title='点位采集覆盖率（配置 vs 实际入库）',
+                      claim='DATA-11', verdict=INSUFFICIENT,
+                      metrics={'reason': '库里的设备与这份设备配置没有任何交集（不是同一套数据）',
+                               'configured_devices': len(devices), 'db_devices': len(ever)},
+                      ground_truth='配置点位 vs 最近窗口实际入库点位')
+
+    gaps, per_dev, undeployed = [], [], []
     cfg_total = got_total = 0
     for dev in devices:
         want = _points_of(dev)
         if not want:
+            continue
+        if dev['id'] not in ever:
+            undeployed.append({'device': dev['id'], 'configured': len(want)})
             continue
         have = present.get(dev['id'], set())
         hit = [n for n in want if n in have]
@@ -111,7 +126,8 @@ def det_point_coverage(db: Path, config_path: Path | None = None,
         id='point_coverage', title='点位采集覆盖率（配置 vs 实际入库）', claim='DATA-11',
         verdict=PASS if not findings else FAIL,
         metrics={'window_minutes': window_minutes, 'anchor': anchor,
-                 'devices': len(per_dev), 'configured_points': cfg_total,
+                 'devices': len(per_dev), 'undeployed_devices': len(undeployed),
+                 'configured_points': cfg_total,
                  'collected_points': got_total,
                  'coverage': round(overall, 4), 'min_ratio': COVERAGE_MIN,
                  'by_device': per_dev},
@@ -127,7 +143,7 @@ def det_alarm_coverage(db: Path, alarms_path: Path | None = None,
     cfg_path = Path(alarms_path) if alarms_path else DEFAULT_ALARMS
     rules = [r for r in (_load(cfg_path).get('alarm_rules') or []) if r.get('enabled', True)]
 
-    no_data, missed, unreachable, alive = [], [], [], []
+    no_data, missed, unreachable, alive, _unassessable = [], [], [], [], []
     with connect_ro(db) as conn:
         lo, anchor = _window_bounds(conn, window_minutes)
         if lo is None:
@@ -142,7 +158,10 @@ def det_alarm_coverage(db: Path, alarms_path: Path | None = None,
                 FROM history_data WHERE device_id = ? AND register_name = ? AND created_at >= ?
             ''', (r['device_id'], r['register_name'], lo)).fetchone()
             if not row or not row['n']:
-                no_data.append({'rule': r['id'], 'point': f"{r['device_id']}/{r['register_name']}"})
+                dev_has = conn.execute('SELECT 1 FROM history_data WHERE device_id = ? LIMIT 1',
+                                       (r['device_id'],)).fetchone()
+                (no_data if dev_has else _unassessable).append(
+                    {'rule': r['id'], 'point': f"{r['device_id']}/{r['register_name']}"})
                 continue
 
             mn, mx, th = row['mn'], row['mx'], float(r['threshold'])
@@ -164,6 +183,12 @@ def det_alarm_coverage(db: Path, alarms_path: Path | None = None,
                                     'level': r.get('level')})
 
     findings = []
+    if _unassessable and len(_unassessable) == len(rules):
+        return Result(id='alarm_coverage', title='报警规则有效性', claim='ALM-06',
+                      verdict=INSUFFICIENT,
+                      metrics={'reason': '规则指向的设备在这份库里完全没有数据（不是同一套数据）',
+                               'rules': len(rules)},
+                      ground_truth='alarms.yaml 阈值 × history_data 值域 × alarm_records')
     if missed:
         findings.append(Finding(
             'ALARM_MISSED',
@@ -193,7 +218,8 @@ def det_alarm_coverage(db: Path, alarms_path: Path | None = None,
         verdict=verdict,
         metrics={'window_minutes': window_minutes, 'anchor': anchor,
                  'rules': len(rules), 'alive': len(alive), 'missed': len(missed),
-                 'no_data': len(no_data), 'unreachable': len(unreachable),
+                 'no_data': len(no_data), 'unassessable': len(_unassessable),
+                 'unreachable': len(unreachable),
                  'alive_rules': [a['rule'] for a in alive],
                  'unreachable_rules': [u['rule'] for u in unreachable]},
         findings=findings,

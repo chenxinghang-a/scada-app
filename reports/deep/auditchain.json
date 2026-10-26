@@ -2,20 +2,12 @@
   "id": "sec_chain",
   "title": "配置变更审计链",
   "claim": "SEC-03",
-  "verdict": "insufficient",
+  "verdict": "pass",
   "metrics": {
-    "entries": 0,
-    "head_hash": null
+    "entries": 5,
+    "head_hash": "cc8ba6fd58cab4b8390877636a6a3850842bb4cc225a1392910a275cb73050c4"
   },
-  "findings": [
-    {
-      "code": "CHAIN_EMPTY",
-      "message": "审计链为空 —— 要么没发生变更，要么变更没被记录",
-      "severity": "info",
-      "count": 0,
-      "detail": {}
-    }
-  ],
+  "findings": [],
   "ground_truth": "SHA-256 哈希链自校验（密码学，不需要信任实现者）",
-  "sample": 0
+  "sample": 5
 }

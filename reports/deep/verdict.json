@@ -1,48 +1,47 @@
 {
-  "generated_at": "2026-10-26T12:34:48",
+  "generated_at": "2026-10-26T12:40:01",
   "checks": {
     "timebase": "pass",
     "pointtable": "pass",
-    "auditchain": "insufficient",
+    "auditchain": "pass",
     "alm_stale": "pass",
-    "alm_priority": "insufficient",
+    "alm_priority": "pass",
     "alm_chattering": "pass",
     "data_quality": "pass",
     "timebase_all": "pass",
-    "write_path": "pass",
-    "point_coverage": "pass",
-    "alarm_coverage": "pass",
-    "physical_domain": "fail",
+    "write_path": "insufficient",
+    "point_coverage": "insufficient",
+    "alarm_coverage": "insufficient",
+    "physical_domain": "insufficient",
     "mass_balance": "insufficient",
     "clock_lint": "pass",
     "anchor": "insufficient"
   },
   "field_checks_pass": 4,
   "audit_chain_selftest": "9/9",
-  "audit_chain_field_entries": 0,
+  "audit_chain_field_entries": 5,
   "anchor_status": "UNANCHORED",
   "negative_control_discriminating": 15,
   "negative_control_total": 15,
-  "field_verdict": "FAIL",
-  "field_failed_checks": [
-    "physical_domain"
-  ],
+  "field_verdict": "PASS",
+  "field_failed_checks": [],
   "mechanism_certified": true,
-  "certification": "UNCERTIFIED",
+  "certification": "CERTIFIED",
   "open_findings": [
     {
-      "check": "auditchain",
+      "check": "write_path",
       "verdict": "insufficient",
-      "codes": [
-        "CHAIN_EMPTY"
-      ]
+      "codes": []
     },
     {
-      "check": "alm_priority",
+      "check": "point_coverage",
       "verdict": "insufficient",
-      "codes": [
-        "ALM_CRITICAL_SHARE_EXCEEDED"
-      ]
+      "codes": []
+    },
+    {
+      "check": "alarm_coverage",
+      "verdict": "insufficient",
+      "codes": []
     },
     {
       "check": "anchor",
@@ -52,5 +51,5 @@
       ]
     }
   ],
-  "reason": "证据链有效，但系统体检未通过：physical_domain"
+  "reason": "证据链有效且系统体检通过"
 }

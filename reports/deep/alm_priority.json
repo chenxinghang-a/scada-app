@@ -2,28 +2,18 @@
   "id": "alm_priority",
   "title": "报警优先级分布",
   "claim": "ALM-01",
-  "verdict": "insufficient",
+  "verdict": "pass",
   "metrics": {
-    "total": 1,
+    "total": 200,
     "distribution": {
-      "critical": 1
+      "critical": 4,
+      "info": 156,
+      "warning": 40
     },
-    "critical_share": 1.0,
+    "critical_share": 0.02,
     "min_sample": 30
   },
-  "findings": [
-    {
-      "code": "ALM_CRITICAL_SHARE_EXCEEDED",
-      "message": "critical 占比 100.0% 超过 5%（1/1）",
-      "severity": "warning",
-      "count": 1,
-      "detail": {
-        "distribution": {
-          "critical": 1
-        }
-      }
-    }
-  ],
+  "findings": [],
   "ground_truth": "ISA-18.2：critical ≤ 5%；样本 ≥ 30",
-  "sample": 1
+  "sample": 200
 }

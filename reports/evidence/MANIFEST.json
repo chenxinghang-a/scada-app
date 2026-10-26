@@ -1,7 +1,7 @@
 {
-  "generated_at": "2026-10-26T12:35:07",
-  "git_head": "1a64dfb3230ca2571bddc4843b71ad2fecf0b65d",
-  "git_dirty": false,
+  "generated_at": "2026-10-26T12:40:30",
+  "git_head": "7bcf0c916551e16878f8211afd717dfcf07391cf",
+  "git_dirty": true,
   "python": "3.14.3",
   "platform": "win32",
   "files": {
@@ -30,8 +30,8 @@
       "size": 40234
     },
     "backend/src/采集层/sim_semantics.py": {
-      "sha256": "f17c620bcfa2b25c6ab9589febdc262c08fd3cd9e4fef7311458501ff0a683e8",
-      "size": 4803
+      "sha256": "d02b5fd14756df271e777db37919843c8948111e87756778f05e9bd497ac6f62",
+      "size": 5349
     },
     "backend/src/用户层/auth.py": {
       "sha256": "94ec3a2af2bc5d68b44335b1aba0d92df13d9124a3d8ee78f97abf6a8ee63b43",
@@ -65,6 +65,14 @@
       "sha256": "5210add8965a3d24c93cb8c941ba1cf55ac1751a5c4b1d68e17452721e0995b0",
       "size": 2813
     },
+    "tools/check-mechanism.py": {
+      "sha256": "dd5ed2312b4662aef141e89a28f217a2fcfd6380d5b60cfa7c5cb68b4e501d28",
+      "size": 1638
+    },
+    ".github/workflows/deep-verify.yml": {
+      "sha256": "6b93e6f172ad94b26565c3a582b4350f0cf9929e36327761171e04a199920db8",
+      "size": 2595
+    },
     "tools/make-deep-report.py": {
       "sha256": "751941aa050ca31e8eef4a0ccfcae247eb190e3a7071c59ed9a8acb6e27a087c",
       "size": 24610
@@ -82,8 +90,8 @@
       "size": 4672
     },
     "tools/deepcheck/coverage.py": {
-      "sha256": "7705f07090690ba998f4106912fdc1afcb72ebd1c03cc947434f8e6b1f967b59",
-      "size": 9835
+      "sha256": "a1e700860676c4e634c152c191f22abbc386b3976b5d338ac02656b81556ad41",
+      "size": 11685
     },
     "tools/deepcheck/detectors.py": {
       "sha256": "c249a148507cf1a3f8321928f03466600ccc83c1736f22a42154a07d159cdbaf",
@@ -94,12 +102,12 @@
       "size": 4123
     },
     "tools/deepcheck/negative_control.py": {
-      "sha256": "99f23d5d1b27e5eb8ec337c534df422414e6fbc60bf829988e13aba9076368f2",
-      "size": 27029
+      "sha256": "3d00c715dcbc8787c930a542e70f0664960b357dbca5d4246476480767a61e2f",
+      "size": 28031
     },
     "tools/deepcheck/physical.py": {
-      "sha256": "2475e6f867fec9a8391e76fcd6aa9ea8322105a34a8695c3fbb40aecca1fc765",
-      "size": 12478
+      "sha256": "c50d584ffceda92e05fdf4b5a35578ab59e219dfb551439443c016de81415286",
+      "size": 13235
     },
     "tools/deepcheck/pointtable.py": {
       "sha256": "b9dff4698b31c433b8277e88b23b288747cc3c09d9440d33a3891c21bfc2f36a",
@@ -118,11 +126,11 @@
       "size": 20126
     },
     "docs/深度-专家会做什么.md": {
-      "sha256": "1321540efec72c4a6f8f7cec095afa8ae59a0e0c6eb1890d27ba179f1a58fcaa",
-      "size": 27110
+      "sha256": "9d05756d0a80fa298de071e61a6a8db4e72d76ad208861dc4545a0e6a443b648",
+      "size": 28849
     }
   },
-  "file_count": 29,
+  "file_count": 31,
   "missing": [],
   "reproduce": [
     "python tools/make-evidence-fixture.py",

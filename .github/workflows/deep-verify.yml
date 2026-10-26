@@ -1,0 +1,63 @@
+name: Deep Verify（证据链）
+
+# 为什么单独一条流水线：
+# 前端 CI 只保证"能编译、单测过"。本项目真正的交付物是**可复核的证据**
+# （负向控制矩阵、时间口径、点表差分、审计链自证…）。这些东西一旦被改坏，
+# 前端 CI 是绿的、大屏也照常打开，只有评审时才会发现"检查已经不成立了"。
+#
+# 这条流水线只做一件事：**证明证据链本身没坏**。
+# 它不替系统好坏背书（系统体检结论见 verdict.json 的 field_verdict），
+# 因为"系统有问题"是业务事实，"检查失灵"才是工程事故。
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  evidence-chain:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      # deep-verify 只用标准库 + PyYAML；刻意不依赖 pytest / Flask，
+      # 因为"验收现场装不上 pip"是常态，CI 也不该比现场更挑剔。
+      - name: 安装最小依赖
+        run: python -m pip install --quiet pyyaml
+
+      # 运行库被 .gitignore 排除，CI 里没有现场数据 —— 所以跑在**夹具**上。
+      # 夹具是固定种子生成的，任何人任何机器得到同一份，这正是它的用途。
+      - name: 生成可复现夹具
+        run: python tools/make-evidence-fixture.py
+
+      - name: 深度校验（负向控制 + 全部检测器）
+        run: python tools/deep-verify.py all --db tests/fixtures/evidence.db
+
+      - name: 审计链篡改对抗自证
+        run: python tools/audit-chain-selftest.py
+
+      # 判据只有一条：**检测器必须能失败**。机制坏了直接红；
+      # 系统体检的结论（field_verdict）只作为提示打印，不阻断 ——
+      # 那属于业务缺陷，应该在报告里看，而不是让 CI 替它下结论。
+      # 判据只有一条：**检测器必须能失败**。机制坏了直接红；
+      # 系统体检的结论（field_verdict）只作为 warning 打印，不阻断 ——
+      # 那属于业务缺陷，应该在报告里看，而不是让 CI 替它下结论。
+      - name: 判定证据链是否成立
+        run: python tools/check-mechanism.py
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: deep-verify-evidence
+          path: |
+            reports/deep/
+            reports/evidence/
+          retention-days: 30

@@ -2,15 +2,15 @@
   "id": "write_path",
   "title": "写入路径体检（最近写入的行）",
   "claim": "DATA-03",
-  "verdict": "pass",
+  "verdict": "insufficient",
   "metrics": {
     "window_minutes": 30,
-    "recent_rows": 52388,
+    "recent_rows": 0,
     "null_ts_utc": 0,
     "skewed_rows": 0,
-    "max_skew_seconds": 452.2
+    "max_skew_seconds": null
   },
   "findings": [],
   "ground_truth": "回填不可作为写入路径的证据；只看最近 N 分钟由应用写入的行",
-  "sample": 52388
+  "sample": 0
 }

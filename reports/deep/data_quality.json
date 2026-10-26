@@ -4,9 +4,9 @@
   "claim": "DATA-01",
   "verdict": "pass",
   "metrics": {
-    "points": 229,
+    "points": 50,
     "distribution": {
-      "192": 229
+      "192": 50
     },
     "bad": 0,
     "unknown": 0,
@@ -14,5 +14,5 @@
   },
   "findings": [],
   "ground_truth": "OPC UA StatusCode：192=Good；坏值必须可数、可见",
-  "sample": 229
+  "sample": 50
 }

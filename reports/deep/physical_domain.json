@@ -1,99 +1,15 @@
 {
   "id": "physical_domain",
-  "title": "物理与语义域（量纲 / 整数语义 / 状态是否在变）",
+  "title": "物理与语义域",
   "claim": "DATA-12",
-  "verdict": "fail",
+  "verdict": "insufficient",
   "metrics": {
-    "window_minutes": 15,
-    "anchor": "2026-10-26 04:34:39",
-    "points_checked": 201,
-    "out_of_domain": 1,
-    "suspect_range": 1,
-    "non_integer": 1,
-    "frozen_status": 1
+    "reason": "库里能对上配置的点不足一半（不是同一套数据）",
+    "points_checked": 5,
+    "configured_points": 201,
+    "match_ratio": 0.025
   },
-  "findings": [
-    {
-      "code": "PHYS_OUT_OF_DOMAIN",
-      "message": "1 个点的取值超出物理可能区间",
-      "severity": "critical",
-      "count": 1,
-      "detail": {
-        "points": [
-          {
-            "device": "power_meter_sub_01",
-            "point": "power_factor_total",
-            "unit": "",
-            "observed": [
-              0.0,
-              791.0
-            ],
-            "allowed": [
-              0.0,
-              1.0
-            ],
-            "why": "功率因数定义域 0~1"
-          }
-        ]
-      }
-    },
-    {
-      "code": "PHYS_NON_INTEGER_ENUM",
-      "message": "1 个整数/枚举语义的点出现小数或取值过多",
-      "severity": "critical",
-      "count": 1,
-      "detail": {
-        "points": [
-          {
-            "device": "cnc_mazak_01",
-            "point": "alarm_code",
-            "observed": [
-              27.0,
-              998.0
-            ],
-            "distinct": 96,
-            "why": "枚举量出现 96 种取值（应 ≤16）"
-          }
-        ]
-      }
-    },
-    {
-      "code": "PHYS_SUSPECT_RANGE",
-      "message": "1 个百分比点位实测超出 0~100（物理上可能是过载，但更像是标定/量纲错）",
-      "severity": "warning",
-      "count": 1,
-      "detail": {
-        "points": [
-          {
-            "device": "cnc_mazak_01",
-            "point": "feed_override",
-            "observed": [
-              60.0,
-              120.0
-            ],
-            "why": "% 类点位实测超出 0~100（过载还是标定错？需要工艺确认）"
-          }
-        ]
-      }
-    },
-    {
-      "code": "PHYS_STATUS_FROZEN",
-      "message": "1 个状态量在整段数据里只有一个取值 —— OEE 可用率没有输入",
-      "severity": "warning",
-      "count": 1,
-      "detail": {
-        "points": [
-          {
-            "device": "delta_dvp_01",
-            "point": "packing_status",
-            "constant": 2.0,
-            "rows_seen": 101,
-            "varying_points_on_device": 4
-          }
-        ]
-      }
-    }
-  ],
-  "ground_truth": "SI 单位制 / 量纲定义 / 工程语义；不依赖项目自身的阈值配置",
-  "sample": 201
+  "findings": [],
+  "ground_truth": "SI 单位制 / 量纲 / 工程语义",
+  "sample": 0
 }
