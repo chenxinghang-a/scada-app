@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-10-26T13:03:34",
+  "generated_at": "2026-10-26T13:08:10",
   "checks": {
     "timebase": "pass",
     "pointtable": "pass",
@@ -14,7 +14,7 @@
     "alarm_coverage": "pass",
     "physical_domain": "pass",
     "mass_balance": "insufficient",
-    "subject": "pass",
+    "subject": "insufficient",
     "clock_lint": "pass",
     "anchor": "insufficient"
   },

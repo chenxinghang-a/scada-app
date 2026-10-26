@@ -15,6 +15,44 @@
 | 系统配置 | 系统/采集/数据库/报警规则/能源费率配置 | ✅ |
 | 用户管理 | 用户CRUD、角色权限、操作日志 | ✅ |
 
+## 交付证据：这个项目怎么证明自己是对的
+
+功能表只能说明"有这些页面"，不能说明"它们是对的"。本项目另外交付了一层
+**可被第三方复核的证据**，核心判据只有一条：
+
+> **能证明你错的，才算证据；只能证明你对的，是营销。**
+> 因此每个检测器都必须先通过"播种已知缺陷 → 必须报错"的检验，
+> 它的"通过"才算数。
+
+```bash
+python tools/make-evidence-fixture.py                          # 2.3MB 固定种子夹具
+python tools/deep-verify.py all --db tests/fixtures/evidence.db  # 16 个检测器 + 负向控制
+python tools/audit-chain-selftest.py                            # 审计链 9 个篡改对抗用例
+python tools/evidence-manifest.py --verify                      # 核对代码是否就是清单里那份
+```
+
+> 上面第一条命令跑在**夹具**上，所以换任何机器、没有现场数据都能复现。
+> 要体检真实部署，把 `--db` 换成现场的库；刚部署完想只看"自部署以来"，
+> 再加 `--window 5`（观察窗，分钟）。
+
+| 你想看 | 打开 |
+|---|---|
+| 一页可打印的结论（数字由 JSON 自动渲染） | `reports/deep/深度交付-v2.html` |
+| "专家会做什么 / 从什么素材入手 / 凭什么信" 四问 | `docs/深度-专家会做什么.md` |
+| 需求 → 实现 → 验证 → 证据 的追溯矩阵 | `docs/traceability.yaml` |
+| 机器判定（两个数：证据链机制 / 系统体检） | `reports/deep/verdict.json` |
+
+当前状态：负向控制 **16/16**、审计链自证 **9/9**、追溯矩阵 **29/29 verified**，
+`mechanism_certified = true`、`field_verdict = PASS`。
+
+⚠️ **跑之前先确认审的是哪个库**：源码模式写 `backend/src/data/`，安装版写
+`%LOCALAPPDATA%/.../data/`。两份库同名同结构，审错了所有结论都成立且毫无意义——
+`deep-verify` 里有一条 `subject` 守卫专门抓这个，它读应用自写的 `runtime.json`
+推算"应该写哪个库"，对不上直接判 `SUBJECT_MISMATCH`。
+
+> 边界（写在文档里，不藏）：报警 KPI 样本仍不足；物料平衡缺给水流量计（仪表问题，
+> 不是算法问题）；哈希链的"尾部截断"靠外部锚点而非链内自校验。
+
 ## 支持的协议
 
 - Modbus TCP / RTU

@@ -2,19 +2,19 @@
   "id": "subject",
   "title": "被审对象一致性",
   "claim": "DATA-14",
-  "verdict": "pass",
+  "verdict": "insufficient",
   "metrics": {
     "audited_db": "C:\\Users\\cxx\\scada-app\\backend\\src\\data\\scada_simulated.db",
-    "audited_latest": "2026-10-26 05:03:30",
-    "audited_rows": 32540,
+    "audited_latest": "2026-10-26 05:03:44",
     "runtime_file": "C:\\Users\\cxx\\scada-app\\backend\\src\\data\\runtime.json",
     "runtime_mode": "simulated",
     "runtime_pid": 41464,
-    "runtime_started_at": "2026-10-26T12:59:53.175092",
-    "runtime_age_minutes": 3.6,
-    "expected_db": "C:\\Users\\cxx\\scada-app\\backend\\src\\data\\scada_simulated.db"
+    "runtime_port": 5000,
+    "expected_db": "C:\\Users\\cxx\\scada-app\\backend\\src\\data\\scada_simulated.db",
+    "live": false,
+    "reason": "本实例未运行，也没有其他活实例 —— 此时不做对象判定"
   },
   "findings": [],
-  "ground_truth": "应用自写的 runtime.json（port/pid/mode/started_at）",
-  "sample": 32540
+  "ground_truth": "应用自写的 runtime.json",
+  "sample": 0
 }

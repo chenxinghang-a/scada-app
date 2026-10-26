@@ -346,7 +346,15 @@ def _prep_subject_fixture(db: Path, ctx: dict) -> dict:
     d.mkdir(parents=True, exist_ok=True)
     target = d / 'scada_simulated.db'
     shutil.copy2(db, target)
-    rt = {'port': 5000, 'host': '127.0.0.1', 'pid': 4242, 'mode': 'simulated',
+    # 真开一个监听端口：守卫用"端口是否在监听"判断实例死活，
+    # 造一份假的 runtime.json 但端口没人听，会一律判"实例未运行"。
+    import socket
+    sock = socket.socket()
+    sock.bind(('127.0.0.1', 0))
+    sock.listen(1)
+    ctx['subj_sock'] = sock
+    rt = {'port': sock.getsockname()[1], 'host': '127.0.0.1', 'pid': 4242,
+          'mode': 'simulated',
           'started_at': datetime.now().isoformat(timespec='seconds')}
     (d / 'runtime.json').write_text(json.dumps(rt, ensure_ascii=False), encoding='utf-8')
     ctx['subject_db'] = target

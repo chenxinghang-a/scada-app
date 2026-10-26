@@ -5,7 +5,7 @@
   "verdict": "pass",
   "metrics": {
     "window_minutes": 15,
-    "anchor": "2026-10-26 05:03:29",
+    "anchor": "2026-10-26 05:03:44",
     "points_checked": 201,
     "out_of_domain": 0,
     "suspect_range": 1,
@@ -43,42 +43,42 @@
             "device": "siemens_web_01",
             "point": "line_status",
             "constant": 2.0,
-            "rows_seen": 75,
+            "rows_seen": 78,
             "varying_points_on_device": 3
           },
           {
             "device": "delta_dvp_01",
             "point": "packing_status",
             "constant": 2.0,
-            "rows_seen": 75,
+            "rows_seen": 78,
             "varying_points_on_device": 4
           },
           {
             "device": "compressor_01",
             "point": "compressor_status",
             "constant": 2.0,
-            "rows_seen": 75,
+            "rows_seen": 78,
             "varying_points_on_device": 1
           },
           {
             "device": "compressor_01",
             "point": "dryer_status",
             "constant": 2.0,
-            "rows_seen": 75,
+            "rows_seen": 78,
             "varying_points_on_device": 1
           },
           {
             "device": "warehouse_plc_01",
             "point": "conveyor_status",
             "constant": 2.0,
-            "rows_seen": 75,
+            "rows_seen": 78,
             "varying_points_on_device": 4
           },
           {
             "device": "warehouse_plc_01",
             "point": "door_status",
             "constant": 2.0,
-            "rows_seen": 75,
+            "rows_seen": 78,
             "varying_points_on_device": 4
           },
           {
@@ -92,21 +92,21 @@
             "device": "flowmeter_01",
             "point": "meter_status",
             "constant": 2.0,
-            "rows_seen": 75,
+            "rows_seen": 78,
             "varying_points_on_device": 1
           },
           {
             "device": "soft_starter_01",
             "point": "starter_status",
             "constant": 2.0,
-            "rows_seen": 75,
+            "rows_seen": 78,
             "varying_points_on_device": 2
           },
           {
             "device": "welder_01",
             "point": "welder_status",
             "constant": 2.0,
-            "rows_seen": 75,
+            "rows_seen": 78,
             "varying_points_on_device": 2
           }
         ]

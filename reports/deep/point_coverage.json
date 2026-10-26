@@ -5,7 +5,7 @@
   "verdict": "pass",
   "metrics": {
     "window_minutes": 10,
-    "anchor": "2026-10-26 05:03:29",
+    "anchor": "2026-10-26 05:03:44",
     "devices": 27,
     "undeployed_devices": 0,
     "configured_points": 201,

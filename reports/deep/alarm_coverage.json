@@ -5,7 +5,7 @@
   "verdict": "pass",
   "metrics": {
     "window_minutes": 30,
-    "anchor": "2026-10-26 05:03:29",
+    "anchor": "2026-10-26 05:03:44",
     "rules": 10,
     "alive": 2,
     "missed": 0,
@@ -30,7 +30,7 @@
   "findings": [
     {
       "code": "ALARM_RULE_UNREACHABLE",
-      "message": "8 条规则的阈值在窗口内从未触及（最远 4.4 倍包络）—— 需要工艺依据说明是\"保护性阈值\"还是\"拍的\"",
+      "message": "8 条规则的阈值在窗口内从未触及（最远 4.2 倍包络）—— 需要工艺依据说明是\"保护性阈值\"还是\"拍的\"",
       "severity": "warning",
       "count": 8,
       "detail": {
@@ -40,9 +40,9 @@
             "threshold": 50.0,
             "envelope": [
               165.83,
-              192.33
+              193.22
             ],
-            "gap_in_spans": 4.4,
+            "gap_in_spans": 4.2,
             "level": "warning"
           },
           {
@@ -50,7 +50,7 @@
             "threshold": 120.0,
             "envelope": [
               47.32,
-              80.06
+              80.7
             ],
             "gap_in_spans": 1.2,
             "level": "warning"
@@ -69,20 +69,20 @@
             "rule": "voltage_high",
             "threshold": 242.0,
             "envelope": [
-              217.3,
+              215.1,
               227.6
             ],
-            "gap_in_spans": 1.4,
+            "gap_in_spans": 1.2,
             "level": "critical"
           },
           {
             "rule": "voltage_low",
             "threshold": 198.0,
             "envelope": [
-              217.3,
+              215.1,
               227.6
             ],
-            "gap_in_spans": 1.9,
+            "gap_in_spans": 1.4,
             "level": "warning"
           },
           {
@@ -100,9 +100,9 @@
             "threshold": 6.5,
             "envelope": [
               6.91,
-              7.36
+              7.44
             ],
-            "gap_in_spans": 0.9,
+            "gap_in_spans": 0.8,
             "level": "warning"
           },
           {
@@ -110,9 +110,9 @@
             "threshold": 8.5,
             "envelope": [
               6.91,
-              7.36
+              7.44
             ],
-            "gap_in_spans": 2.5,
+            "gap_in_spans": 2.0,
             "level": "warning"
           }
         ]

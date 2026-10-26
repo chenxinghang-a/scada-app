@@ -57,52 +57,86 @@ def _db_freshness(db: Path) -> dict:
         return {'rows': None, 'latest': None}
 
 
-def guard(db: Path, runtime_path: Path | None = None,
-          fresh_hours: float = 2.0) -> Result:
+def _port_open(port, timeout: float = 0.35) -> bool:
+    """端口是否在监听 —— 用来判断"这个实例还活着吗"。
+
+    不用 psutil / tasklist：工具要保持零依赖，且要跨平台。
+    """
+    import socket
+    try:
+        with socket.create_connection(('127.0.0.1', int(port)), timeout=timeout):
+            return True
+    except (OSError, ValueError):
+        return False
+
+
+def _other_runtimes(db: Path) -> list[tuple[Path, dict]]:
+    out = []
+    for p in _candidates(db):
+        if p.parent == Path(db).parent:
+            continue
+        d = _load_rt(p)
+        if d:
+            out.append((p, d))
+    return out
+
+
+def guard(db: Path, runtime_path: Path | None = None) -> Result:
+    """判定"被审库"与"活实例在写的库"是否一致。
+
+    范围是刻意收窄的：**只有当被审库位于某个实例的数据目录里（同级有 runtime.json）
+    时，才做对象判定**。否则（夹具、离线副本、别人拷来的一份）判 INSUFFICIENT ——
+    拿离线副本去比对一个活实例，只会制造假警报。
+    """
     db = Path(db).resolve()
-    rts = [(p, _load_rt(p)) for p in _candidates(db)]
-    rts = [(p, d) for p, d in rts if d]
-    if runtime_path:
-        rts = [(Path(runtime_path), _load_rt(Path(runtime_path)))] + rts
-        rts = [(p, d) for p, d in rts if d]
-    if not rts:
+    own_rt = Path(runtime_path) if runtime_path else (db.parent / 'runtime.json')
+    if not own_rt.exists():
         return Result(id='subject', title='被审对象一致性', claim='DATA-14',
                       verdict=INSUFFICIENT,
-                      metrics={'reason': '找不到 runtime.json —— 无法确认应用在写哪个库'},
-                      ground_truth='应用自写的 runtime.json（port/pid/mode/started_at）')
+                      metrics={'audited_db': str(db),
+                               'reason': '被审库不在实例的数据目录下（夹具/离线副本），不做对象判定'},
+                      ground_truth='应用自写的 runtime.json（port/pid/mode）')
 
-    # 最新写入的那份 runtime.json 代表"当前这个实例"
-    p_rt, rt = max(rts, key=lambda x: x[0].stat().st_mtime)
-    age = datetime.now() - datetime.fromtimestamp(p_rt.stat().st_mtime)
-    expected = (p_rt.parent / f"scada_{rt.get('mode', 'simulated')}.db").resolve()
-    here = _db_freshness(db)
-
+    own = _load_rt(own_rt) or {}
+    expected = (db.parent / f"scada_{own.get('mode', 'simulated')}.db").resolve()
     metrics = {
-        'audited_db': str(db), 'audited_latest': here['latest'], 'audited_rows': here['rows'],
-        'runtime_file': str(p_rt), 'runtime_mode': rt.get('mode'),
-        'runtime_pid': rt.get('pid'), 'runtime_started_at': rt.get('started_at'),
-        'runtime_age_minutes': round(age.total_seconds() / 60, 1),
+        'audited_db': str(db), 'audited_latest': _db_freshness(db)['latest'],
+        'runtime_file': str(own_rt), 'runtime_mode': own.get('mode'),
+        'runtime_pid': own.get('pid'), 'runtime_port': own.get('port'),
         'expected_db': str(expected),
     }
 
-    if age > timedelta(hours=fresh_hours):
-        return Result(id='subject', title='被审对象一致性', claim='DATA-14',
-                      verdict=INSUFFICIENT, metrics={**metrics, 'reason': '最近一次实例启动已过去太久'},
-                      ground_truth='应用自写的 runtime.json')
-
+    # ① 同目录的 runtime.json 说该写别的库 —— 目录被改过/拷错了
     if expected != db:
         return Result(id='subject', title='被审对象一致性', claim='DATA-14',
                       verdict=FAIL, metrics=metrics,
-                      findings=[Finding(
-                          'SUBJECT_MISMATCH',
-                          f'正在审的库与应用在写的库不是同一个：\n'
-                          f'  审的是  {db}\n'
-                          f'  写的是  {expected}（mode={rt.get("mode")}, pid={rt.get("pid")}）',
-                          'critical', 1,
-                          {'audited': str(db), 'expected': str(expected)})],
+                      findings=[Finding('SUBJECT_MISMATCH',
+                                        f'同一数据目录里的 runtime.json 表明应写 {expected.name}，'
+                                        f'实际在审 {db.name}', 'critical', 1)],
                       ground_truth='应用自写的 runtime.json')
 
+    # ② 本实例还活着（端口在监听）→ 审的就是它
+    if _port_open(own.get('port')):
+        return Result(id='subject', title='被审对象一致性', claim='DATA-14',
+                      verdict=PASS, metrics={**metrics, 'live': True},
+                      ground_truth='应用自写的 runtime.json', sample=0)
+
+    # ③ 本实例已停：如果别处有活实例，说明你在审一份停掉的库
+    for p2, d2 in _other_runtimes(db):
+        if _port_open(d2.get('port')):
+            other = (p2.parent / f"scada_{d2.get('mode', 'simulated')}.db").resolve()
+            return Result(id='subject', title='被审对象一致性', claim='DATA-14',
+                          verdict=FAIL, metrics={**metrics, 'live': False,
+                                                 'live_instance_db': str(other)},
+                          findings=[Finding('SUBJECT_MISMATCH',
+                                            f'正在审的库属于一个已停机的实例；'
+                                            f'审的是 {db}；'
+                                            f'另有活实例在写 {other}（{p2}）',
+                                            'critical', 1)],
+                          ground_truth='应用自写的 runtime.json')
+
     return Result(id='subject', title='被审对象一致性', claim='DATA-14',
-                  verdict=PASS, metrics=metrics,
-                  ground_truth='应用自写的 runtime.json（port/pid/mode/started_at）',
-                  sample=here['rows'] or 0)
+                  verdict=INSUFFICIENT,
+                  metrics={**metrics, 'live': False,
+                           'reason': '本实例未运行，也没有其他活实例 —— 此时不做对象判定'},
+                  ground_truth='应用自写的 runtime.json')
