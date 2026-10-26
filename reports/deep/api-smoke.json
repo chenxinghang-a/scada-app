@@ -1,0 +1,11 @@
+{
+  "base": "http://127.0.0.1:5000",
+  "routes": 172,
+  "requests": 172,
+  "public_2xx": [],
+  "ok_2xx": 5,
+  "server_errors": 0,
+  "unexpected_401": 0,
+  "errors": [],
+  "auth_401": []
+}

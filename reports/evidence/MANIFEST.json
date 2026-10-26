@@ -1,7 +1,7 @@
 {
-  "generated_at": "2026-10-26T13:16:56",
-  "git_head": "5a74f4c53d268b8e0dfd3260d9c5d0d801ec741a",
-  "git_dirty": false,
+  "generated_at": "2026-10-26T13:22:53",
+  "git_head": "532c1e8144a97b7c81ffe8c1bdd0e48173603059",
+  "git_dirty": true,
   "python": "3.14.3",
   "platform": "win32",
   "files": {
@@ -73,6 +73,10 @@
       "sha256": "2e98141bafb12e6d20ec6862a12c83e46863dd2e9971a74eab12cfb4541ff32d",
       "size": 4469
     },
+    "tools/api-smoke.py": {
+      "sha256": "18f1ee35e6f71bf5d4cadbe6e6820e20efa9846ff6a3e617f9f00c99d3e0e13e",
+      "size": 8417
+    },
     ".github/workflows/deep-verify.yml": {
       "sha256": "d1b17ec9de355747545db25e2dcc7a9498296df04808cb7cfe0de21b8307dfd3",
       "size": 2595
@@ -134,15 +138,15 @@
       "size": 4238
     },
     "docs/traceability.yaml": {
-      "sha256": "05a3d8a482dd55953f9804b702f851517ee06c8588de2b4f2592221776190a20",
-      "size": 22097
+      "sha256": "75e29e77ad7d02d42dfe2a84d654e67b65ff41cad9b8f349c9d9da393eded987",
+      "size": 23076
     },
     "docs/深度-专家会做什么.md": {
       "sha256": "9b80540a6112182c59ac4b166514b19458a7f8830fd1f2b6b5bc0ea31783585b",
       "size": 32154
     }
   },
-  "file_count": 34,
+  "file_count": 35,
   "missing": [],
   "reproduce": [
     "python tools/make-evidence-fixture.py",

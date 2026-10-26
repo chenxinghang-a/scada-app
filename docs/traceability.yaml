@@ -241,6 +241,19 @@ requirements:
     「干净快照=PASS / 播种后=FAIL 且报出预期 finding code」两个方向上都对，
     才计 1 分。8 个全过。运行库被 .gitignore 排除，故另做 2.3MB 夹具，
     保证任何人克隆仓库后一条命令即可重算。
+- id: DATA-16
+  category: 数据
+  requirement: 全部 API 路由在运行时不得返回 5xx（界面背后的每个接口都得能跑）
+  source: 交付验收（接口是用户唯一直接接触的面）
+  implementation: tools/api-smoke.py（从源码解析 172 条路由，带/不带 token 逐个请求）
+  verification: 后端运行时 python tools/api-smoke.py
+  evidence: reports/deep/api-smoke.json
+  status: verified
+  note: 实测 172 次请求、**0 个 5xx**。未取到 token：登录被"首次登录必须改密"
+    （GB/T 22239 身份鉴别）闸门挡住，返回 403 + refresh_token。所以本项只覆盖
+    未授权面与公开端点；**鉴权后的 167 条接口未测**，需要真实口令/改密后重跑。
+    工具第一版还把前端 SPA 的 200 当成了"公开接口"（路由前缀解析少了 _bp 后缀、
+    没校验 Content-Type），自查后修正 —— 又一次"审错对象"，只是发生在工具自己身上。
 - id: DATA-15
   category: 数据
   requirement: 坏质量的值必须在界面上与好值可区分（操作员不能把 Bad 当 Good 读）

@@ -50,6 +50,7 @@ INCLUDE = [
     'tools/write-readback-check.py',
     'tools/check-mechanism.py',
     'tools/cleanroom-check.py',
+    'tools/api-smoke.py',
     '.github/workflows/deep-verify.yml',
     'tools/make-deep-report.py',
     'tools/deepcheck/anchor.py',
