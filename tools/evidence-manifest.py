@@ -53,6 +53,7 @@ INCLUDE = [
     'tools/deepcheck/detectors.py',
     'tools/deepcheck/fixtures.py',
     'tools/deepcheck/negative_control.py',
+    'tools/deepcheck/physical.py',
     'tools/deepcheck/pointtable.py',
     'tools/deepcheck/schema_clock.py',
     'tools/deepcheck/timebase.py',

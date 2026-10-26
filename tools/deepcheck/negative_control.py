@@ -282,6 +282,49 @@ def seed_alarm_missed(conn: sqlite3.Connection) -> dict:
     return {'seeded': 'cov_rule 报警记录被删除（数据仍越限）', 'alarms_left': n}
 
 
+def _prep_physical_cfg(db: Path, ctx: dict) -> dict:
+    """两条点位：o2_content（单位 %，物理域 0~21）、mode_code（枚举，须整数）。"""
+    import yaml
+    devs = {'devices': [{
+        'id': 'phys_dev', 'protocol': 'rest', 'enabled': True,
+        'endpoints': [
+            {'name': 'o2_content', 'unit': '%', 'description': '烟气含氧量'},
+            {'name': 'mode_code', 'unit': '', 'description': '运行模式'},
+        ]}]}
+    cfg = ctx['dir'] / 'devices_phys.yaml'
+    cfg.write_text(yaml.safe_dump(devs, allow_unicode=True, sort_keys=False), encoding='utf-8')
+    conn = connect_rw(db)
+    try:
+        now = datetime.now()
+        utc = now - timedelta(hours=8)
+        rows = [('phys_dev', 'o2_content', 6.5), ('phys_dev', 'o2_content', 7.1),
+                ('phys_dev', 'mode_code', 1.0), ('phys_dev', 'mode_code', 2.0)]
+        conn.executemany('''
+            INSERT INTO history_data (device_id, register_name, value, unit, timestamp, ts_utc, created_at)
+            VALUES (?,?,?,?,?,?,?)
+        ''', [(d, r, v, 'x', now.strftime('%Y-%m-%d %H:%M:%S.%f'),
+                utc.strftime('%Y-%m-%d %H:%M:%S.%f'), utc.strftime('%Y-%m-%d %H:%M:%S'))
+               for d, r, v in rows])
+        conn.commit()
+    finally:
+        conn.close()
+    ctx['devices_cfg'] = cfg
+    return {'devices_cfg': str(cfg), 'o2': [6.5, 7.1], 'mode_code': [1, 2]}
+
+
+def seed_physical_domain(conn: sqlite3.Connection) -> dict:
+    """插一个含氧量 45% 的样本 —— 空气里只有 20.9% 氧气，45% 物理上不可能。"""
+    now = datetime.now()
+    utc = now - timedelta(hours=8)
+    conn.execute('''
+        INSERT INTO history_data (device_id, register_name, value, unit, timestamp, ts_utc, created_at)
+        VALUES ('phys_dev','o2_content',45.0,'%',?,?,?)
+    ''', (now.strftime('%Y-%m-%d %H:%M:%S.%f'),
+           utc.strftime('%Y-%m-%d %H:%M:%S.%f'), utc.strftime('%Y-%m-%d %H:%M:%S')))
+    conn.commit()
+    return {'seeded': 'o2_content = 45%（物理上限 21%）'}
+
+
 # ---------------------------------------------------------------- 用例表
 
 CASES = [
@@ -372,6 +415,14 @@ CASES = [
         'prepare': 'alarm_cfg',
         'seed': 'db',
         'seed_fn': seed_alarm_missed,
+    },
+    {
+        'detector': 'physical_domain',
+        'defect': '烟气含氧量 45%（空气只有 20.9%，物理不可能）',
+        'expect_code': 'PHYS_OUT_OF_DOMAIN',
+        'prepare': 'physical_cfg',
+        'seed': 'db',
+        'seed_fn': seed_physical_domain,
     },
     {
         'detector': 'timebase_all',
@@ -484,6 +535,7 @@ PREPARES = {
     'recent_rows': _prep_recent_rows,
     'coverage_cfg': _prep_coverage_cfg,
     'alarm_cfg': _prep_alarm_cfg,
+    'physical_cfg': _prep_physical_cfg,
     'backup_fixture': _prep_backup_fixture,
     'chain_fixture': _prep_chain_fixture,
 }

@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-10-26T12:17:32",
+  "generated_at": "2026-10-26T12:21:09",
   "checks": {
     "timebase": "pass",
     "pointtable": "pass",
@@ -12,6 +12,8 @@
     "write_path": "pass",
     "point_coverage": "pass",
     "alarm_coverage": "pass",
+    "physical_domain": "fail",
+    "mass_balance": "insufficient",
     "clock_lint": "pass",
     "anchor": "insufficient"
   },
@@ -19,9 +21,14 @@
   "audit_chain_selftest": "9/9",
   "audit_chain_field_entries": 0,
   "anchor_status": "UNANCHORED",
-  "negative_control_discriminating": 14,
-  "negative_control_total": 14,
-  "certification": "CERTIFIED",
+  "negative_control_discriminating": 15,
+  "negative_control_total": 15,
+  "field_verdict": "FAIL",
+  "field_failed_checks": [
+    "physical_domain"
+  ],
+  "mechanism_certified": true,
+  "certification": "UNCERTIFIED",
   "open_findings": [
     {
       "check": "auditchain",
@@ -45,5 +52,5 @@
       ]
     }
   ],
-  "reason": "现场检查全部通过，负向控制证明每个检测器都能失败，审计链通过全部篡改对抗用例"
+  "reason": "证据链有效，但系统体检未通过：physical_domain"
 }

@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-10-26T12:17:27",
+  "generated_at": "2026-10-26T12:21:04",
   "cases": 9,
   "passed": 9,
   "all_ok": true,
@@ -10,7 +10,7 @@
       "detected": true,
       "expected": true,
       "ok": true,
-      "reason": "entries=5, head=f62275af18be"
+      "reason": "entries=5, head=9f59221b38e7"
     },
     {
       "case": "篡改第 2 条的值（仅追加一个空格）：应报「记录被修改」",
@@ -45,7 +45,7 @@
       "detected": false,
       "expected": false,
       "ok": true,
-      "reason": "链内自洽=True（所以链自己抓不到）；head 从 f62275af18be 变为 067c451712e9，头部哈希变化只能被 git/MANIFEST 这类外部锚点发现"
+      "reason": "链内自洽=True（所以链自己抓不到）；head 从 9f59221b38e7 变为 587ea9306236，头部哈希变化只能被 git/MANIFEST 这类外部锚点发现"
     },
     {
       "case": "canonical_json 键序无关（否则链会无故断裂）",
@@ -66,7 +66,7 @@
       "detected": true,
       "expected": true,
       "ok": true,
-      "reason": "update_config 中 record_config_change 调用参数: [{'ip', 'before', 'after', 'section', 'actor'}]"
+      "reason": "update_config 中 record_config_change 调用参数: [{'actor', 'section', 'after', 'ip', 'before'}]"
     }
   ]
 }

@@ -1,9 +1,9 @@
 {
-  "generated_at": "2026-10-26T12:17:32",
+  "generated_at": "2026-10-26T12:21:09",
   "source_db": "C:\\Users\\cxx\\scada-app\\tests\\fixtures\\evidence.db",
   "snapshot_size_mb": 2.3,
-  "cases": 14,
-  "discriminating": 14,
+  "cases": 15,
+  "discriminating": 15,
   "all_ok": true,
   "principle": "检测器未能在播种后报错 = 该检测器的\"通过\"无效",
   "rows": [
@@ -250,7 +250,7 @@
         "BACKUP_SCHEMA_DRIFT"
       ],
       "seeded_metrics": {
-        "file": "C:\\Users\\cxx\\AppData\\Local\\Temp\\scada-negctl-wv29mh2p\\ops_backup\\backup.db",
+        "file": "C:\\Users\\cxx\\AppData\\Local\\Temp\\scada-negctl-emmf882h\\ops_backup\\backup.db",
         "size": 2412544,
         "integrity": "*** in database main ***\nTree 5 page 295 cell 17: Rowid 6555972108016934573 out of order\nTree 5 page 295 cell 17: invalid page number 862217590\nTree 5 page 295 cell 16: Rowid 6555972108016934573 out of order\nTree 5 page 295 cell 16: invalid page number 862217590\nTree 5 page 295 cell 15: Rowid 6555972108016934573 out of order\nTree 5 page 295 cell 15: invalid page number 862217590\nTree 5 page 295 cell 14: Rowid 6555972108016934573 out of order\nTree 5 page 295 cell 14: invalid page number 862217590\nTree 5 page 295 cell 13: Rowid 6555972108016934573 out of order\nTree 5 page 295 cell 13: invalid page number 862217590\nMultiple uses for byte 2176 of page 295",
         "counts": {
@@ -272,7 +272,7 @@
         "quality_bad_points": 0
       },
       "prepare": {
-        "backup": "C:\\Users\\cxx\\AppData\\Local\\Temp\\scada-negctl-wv29mh2p\\ops_backup\\backup.db",
+        "backup": "C:\\Users\\cxx\\AppData\\Local\\Temp\\scada-negctl-emmf882h\\ops_backup\\backup.db",
         "counts": {
           "history_data": 20000,
           "realtime_data": 50,
@@ -304,13 +304,13 @@
       ],
       "seeded_metrics": {
         "entries": 5,
-        "head_hash": "06e662f638c9bf05e44d7d01f981d8eba1170ff5f7387af8050cf8f556323bcf"
+        "head_hash": "adb259795ed6233e227bbb495eab07a259598028649077beff0bf3c3e8021851"
       },
       "prepare": {
         "entries": 5,
         "ok": true,
-        "head": "06e662f638c9bf05e44d7d01f981d8eba1170ff5f7387af8050cf8f556323bcf",
-        "anchor": "0d5660b62344"
+        "head": "adb259795ed6233e227bbb495eab07a259598028649077beff0bf3c3e8021851",
+        "anchor": "2799d318f580"
       },
       "seed": {
         "seeded": "篡改 seq=8 的 diff_json（after 值被改写）"
@@ -362,7 +362,7 @@
       ],
       "seeded_metrics": {
         "window_minutes": 10,
-        "anchor": "2026-10-26 04:17:29",
+        "anchor": "2026-10-26 04:21:06",
         "devices": 3,
         "configured_points": 6,
         "collected_points": 4,
@@ -393,7 +393,7 @@
         ]
       },
       "prepare": {
-        "devices_cfg": "C:\\Users\\cxx\\AppData\\Local\\Temp\\scada-negctl-wv29mh2p\\point_coverage\\devices_cov.yaml",
+        "devices_cfg": "C:\\Users\\cxx\\AppData\\Local\\Temp\\scada-negctl-emmf882h\\point_coverage\\devices_cov.yaml",
         "points": 6
       },
       "seed": {
@@ -418,7 +418,7 @@
       ],
       "seeded_metrics": {
         "window_minutes": 30,
-        "anchor": "2026-10-26 04:17:29",
+        "anchor": "2026-10-26 04:21:06",
         "rules": 1,
         "alive": 0,
         "missed": 1,
@@ -428,13 +428,52 @@
         "unreachable_rules": []
       },
       "prepare": {
-        "alarms_cfg": "C:\\Users\\cxx\\AppData\\Local\\Temp\\scada-negctl-wv29mh2p\\alarm_coverage\\alarms_cov.yaml",
+        "alarms_cfg": "C:\\Users\\cxx\\AppData\\Local\\Temp\\scada-negctl-emmf882h\\alarm_coverage\\alarms_cov.yaml",
         "data": "cov_dev0/r0a = 150 (阈值 100)",
         "alarm_seeded": true
       },
       "seed": {
         "seeded": "cov_rule 报警记录被删除（数据仍越限）",
         "alarms_left": 200
+      },
+      "discriminating": true,
+      "verdict": "OK"
+    },
+    {
+      "detector": "physical_domain",
+      "title": "物理与语义域（量纲 / 整数语义 / 状态是否在变）",
+      "claim": "DATA-12",
+      "defect": "烟气含氧量 45%（空气只有 20.9%，物理不可能）",
+      "expect_code": "PHYS_OUT_OF_DOMAIN",
+      "clean_verdict": "pass",
+      "clean_codes": [],
+      "clean_sample": 2,
+      "seeded_verdict": "fail",
+      "seeded_codes": [
+        "PHYS_OUT_OF_DOMAIN"
+      ],
+      "seeded_metrics": {
+        "window_minutes": 15,
+        "anchor": "2026-10-26 04:21:06",
+        "points_checked": 2,
+        "out_of_domain": 1,
+        "suspect_range": 0,
+        "non_integer": 0,
+        "frozen_status": 0
+      },
+      "prepare": {
+        "devices_cfg": "C:\\Users\\cxx\\AppData\\Local\\Temp\\scada-negctl-emmf882h\\physical_domain\\devices_phys.yaml",
+        "o2": [
+          6.5,
+          7.1
+        ],
+        "mode_code": [
+          1,
+          2
+        ]
+      },
+      "seed": {
+        "seeded": "o2_content = 45%（物理上限 21%）"
       },
       "discriminating": true,
       "verdict": "OK"
@@ -651,7 +690,7 @@
         "utc": 1
       },
       "prepare": {
-        "scanned_root": "C:\\Users\\cxx\\AppData\\Local\\Temp\\scada-negctl-wv29mh2p\\clock_lint\\src_copy"
+        "scanned_root": "C:\\Users\\cxx\\AppData\\Local\\Temp\\scada-negctl-emmf882h\\clock_lint\\src_copy"
       },
       "seed": {
         "seeded": "新增 新增_未登记时间口径.py（batch_runs.finished_at 未登记）"
@@ -681,8 +720,8 @@
       "prepare": {
         "entries": 5,
         "ok": true,
-        "head": "6def46785705cb5f9a3f9be9deb6d7c86993ac1aa81ba07655d5ba1912e7e4a4",
-        "anchor": "f7cef2d4914f"
+        "head": "e136d54299897cb4c0106f11c13a27095e6f24ebde48c0319d32adfaaf458c4f",
+        "anchor": "0f02c5657d9c"
       },
       "seed": {
         "seeded": "删除 seq=[9, 10]，剩 3 条"

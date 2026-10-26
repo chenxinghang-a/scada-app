@@ -5,7 +5,7 @@
   "verdict": "pass",
   "metrics": {
     "window_minutes": 30,
-    "anchor": "2026-10-26 04:17:27",
+    "anchor": "2026-10-26 04:17:38",
     "rules": 10,
     "alive": 2,
     "missed": 0,
@@ -49,7 +49,7 @@
             "threshold": 120.0,
             "envelope": [
               47.18,
-              75.83
+              76.34
             ],
             "gap_in_spans": 1.5,
             "level": "warning"

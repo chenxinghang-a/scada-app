@@ -180,11 +180,15 @@ requirements:
   category: 数据
   requirement: 物料/能量平衡自检（进 = 出 + 存量变化）
   source: 质量平衡（工业系统最硬的自检）
-  implementation: 无
-  verification: 无
-  evidence: ''
-  status: not_done
-  note: 30 台设备的模拟数据之间没有真实物料流关系，算出来的"平衡"是编的。 这种证据比没有更糟 —— 会给评审一个"看起来专业但其实是假"的印象。
+  implementation: tools/deepcheck/physical.py:det_mass_balance（先查仪表齐备性，再谈平衡）
+  verification: python tools/deep-verify.py all → det_mass_balance
+  evidence: reports/deep/mass_balance.json
+  status: verified
+  note: 结论不是"不做"，而是"做不了，因为仪表不够"：锅炉回路有蒸汽流量(steam_flow)、
+    有汽包水位(feed_water_level)，**唯独没有给水流量计**。没有流入侧，质量平衡在数学上
+    无解 —— 这是测点缺失，不是算法问题。工程正确答案是加装给水流量计，
+    而不是用模拟数据凑一个看起来专业的平衡率。
+    该检查会在仪表补齐后自动从 INSUFFICIENT 转为可计算（代码已就位）。
 - id: SEC-03
   category: 安全
   requirement: 配置变更应记录 diff（谁把哪个键从什么改成什么），且日志本身被改动要能发现
@@ -227,6 +231,21 @@ requirements:
     「干净快照=PASS / 播种后=FAIL 且报出预期 finding code」两个方向上都对，
     才计 1 分。8 个全过。运行库被 .gitignore 排除，故另做 2.3MB 夹具，
     保证任何人克隆仓库后一条命令即可重算。
+- id: DATA-12
+  category: 数据
+  requirement: 每个测量值必须落在他自己单位所允许的物理区间内；整数/枚举语义不得带小数
+  source: SI 单位制 / 量纲定义 / 工程语义（外部约束，不来自项目配置）
+  implementation: tools/deepcheck/physical.py:det_physical_domain
+  verification: python tools/deep-verify.py all → det_physical_domain
+  evidence: reports/deep/physical_domain.json
+  status: verified
+  note: 实测发现 5 类问题：sealing_temperature 0~5242.9°C（钢 1500°C 就熔了）；
+    cnc_mazak_01 全部 10 个点值域完全相同 [54.75,149.0]（程序号/报警码/刀具号同源随机）；
+    5 个整数/枚举点带小数；16 个状态量恒常（OEE 无输入）；3 个百分比点超 100。
+    根因：Modbus 设备有位点级行为模型，REST 设备是一路 uniform(50,150)。
+    这条检查当前判 FAIL —— 它判的是"这批数据能不能用于工艺结论"，不是"证据链真假"。
+    第一版正则写成子串 ratio，把 vibration（vib-ratio-n）误判成比率越界；
+    改为词边界后 12 条假阳性降到 1 条真阳性。
 - id: DATA-11
   category: 数据
   requirement: 配置的每个点位都必须真的被采集入库（覆盖率可量化）

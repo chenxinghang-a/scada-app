@@ -86,6 +86,8 @@ def main():
     wp = load('write_path.json')
     pc = load('point_coverage.json')
     alc = load('alarm_coverage.json')
+    pdm = load('physical_domain.json')
+    mb = load('mass_balance.json')
     pt = load('pointtable.json')
     ac = load('audit-chain-selftest.json')
     man_path = REPO / 'reports' / 'evidence' / 'MANIFEST.json'
@@ -159,7 +161,8 @@ def main():
   <div><b>{esc(tball.get('metrics', {}).get('columns_checked', '—'))}</b><span>列时间口径已登记并逐行校验</span></div>
   <div><b>{esc(wp.get('metrics', {}).get('recent_rows', '—'))}</b><span>最近 30 分钟写入的行<br>（ts_utc 空值 {esc(wp.get('metrics', {}).get('null_ts_utc', '—'))}）</span></div>
   <div><b>{esc(pc.get('metrics', {}).get('collected_points', '—'))}/{esc(pc.get('metrics', {}).get('configured_points', '—'))}</b><span>点位实际入库 / 配置<br>（覆盖率 {esc(round((pc.get('metrics', {}).get('coverage') or 0) * 100, 1))}%）</span></div>
-  <div><b>{esc(cert)}</b><span>机器判定结论<br><code>reports/deep/verdict.json</code></span></div>
+  <div><b>{esc('CERTIFIED' if verdict.get('mechanism_certified') else 'UNCERTIFIED')}</b><span>证据链机制<br>（负向控制 + 篡改对抗）</span></div>
+  <div><b style="color:{'#b3261e' if verdict.get('field_verdict') == 'FAIL' else '#0f7b4f'}">{esc(verdict.get('field_verdict', '—'))}</b><span>系统体检<br>{esc('未通过：' + '、'.join(verdict.get('field_failed_checks') or []) if verdict.get('field_verdict') == 'FAIL' else '全部通过')}</span></div>
 </div>
 
 <h2>一、四个问题（结论摘要）</h2>
@@ -268,7 +271,7 @@ integrity_check / backup、<code>hashlib</code>、<code>importlib</code>、<code
 <code>exempt</code> 并写明理由（账号簿记、令牌回收、TTL 缓存，不参与工艺时间关联）——
 "不处理"也要有理由，否则下次没人知道为什么。</p>
 
-<h2>五、点位覆盖与报警有效性：系统其实"少了一只眼"</h2>
+<h2>五、数据可信吗：覆盖率 / 报警有效性 / 物理域</h2>
 <p>把后端按源码模式真跑起来之后，两条检查给出了本轮最重要的发现：
 <b>配置了 {esc(pc.get('metrics', {}).get('configured_points', '—'))} 个点位，
 实际只有 55 个进过库（27%）</b>——所有 Modbus 设备只入库第一个点，
@@ -293,6 +296,24 @@ integrity_check / backup、<code>hashlib</code>、<code>importlib</code>、<code
 <code>reports/deep/alarm_coverage.json</code>。两条都是"能失败"的检测器：
 负向控制第 10 项删掉一台设备的全部数据、第 11 项删掉一条越限报警记录，
 分别验证了 <code>POINT_COVERAGE_GAP</code> 与 <code>ALARM_MISSED</code> 会被抓到。</p>
+
+<p><b>物理域</b>（{tag(pdm.get('verdict'))}）：前面的检查都在问"数据一致吗"
+（时间对得上、质量戳在、字节序没反），这一层问更根本的问题——
+<b>这个数在物理上可能存在吗</b>。判据全部来自外部（SI 单位制、量纲、工程语义），
+不来自项目自己的阈值配置。</p>
+<table>
+<tr><th style="width:34%">现象</th><th>实测</th><th>为什么不可能</th></tr>
+<tr><td><code>sealing_temperature</code></td><td>0 ~ <b>5242.9 °C</b></td><td>钢在 1500 °C 就熔了</td></tr>
+<tr><td><code>cnc_mazak_01</code> 全部 10 个点</td><td>值域<b>完全相同</b>：54.75 ~ 149.0</td><td>含程序号 51.19、报警码、刀具号——同一路均匀随机</td></tr>
+<tr><td>整数/枚举语义的点</td><td>5 个带小数</td><td>程序号 / 报警码 / 生产计数不可能是 54.76</td></tr>
+<tr><td>状态量</td><td>16 个<b>整段只有一个取值</b></td><td>OEE 可用率没有输入，分母恒定</td></tr>
+<tr><td>百分比点位</td><td>3 个超出 0~100（149%）</td><td>过载还是标定错，必须给工艺解释</td></tr>
+</table>
+<p>根因很清楚：<b>Modbus 设备有位点级行为模型，REST 设备是一路 uniform(50,150)</b>。
+所以同一套配置里，一半点位物理上合理，另一半是纯噪声。
+<b>物料平衡</b>（{tag(mb.get('verdict'))}）：锅炉回路有蒸汽流量、有汽包水位，
+唯独<b>没有给水流量计</b>——没有流入侧，质量平衡在数学上无解。
+这不是"算法没做"，是"仪表不够"，正确答案是装表而不是用模拟数据凑一个平衡率。</p>
 
 <h2>六、点表：用哨兵值证明字节序没错位</h2>
 <p>被测实现是采集层真实的 <code>ByteOrderCapableDecoder</code>（<code>importlib</code> 直接加载，

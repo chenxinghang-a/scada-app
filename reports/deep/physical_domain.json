@@ -1,0 +1,200 @@
+{
+  "id": "physical_domain",
+  "title": "物理与语义域（量纲 / 整数语义 / 状态是否在变）",
+  "claim": "DATA-12",
+  "verdict": "fail",
+  "metrics": {
+    "window_minutes": 15,
+    "anchor": "2026-10-26 04:17:38",
+    "points_checked": 201,
+    "out_of_domain": 1,
+    "suspect_range": 3,
+    "non_integer": 5,
+    "frozen_status": 16
+  },
+  "findings": [
+    {
+      "code": "PHYS_OUT_OF_DOMAIN",
+      "message": "1 个点的取值超出物理可能区间",
+      "severity": "critical",
+      "count": 1,
+      "detail": {
+        "points": [
+          {
+            "device": "delta_dvp_01",
+            "point": "sealing_temperature",
+            "unit": "°C",
+            "observed": [
+              0.0,
+              5242.9
+            ],
+            "allowed": [
+              -273.15,
+              2000.0
+            ],
+            "why": "单位 °C 的物理可能区间"
+          }
+        ]
+      }
+    },
+    {
+      "code": "PHYS_NON_INTEGER_ENUM",
+      "message": "5 个整数/枚举语义的点出现小数或取值过多",
+      "severity": "critical",
+      "count": 5,
+      "detail": {
+        "points": [
+          {
+            "device": "siemens_web_01",
+            "point": "production_count",
+            "observed": [
+              54.76,
+              143.44
+            ],
+            "distinct": 64,
+            "why": "语义为整数/枚举，实测带小数"
+          },
+          {
+            "device": "cnc_mazak_01",
+            "point": "program_number",
+            "observed": [
+              51.19,
+              149.71
+            ],
+            "distinct": 365,
+            "why": "语义为整数/枚举，实测带小数"
+          },
+          {
+            "device": "cnc_mazak_01",
+            "point": "part_count",
+            "observed": [
+              54.75,
+              149.0
+            ],
+            "distinct": 64,
+            "why": "语义为整数/枚举，实测带小数"
+          },
+          {
+            "device": "cnc_mazak_01",
+            "point": "alarm_code",
+            "observed": [
+              51.21,
+              149.72
+            ],
+            "distinct": 364,
+            "why": "语义为整数/枚举，实测带小数"
+          },
+          {
+            "device": "cnc_mazak_01",
+            "point": "machine_mode",
+            "observed": [
+              54.75,
+              149.0
+            ],
+            "distinct": 64,
+            "why": "语义为整数/枚举，实测带小数"
+          }
+        ]
+      }
+    },
+    {
+      "code": "PHYS_SUSPECT_RANGE",
+      "message": "3 个百分比点位实测超出 0~100（物理上可能是过载，但更像是标定/量纲错）",
+      "severity": "warning",
+      "count": 3,
+      "detail": {
+        "points": [
+          {
+            "device": "cnc_mazak_01",
+            "point": "spindle_load",
+            "observed": [
+              54.75,
+              149.0
+            ],
+            "why": "% 类点位实测超出 0~100（过载还是标定错？需要工艺确认）"
+          },
+          {
+            "device": "cnc_mazak_01",
+            "point": "feed_override",
+            "observed": [
+              54.75,
+              149.0
+            ],
+            "why": "% 类点位实测超出 0~100（过载还是标定错？需要工艺确认）"
+          },
+          {
+            "device": "cnc_mazak_01",
+            "point": "tool_life",
+            "observed": [
+              54.75,
+              149.0
+            ],
+            "why": "% 类点位实测超出 0~100（过载还是标定错？需要工艺确认）"
+          }
+        ]
+      }
+    },
+    {
+      "code": "PHYS_STATUS_FROZEN",
+      "message": "16 个状态量在整段数据里只有一个取值 —— OEE 可用率没有输入",
+      "severity": "warning",
+      "count": 16,
+      "detail": {
+        "points": [
+          {
+            "device": "siemens_web_01",
+            "point": "line_status",
+            "constant": 2.0
+          },
+          {
+            "device": "delta_dvp_01",
+            "point": "packing_status",
+            "constant": 2.0
+          },
+          {
+            "device": "hvac_ahu_01",
+            "point": "ahu_status",
+            "constant": 0.0
+          },
+          {
+            "device": "compressor_01",
+            "point": "compressor_status",
+            "constant": 0.0
+          },
+          {
+            "device": "compressor_01",
+            "point": "dryer_status",
+            "constant": 0.0
+          },
+          {
+            "device": "warehouse_plc_01",
+            "point": "conveyor_status",
+            "constant": 0.0
+          },
+          {
+            "device": "warehouse_plc_01",
+            "point": "door_status",
+            "constant": 0.0
+          },
+          {
+            "device": "cems_01",
+            "point": "cems_status",
+            "constant": 0.0
+          },
+          {
+            "device": "fire_alarm_01",
+            "point": "sprinkler_status",
+            "constant": 0.0
+          },
+          {
+            "device": "fire_alarm_01",
+            "point": "fire_door_status",
+            "constant": 0.0
+          }
+        ]
+      }
+    }
+  ],
+  "ground_truth": "SI 单位制 / 量纲定义 / 工程语义；不依赖项目自身的阈值配置",
+  "sample": 201
+}

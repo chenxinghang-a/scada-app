@@ -133,7 +133,8 @@ def cmd_all(args) -> dict:
     db = find_db(args.db)
     for name in ('alm_stale', 'alm_priority', 'alm_chattering',
                  'data_quality', 'timebase_all', 'write_path',
-                 'point_coverage', 'alarm_coverage'):
+                 'point_coverage', 'alarm_coverage',
+                 'physical_domain', 'mass_balance'):
         fn, _kind = detectors.REGISTRY[name]
         res = fn(db)
         say(f'[{name}] {res.verdict.upper()}  '
@@ -178,21 +179,23 @@ def cmd_all(args) -> dict:
         'negative_control_discriminating': (nc or {}).get('discriminating'),
         'negative_control_total': (nc or {}).get('cases'),
     }
+    # 两个结论分开报，别混成一个数：
+    #   ① 证据链机制是否成立（负向控制全过 + 审计链自证全过）—— 与系统好坏无关
+    #   ② 系统体检是否通过（有没有检测器判 FAIL）—— 与证据链真假无关
+    # 合成一个数的话，系统一有缺陷就显得"证据也不可信"，那是两回事。
+    failed = [k for k, v in out.items()
+              if isinstance(v, dict) and v.get('verdict') == FAIL]
+    verdict['field_verdict'] = 'PASS' if not failed else 'FAIL'
+    verdict['field_failed_checks'] = failed
+    verdict['mechanism_certified'] = bool(nc and nc.get('all_ok') and st.get('all_ok'))
+
     # 认证口径（写死，不留解释空间）：
     #   ① 现场检查（时间基准/全表口径/静态门禁/点表）必须 PASS
     #   ② 负向控制必须 11/11（否则检测器的"通过"没有意义）
     #   ③ 审计链自证必须 9/9；现场链为空（还没人改过配置）标 INSUFFICIENT 但不阻断——
     #      "没有变更"不是缺陷，机制有效性由 ③ 的对抗测试承担
     #   ④ 外部锚点同理：没锚点=INSUFFICIENT（无内容可锚），被截断/重写=FAIL
-    certified = bool(nc and nc.get('all_ok')
-                     and st.get('all_ok')
-                     and all(v['verdict'] == PASS for v in (sy, io, tb_all, lint,
-                                                            out['point_coverage'],
-                                                            out['alarm_coverage']))
-                     and out['anchor']['verdict'] in (PASS, INSUFFICIENT)
-                     # 写入路径体检：系统没在跑时是 INSUFFICIENT（"没跑"≠"对"），
-                     # 但只要它 FAIL 就一票否决 —— 那意味着应用正在丢数据
-                     and out['write_path']['verdict'] in (PASS, INSUFFICIENT))
+    certified = bool(verdict['mechanism_certified'] and verdict['field_verdict'] == 'PASS')
     verdict['certification'] = 'CERTIFIED' if certified else 'UNCERTIFIED'
     # 认证的是**证据链**，不是"现场零缺陷"。两者混在一起说的后果是：
     # 为了让报告好看，把真实存在的小缺陷藏起来 —— 那正好毁掉认证的意义。
@@ -205,10 +208,10 @@ def cmd_all(args) -> dict:
                   'auditchain', 'sec_chain', 'anchor', 'timebase_all', 'clock_lint',
                   'write_path', 'point_coverage', 'alarm_coverage')
     ]
-    verdict['reason'] = ('现场检查全部通过，负向控制证明每个检测器都能失败，'
-                        '审计链通过全部篡改对抗用例'
-                        if certified else
-                        '存在打不翻自己的检测器、或现场检查未通过 —— 见明细')
+    verdict['reason'] = (
+        '证据链有效且系统体检通过' if certified else
+        '证据链有效，但系统体检未通过：' + '、'.join(failed) if verdict['mechanism_certified']
+        else '证据链本身不成立（有打不翻自己的检测器）')
     write_json(OUT_DIR / 'verdict.json', verdict)
 
     say('=' * 72)
