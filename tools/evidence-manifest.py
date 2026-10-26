@@ -79,11 +79,15 @@ REPRO = [
 
 
 def sha256(path: Path) -> str:
-    h = hashlib.sha256()
-    with open(path, 'rb') as f:
-        for chunk in iter(lambda: f.read(1 << 20), b''):
-            h.update(chunk)
-    return h.hexdigest()
+    """对**内容**算哈希，先把行尾归一化。
+
+    为什么不能直接对文件字节算：``core.autocrlf=true`` 的 Windows 上，git 会把
+    仓库里的 LF 在 checkout 时换成 CRLF。同一份代码，原作者工作区是 LF、干净克隆
+    出来是 CRLF，字节哈希必然不同 —— 于是"清单校验"变成一个**只在本机成立**的
+    检查。这个坑是干净克隆演练当场抓到的（32 个文件里 3 个不符）。
+    """
+    data = path.read_bytes().replace(bytes([13, 10]), bytes([10]))
+    return hashlib.sha256(data).hexdigest()
 
 
 def git(*args) -> str:
