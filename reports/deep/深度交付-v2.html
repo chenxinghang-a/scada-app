@@ -37,8 +37,8 @@ table{page-break-inside:avoid}pre{page-break-inside:avoid}}
 </style></head><body><div class="wrap">
 
 <h1>SmartSCADA 深度交付报告</h1>
-<div class="sub">生成时间 2026-10-26T12:21:09　·　
-代码锚点 <code>ab06733df5f3</code>　·　
+<div class="sub">生成时间 2026-10-26T12:27:26　·　
+代码锚点 <code>9de9a54a7779</code>　·　
 本页所有数字由 <code>tools/make-deep-report.py</code> 从 JSON 证据自动渲染</div>
 
 <div class="lede">
@@ -51,10 +51,10 @@ table{page-break-inside:avoid}pre{page-break-inside:avoid}}
 <div class="kpi">
   <div><b>15/15</b><span>检测器具备分辨力<br>（负向控制）</span></div>
   <div><b>9/9</b><span>审计链篡改对抗用例</span></div>
-  <div><b>334856</b><span>行级时间不变量校验</span></div>
+  <div><b>343178</b><span>行级时间不变量校验</span></div>
   <div><b>69</b><span>点表已核对（4 字节序 × 6 哨兵值）</span></div>
   <div><b>7</b><span>列时间口径已登记并逐行校验</span></div>
-  <div><b>19710</b><span>最近 30 分钟写入的行<br>（ts_utc 空值 0）</span></div>
+  <div><b>28032</b><span>最近 30 分钟写入的行<br>（ts_utc 空值 0）</span></div>
   <div><b>201/201</b><span>点位实际入库 / 配置<br>（覆盖率 100.0%）</span></div>
   <div><b>CERTIFIED</b><span>证据链机制<br>（负向控制 + 篡改对抗）</span></div>
   <div><b style="color:#b3261e">FAIL</b><span>系统体检<br>未通过：physical_domain</span></div>
@@ -125,7 +125,7 @@ integrity_check / backup、<code>hashlib</code>、<code>importlib</code>、<code
 <h2>三、时间基准：从 8 小时错位到 0.4 秒</h2>
 <p>库内 <code>history_data.timestamp</code>（业务代码 <code>datetime.now()</code>，本地时间）与
 <code>created_at</code>（SQLite <code>CURRENT_TIMESTAMP</code>，UTC）恒定相差
-<b>8.000031 小时</b>，样本 334856 行、标准差≈0。
+<b>8.000031 小时</b>，样本 343178 行、标准差≈0。
 标准差≈0 说明这不是"时钟慢了一点"，而是<b>两个时间基准</b>——看数据就能得结论，不需要读代码。</p>
 <table>
 <tr><th style="width:34%">指标</th><th>迁移后实测</th><th>含义</th></tr>
@@ -139,9 +139,9 @@ integrity_check / backup、<code>hashlib</code>、<code>importlib</code>、<code
 <p class="small">结论 <span class="tag ok">PASS</span>　原始记录：<code>reports/deep/timebase.json</code>、
 <code>reports/deep/timebase-migration.json</code>（含备份路径与幂等标记）。</p>
 <p><b>写入路径体检</b>（<span class="tag ok">PASS</span>）：只看<b>最近 30 分钟由应用写入</b>的行，
-不看迁移回填过的历史数据。本次实测 19710 行，
+不看迁移回填过的历史数据。本次实测 28032 行，
 <code>ts_utc</code> 空值 0 行，
-<code>created_at</code> 与 <code>ts_utc</code> 最大差 220.0 秒。
+<code>created_at</code> 与 <code>ts_utc</code> 最大差 452.2 秒。
 这条检测器是被一个真实事故逼出来的：上一轮改了 <code>insert_data_batch</code> 的参数个数
 却没改 <code>realtime_data</code> 的占位符，启动后每批写入失败，而当时所有检测器全绿——
 <b>因为它们看的都是回填过的旧数据</b>。</p>
@@ -159,7 +159,7 @@ integrity_check / backup、<code>hashlib</code>、<code>importlib</code>、<code
 <tr><td><code>history_data</code></td><td><code>timestamp</code></td><td>local</td><td><span class='tag ok'>OK</span></td></tr><tr><td><code>realtime_data</code></td><td><code>timestamp</code></td><td>local</td><td><span class='tag ok'>OK</span></td></tr><tr><td><code>alarm_records</code></td><td><code>timestamp</code></td><td>local</td><td><span class='tag ok'>OK</span></td></tr><tr><td><code>alarm_records</code></td><td><code>last_trigger_time</code></td><td>local</td><td><span class='tag ok'>OK</span></td></tr><tr><td><code>alarm_records</code></td><td><code>acknowledged_at</code></td><td>local</td><td><span class='tag ok'>OK</span></td></tr><tr><td><code>operation_logs</code></td><td><code>timestamp</code></td><td>utc</td><td><span class='tag ok'>OK</span></td></tr><tr><td><code>device_status</code></td><td><code>timestamp</code></td><td>local</td><td><span class='tag ok'>OK</span></td></tr><tr><td><code>users</code></td><td><code>created_at</code></td><td>exempt</td><td><span class='tag ok'>EXEMPT</span></td></tr><tr><td><code>users</code></td><td><code>updated_at</code></td><td>exempt</td><td><span class='tag ok'>EXEMPT</span></td></tr><tr><td><code>users</code></td><td><code>last_login</code></td><td>exempt</td><td><span class='tag ok'>EXEMPT</span></td></tr><tr><td><code>users</code></td><td><code>locked_until</code></td><td>exempt</td><td><span class='tag ok'>EXEMPT</span></td></tr><tr><td><code>jwt_blacklist</code></td><td><code>blacklisted_at</code></td><td>exempt</td><td><span class='tag ok'>EXEMPT</span></td></tr><tr><td><code>history_archive</code></td><td><code>archive_date</code></td><td>exempt</td><td><span class='tag ok'>EXEMPT</span></td></tr><tr><td><code>history_data</code></td><td><code>created_at</code></td><td>exempt</td><td><span class='tag ok'>EXEMPT</span></td></tr><tr><td><code>realtime_data</code></td><td><code>created_at</code></td><td>exempt</td><td><span class='tag ok'>EXEMPT</span></td></tr><tr><td><code>alarm_records</code></td><td><code>created_at</code></td><td>exempt</td><td><span class='tag ok'>EXEMPT</span></td></tr><tr><td><code>device_status</code></td><td><code>created_at</code></td><td>exempt</td><td><span class='tag ok'>EXEMPT</span></td></tr><tr><td><code>cache</code></td><td><code>created_at</code></td><td>exempt</td><td><span class='tag ok'>EXEMPT</span></td></tr><tr><td><code>cache</code></td><td><code>expires_at</code></td><td>exempt</td><td><span class='tag ok'>EXEMPT</span></td></tr><tr><td><code>schema_migrations</code></td><td><code>applied_at</code></td><td>exempt</td><td><span class='tag ok'>EXEMPT</span></td></tr>
 </table>
 <p class="small">7 列符合登记；
-静态门禁扫描 137 个源文件、
+静态门禁扫描 138 个源文件、
 20 条登记，违规 0。
 结论 <span class="tag ok">PASS</span> / <span class="tag ok">PASS</span>。
 <code>users</code> / <code>jwt_blacklist</code> / <code>cache</code> 等登记为
@@ -228,7 +228,7 @@ integrity_check / backup、<code>hashlib</code>、<code>importlib</code>、<code
 <h2>七、审计链：改了日志也要被发现</h2>
 <table>
 <tr><th style="width:44%">篡改手法</th><th>预期</th><th>实际</th><th>说明</th></tr>
-<tr><td>未篡改：链应通过</td><td>应抓到</td><td>抓到</td><td><span class=small>entries=5, head=9f59221b38e7</span></td></tr><tr><td>篡改第 2 条的值（仅追加一个空格）：应报「记录被修改」</td><td>应抓到</td><td>抓到</td><td><span class=small>entry_hash 与内容不符（记录被修改）</span></td></tr><tr><td>篡改第 3 条的操作人：应被抓到</td><td>应抓到</td><td>抓到</td><td><span class=small>entry_hash 与内容不符（记录被修改）</span></td></tr><tr><td>删除中间一条：应报断号/前哈希不连续</td><td>应抓到</td><td>抓到</td><td><span class=small>prev_hash 不连续（此前的记录被删除或替换）</span></td></tr><tr><td>调换两条的内容：应被抓到</td><td>应抓到</td><td>抓到</td><td><span class=small>entry_hash 与内容不符（记录被修改）</span></td></tr><tr><td>截断最后两条：链内**抓不到**（已知局限，靠外部锚点）</td><td>已知抓不到</td><td>未抓到</td><td><span class=small>链内自洽=True（所以链自己抓不到）；head 从 9f59221b38e7 变为 587ea9306236，头部哈希变化只能被 git/MANIFEST 这类外部锚点发现</span></td></tr><tr><td>canonical_json 键序无关（否则链会无故断裂）</td><td>应抓到</td><td>抓到</td><td><span class=small>两种键序输出一致=True</span></td></tr><tr><td>同一内容重复保存不产生审计噪音</td><td>应抓到</td><td>抓到</td><td><span class=small>写入=0 条（应为 0）</span></td></tr><tr><td>PUT /api/config 确实带 before/after 调用了审计记录</td><td>应抓到</td><td>抓到</td><td><span class=small>update_config 中 record_config_change 调用参数: [{'actor', 'section', 'after', 'ip', 'before'}]</span></td></tr>
+<tr><td>未篡改：链应通过</td><td>应抓到</td><td>抓到</td><td><span class=small>entries=5, head=bc1785ae5261</span></td></tr><tr><td>篡改第 2 条的值（仅追加一个空格）：应报「记录被修改」</td><td>应抓到</td><td>抓到</td><td><span class=small>entry_hash 与内容不符（记录被修改）</span></td></tr><tr><td>篡改第 3 条的操作人：应被抓到</td><td>应抓到</td><td>抓到</td><td><span class=small>entry_hash 与内容不符（记录被修改）</span></td></tr><tr><td>删除中间一条：应报断号/前哈希不连续</td><td>应抓到</td><td>抓到</td><td><span class=small>prev_hash 不连续（此前的记录被删除或替换）</span></td></tr><tr><td>调换两条的内容：应被抓到</td><td>应抓到</td><td>抓到</td><td><span class=small>entry_hash 与内容不符（记录被修改）</span></td></tr><tr><td>截断最后两条：链内**抓不到**（已知局限，靠外部锚点）</td><td>已知抓不到</td><td>未抓到</td><td><span class=small>链内自洽=True（所以链自己抓不到）；head 从 bc1785ae5261 变为 da4069d7722b，头部哈希变化只能被 git/MANIFEST 这类外部锚点发现</span></td></tr><tr><td>canonical_json 键序无关（否则链会无故断裂）</td><td>应抓到</td><td>抓到</td><td><span class=small>两种键序输出一致=True</span></td></tr><tr><td>同一内容重复保存不产生审计噪音</td><td>应抓到</td><td>抓到</td><td><span class=small>写入=0 条（应为 0）</span></td></tr><tr><td>PUT /api/config 确实带 before/after 调用了审计记录</td><td>应抓到</td><td>抓到</td><td><span class=small>update_config 中 record_config_change 调用参数: [{'before', 'section', 'ip', 'actor', 'after'}]</span></td></tr>
 </table>
 <p class="small">结论 <span class="tag ok">PASS</span>。
 哈希链的数学盲区是<b>尾部截断</b>（删掉最后几条，链内仍自洽）——这个盲区已用
@@ -253,8 +253,8 @@ python tools/deep-verify.py all              # 全部检查 → reports/deep/ver
 python tools/audit-chain-selftest.py         # 9 个篡改对抗用例
 python tools/evidence-manifest.py --verify   # 核对代码是否就是清单里那份
 python tools/make-deep-report.py             # 重新渲染本页</code></pre>
-<p>清单锚定 <b>25</b> 个关键文件（代码+配置+文档），
-HEAD <code>ab06733df5f3</code>。
+<p>清单锚定 <b>26</b> 个关键文件（代码+配置+文档），
+HEAD <code>9de9a54a7779</code>。
 <b>若你重跑本页数字不一致，那这些数字就是假的。</b></p>
 
 <footer>

@@ -22,7 +22,12 @@ ROLES = {
     },
     'engineer': {
         'name': '工程师',
-        'permissions': ['read', 'write', 'acknowledge_alarms', 'export_data', 'manage_devices']
+        # system_config：与 展示层/api/api_system.py 的 @role_required('admin','engineer')
+        # 对齐。此前装饰器放行 engineer、这里却没给权限，两处口径矛盾（SEC-02）——
+        # 结果是"能不能改配置"取决于走哪个分支判断，属于典型的口径漂移。
+        # 注意：`security` 段仍然只有 admin 能改，见 update_config 里的显式拦截。
+        'permissions': ['read', 'write', 'acknowledge_alarms', 'export_data',
+                        'manage_devices', 'system_config']
     },
     'operator': {
         'name': '操作员',

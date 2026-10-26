@@ -4,12 +4,12 @@
   "claim": "DATA-03",
   "verdict": "pass",
   "metrics": {
-    "scanned_files": 137,
+    "scanned_files": 138,
     "registered": 20,
     "local": 6,
     "utc": 1
   },
   "findings": [],
   "ground_truth": "REGISTRY 单一真源 + 源码扫描（ast 取 SQL 字符串）",
-  "sample": 137
+  "sample": 138
 }

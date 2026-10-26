@@ -167,6 +167,15 @@ def update_config():
     before_snapshot = _copy.deepcopy(config or {})
 
     section = data.get('section')
+    # 安全配置只有管理员能改：装饰器放行 engineer 是为了让他调采集间隔之类的运维参数，
+    # 不是让他改口令策略/会话超时。放行 engineer 却不区分段落，等于把安全策略交给了运维角色。
+    _role = (request.current_user or {}).get('role')
+    if _role != 'admin':
+        if section == 'security':
+            return api_error('security 段仅管理员可修改', 403)
+        if not section:
+            data = {k: v for k, v in data.items() if k != 'security'}
+
     if section and section in config and isinstance(config[section], dict):
         config[section].update(data.get('data', {}))
     elif section:

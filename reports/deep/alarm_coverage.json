@@ -5,7 +5,7 @@
   "verdict": "pass",
   "metrics": {
     "window_minutes": 30,
-    "anchor": "2026-10-26 04:17:38",
+    "anchor": "2026-10-26 04:26:44",
     "rules": 10,
     "alive": 2,
     "missed": 0,
@@ -29,7 +29,7 @@
   "findings": [
     {
       "code": "ALARM_RULE_UNREACHABLE",
-      "message": "8 条规则的阈值在窗口内从未触及（最远 3.3 倍包络）—— 需要工艺依据说明是\"保护性阈值\"还是\"拍的\"",
+      "message": "8 条规则的阈值在窗口内从未触及（最远 3.2 倍包络）—— 需要工艺依据说明是\"保护性阈值\"还是\"拍的\"",
       "severity": "warning",
       "count": 8,
       "detail": {
@@ -38,10 +38,10 @@
             "rule": "temp_low",
             "threshold": 50.0,
             "envelope": [
-              168.86,
+              167.97,
               204.54
             ],
-            "gap_in_spans": 3.3,
+            "gap_in_spans": 3.2,
             "level": "warning"
           },
           {
@@ -68,30 +68,30 @@
             "rule": "voltage_high",
             "threshold": 242.0,
             "envelope": [
-              218.9,
+              218.7,
               227.2
             ],
-            "gap_in_spans": 1.8,
+            "gap_in_spans": 1.7,
             "level": "critical"
           },
           {
             "rule": "voltage_low",
             "threshold": 198.0,
             "envelope": [
-              218.9,
+              218.7,
               227.2
             ],
-            "gap_in_spans": 2.5,
+            "gap_in_spans": 2.4,
             "level": "warning"
           },
           {
             "rule": "current_high",
             "threshold": 100.0,
             "envelope": [
-              10.08,
-              17.17
+              9.29,
+              18.86
             ],
-            "gap_in_spans": 11.7,
+            "gap_in_spans": 8.5,
             "level": "critical"
           },
           {

@@ -68,7 +68,14 @@ def _generate_enhanced_data(
         name = cfg.get('name', cfg.get('node_id', cfg.get('topic', 'unknown')))
         unit = cfg.get('unit', '')
 
-        value = data.get(name, 50 + 30 * time.time() % 100)
+        # 未建模点位不再用「50 + 30*time%100」撒随机：那会让同一台设备的
+        # 程序号/报警码/主轴负载共用一条曲线（实测 cnc_mazak_01 全部 10 个点
+        # 值域都是 54.75~149.0，程序号变成 51.19）。改为按单位/名字给合理值域。
+        if name in data:
+            value = data[name]
+        else:
+            from .sim_semantics import plausible
+            value = plausible(name, unit)
 
         entry = {
             'value': round(float(value), 2),
@@ -216,6 +223,11 @@ class EnhancedSimulatedModbusClient(ModbusClientInterface):
                 logger.error(f"[增强模拟] 更新异常: {e}")
                 time.sleep(1)
     
+    @staticmethod
+    def _register_word_span(reg_cfg: dict) -> int:
+        dt = str((reg_cfg or {}).get('data_type', 'uint16')).lower()
+        return 4 if dt == 'float64' else 2 if dt in ('float32', 'int32', 'uint32') else 1
+
     # ---------------------------------------------------------------- 编码
     def _words_for_register(self, reg_cfg: dict, value) -> list[int]:
         """把一个寄存器按配置编成它占用的若干 16 位字（**按 byte_order**）。
@@ -331,11 +343,22 @@ class EnhancedSimulatedModbusClient(ModbusClientInterface):
                 results.append(0)
                 addr += 1
                 continue
-            with self._data_lock:
-                value = self._latest_data.get(reg_cfg.get('name'))
-            if value is None:
-                value = 0
-            words = self._words_for_register(reg_cfg, value)
+            # 写入保持：真实 PLC 里你写进去的值就是它，直到程序把它改掉。
+            # 不认这条，"写入→回读验证"在模拟模式下永远不可信（CTRL-02），
+            # 于是设备控制链路的安全性在模拟环境里根本测不了。
+            written = None
+            try:
+                written = self.behavior_simulator.get_written_register_value(addr)
+            except Exception:
+                written = None
+            if written is not None and self._register_word_span(reg_cfg) == 1:
+                words = [int(written) & 0xFFFF]
+            else:
+                with self._data_lock:
+                    value = self._latest_data.get(reg_cfg.get('name'))
+                if value is None:
+                    value = 0
+                words = self._words_for_register(reg_cfg, value)
             results.extend(words)
             addr += max(1, len(words))
         return results[:count]
@@ -836,7 +859,14 @@ class EnhancedSimulatedRESTClient(PushClientInterface):
         data = self.behavior_simulator.update(1.0)
         
         # 从行为模拟器获取数据
-        value = data.get(name, 50 + 30 * time.time() % 100)
+        # 未建模点位不再用「50 + 30*time%100」撒随机：那会让同一台设备的
+        # 程序号/报警码/主轴负载共用一条曲线（实测 cnc_mazak_01 全部 10 个点
+        # 值域都是 54.75~149.0，程序号变成 51.19）。改为按单位/名字给合理值域。
+        if name in data:
+            value = data[name]
+        else:
+            from .sim_semantics import plausible
+            value = plausible(name, unit)
         
         return round(float(value), 2)
     

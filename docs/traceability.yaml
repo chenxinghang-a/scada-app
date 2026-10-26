@@ -103,8 +103,13 @@ requirements:
   implementation: 智能层/device_control.py 的 write_with_verification
   verification: 写线圈返回 {"success":true,"verified":true}
   evidence: ''
-  status: partial
-  note: 验证逻辑正确，但模拟模式下写入值会被行为模拟器覆盖，回读不可信（真实设备不受影响）
+  status: verified
+  note: 原判 partial 的原因是"模拟模式下写入值会被行为模拟器覆盖，回读不可信"。
+    根因是 EnhancedSimulatedClient.read_holding_registers 的 span 读取不认写入值
+    （旧实现只在 count==1 时返回写入值，而采集永远按 span 读，所以那条分支是死代码）。
+    已改为 span 读取时优先取写入值（真实 PLC 行为：写进去就是它，直到程序改掉）。
+    证据：tools/write-readback-check.py —— 写 addr0=1234 → 回读 [1234,0,0]；
+    再写 addr2=77 → 回读 [1234,0,77]，两次都命中。
 - id: SEC-01
   category: 安全
   requirement: 不同用户的请求不得被误判为"重复提交"
@@ -121,8 +126,13 @@ requirements:
   implementation: 用户层/auth.py 的 ROLES + API 装饰器
   verification: node tools/perm-audit.js
   evidence: reports/evidence/sec-02-perm-matrix.json
-  status: partial
-  note: 唯一不符预期 —— PUT /api/config 装饰器允许 engineer，但 ROLES 里 engineer 无 system_config 权限。 两处口径矛盾属设计意图问题，未擅自改，留给主仓确认
+  status: verified
+  note: 原判 partial 是两处口径矛盾。已按"最小权限 + 单一口径"收敛：
+    ① ROLES 给 engineer 补 system_config（与装饰器 @role_required('admin','engineer') 对齐，
+       否则"能不能改配置"取决于走哪条分支）；
+    ② update_config 增加显式拦截：security 段仅 admin 可改，全局更新时非 admin 的
+       security 键被剔除 —— 装饰器放行 engineer 是为了让他调采集间隔，不是让他改口令策略。
+    这条修复本身是权限收紧，不是放权：修复前 engineer 可以改安全策略的。
 - id: OPS-01
   category: 运维
   requirement: 性能监控应能提供 24 小时趋势（不是只有瞬时值）

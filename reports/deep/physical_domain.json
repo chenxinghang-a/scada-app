@@ -5,11 +5,11 @@
   "verdict": "fail",
   "metrics": {
     "window_minutes": 15,
-    "anchor": "2026-10-26 04:17:38",
+    "anchor": "2026-10-26 04:26:44",
     "points_checked": 201,
     "out_of_domain": 1,
     "suspect_range": 3,
-    "non_integer": 5,
+    "non_integer": 3,
     "frozen_status": 16
   },
   "findings": [
@@ -25,7 +25,7 @@
             "point": "sealing_temperature",
             "unit": "°C",
             "observed": [
-              0.0,
+              30.8,
               5242.9
             ],
             "allowed": [
@@ -39,60 +39,40 @@
     },
     {
       "code": "PHYS_NON_INTEGER_ENUM",
-      "message": "5 个整数/枚举语义的点出现小数或取值过多",
+      "message": "3 个整数/枚举语义的点出现小数或取值过多",
       "severity": "critical",
-      "count": 5,
+      "count": 3,
       "detail": {
         "points": [
-          {
-            "device": "siemens_web_01",
-            "point": "production_count",
-            "observed": [
-              54.76,
-              143.44
-            ],
-            "distinct": 64,
-            "why": "语义为整数/枚举，实测带小数"
-          },
           {
             "device": "cnc_mazak_01",
             "point": "program_number",
             "observed": [
-              51.19,
-              149.71
+              52.68,
+              998.0
             ],
-            "distinct": 365,
-            "why": "语义为整数/枚举，实测带小数"
-          },
-          {
-            "device": "cnc_mazak_01",
-            "point": "part_count",
-            "observed": [
-              54.75,
-              149.0
-            ],
-            "distinct": 64,
+            "distinct": 251,
             "why": "语义为整数/枚举，实测带小数"
           },
           {
             "device": "cnc_mazak_01",
             "point": "alarm_code",
             "observed": [
-              51.21,
-              149.72
+              27.0,
+              998.0
             ],
-            "distinct": 364,
-            "why": "语义为整数/枚举，实测带小数"
+            "distinct": 254,
+            "why": "枚举量出现 254 种取值（应 ≤16）"
           },
           {
             "device": "cnc_mazak_01",
             "point": "machine_mode",
             "observed": [
-              54.75,
+              3.0,
               149.0
             ],
-            "distinct": 64,
-            "why": "语义为整数/枚举，实测带小数"
+            "distinct": 29,
+            "why": "枚举量出现 29 种取值（应 ≤16）"
           }
         ]
       }
@@ -108,7 +88,7 @@
             "device": "cnc_mazak_01",
             "point": "spindle_load",
             "observed": [
-              54.75,
+              20.01,
               149.0
             ],
             "why": "% 类点位实测超出 0~100（过载还是标定错？需要工艺确认）"
@@ -117,7 +97,7 @@
             "device": "cnc_mazak_01",
             "point": "feed_override",
             "observed": [
-              54.75,
+              62.54,
               149.0
             ],
             "why": "% 类点位实测超出 0~100（过载还是标定错？需要工艺确认）"
@@ -126,7 +106,7 @@
             "device": "cnc_mazak_01",
             "point": "tool_life",
             "observed": [
-              54.75,
+              5.0,
               149.0
             ],
             "why": "% 类点位实测超出 0~100（过载还是标定错？需要工艺确认）"

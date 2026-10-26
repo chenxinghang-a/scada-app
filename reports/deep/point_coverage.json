@@ -5,7 +5,7 @@
   "verdict": "pass",
   "metrics": {
     "window_minutes": 10,
-    "anchor": "2026-10-26 04:17:38",
+    "anchor": "2026-10-26 04:26:44",
     "devices": 27,
     "configured_points": 201,
     "collected_points": 201,

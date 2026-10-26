@@ -1,7 +1,7 @@
 {
-  "generated_at": "2026-10-26T12:22:09",
-  "git_head": "9de9a54a777998cfb3e96a2aa6fc22246bfc28eb",
-  "git_dirty": false,
+  "generated_at": "2026-10-26T12:27:38",
+  "git_head": "44b3c20a71344b2982e360087372584bf90684a2",
+  "git_dirty": true,
   "python": "3.14.3",
   "platform": "win32",
   "files": {
@@ -18,16 +18,24 @@
       "size": 68221
     },
     "backend/src/展示层/api/api_system.py": {
-      "sha256": "dd8b1ac912ac2510e83b7b356d28974df6cdbd95afbb71b08743a84da6b06a42",
-      "size": 9831
+      "sha256": "9a31107077e5d68ebb391c26604f82ac09632bde67525afc6561c25a6d87864d",
+      "size": 10372
     },
     "backend/src/采集层/base_client.py": {
       "sha256": "2bb37a613bf63c1209fe9a49c52f98458b32b03c042276990020bfbe98aa77a6",
       "size": 9806
     },
     "backend/src/采集层/enhanced_simulated_client.py": {
-      "sha256": "2cfbd7bc1c816eb15e1010ae920861bf2a23e40cddfd5bb9876e53151fd54e8b",
-      "size": 38528
+      "sha256": "67ebbb453488d76c3e22566a253e2bec40e70e0ff8be4b78a9c381a49abe3d9f",
+      "size": 40234
+    },
+    "backend/src/采集层/sim_semantics.py": {
+      "sha256": "f250fa36b236be54b2c89c1c1077ed8f4039bc8992e161b42c33ff537411f3ba",
+      "size": 4010
+    },
+    "backend/src/用户层/auth.py": {
+      "sha256": "94ec3a2af2bc5d68b44335b1aba0d92df13d9124a3d8ee78f97abf6a8ee63b43",
+      "size": 40191
     },
     "backend/src/配置/devices_modbus_sim.yaml": {
       "sha256": "1030219b8c20c7a79f51153194bf07473158c9218685e393493d3e5c5fc27eb9",
@@ -52,6 +60,10 @@
     "tools/audit-anchor.py": {
       "sha256": "3e9b4fa4032b99a9d14511b3feeb65266e46308d93e49052ddff64bdcf2a2dc6",
       "size": 2746
+    },
+    "tools/write-readback-check.py": {
+      "sha256": "5210add8965a3d24c93cb8c941ba1cf55ac1751a5c4b1d68e17452721e0995b0",
+      "size": 2813
     },
     "tools/make-deep-report.py": {
       "sha256": "751941aa050ca31e8eef4a0ccfcae247eb190e3a7071c59ed9a8acb6e27a087c",
@@ -102,15 +114,15 @@
       "size": 4238
     },
     "docs/traceability.yaml": {
-      "sha256": "9e4a6be60d0beda5eb5ba98f4345efe015e7893672c18fc4fdb2cca5642ee91a",
-      "size": 19268
+      "sha256": "3dde0851959df4207d4f04d9097e3cda9116d8933b248b7d5f66f63caece694d",
+      "size": 20126
     },
     "docs/深度-专家会做什么.md": {
-      "sha256": "25a0d8b2e4e940676482d7303b6cc672816fb242090e1dcff00ba779c3dd659a",
-      "size": 23752
+      "sha256": "3fb846b6e7c3e34dea7847905ceefcb36ffaa846d9f21a32476a4d1c5c9053ad",
+      "size": 25631
     }
   },
-  "file_count": 26,
+  "file_count": 29,
   "missing": [],
   "reproduce": [
     "python tools/make-evidence-fixture.py",

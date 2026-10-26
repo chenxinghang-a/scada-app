@@ -1,0 +1,20 @@
+{
+  "ok": true,
+  "before": [
+    0,
+    0,
+    0
+  ],
+  "after_write_addr0": [
+    1234,
+    0,
+    0
+  ],
+  "after_write_addr2": [
+    1234,
+    0,
+    77
+  ],
+  "write_returned_true": true,
+  "claim": "写入后回读必须读到写入值，而不是模型值"
+}
