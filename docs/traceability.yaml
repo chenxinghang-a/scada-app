@@ -241,6 +241,20 @@ requirements:
     「干净快照=PASS / 播种后=FAIL 且报出预期 finding code」两个方向上都对，
     才计 1 分。8 个全过。运行库被 .gitignore 排除，故另做 2.3MB 夹具，
     保证任何人克隆仓库后一条命令即可重算。
+- id: DATA-15
+  category: 数据
+  requirement: 坏质量的值必须在界面上与好值可区分（操作员不能把 Bad 当 Good 读）
+  source: OPC UA 质量码分档 + ISA-18.2 人机界面要求（外部标准）
+  implementation: 前端 Dashboard.vue 的 quality-dot 四档样式（good/uncertain/bad/unknown）
+    + utils/dashboard.ts 的 qualityLabel 按 OPC UA 口径（>=192 / >=64）
+  verification: python tools/deep-verify.py all → det_ui_quality（静态契约检查）
+  evidence: reports/deep/ui_quality.json
+  status: verified
+  note: 实测 4/4 档齐全、4 种独立样式、分档口径与 OPC UA 一致（PASS）。
+    **已知不足**（记成 warning 而非放过）：坏值只靠 8px 圆点区分，数值本身仍以
+    正常样式显示——操作员扫表格时容易把 Bad 当 Good 读。要彻底解决需在数值上做
+    降级（置灰/加删除线/显示 ??），属 UI 改动，未做。
+    负向控制第 14 项：删掉 .quality-dot--bad 样式 → 判 UI_QUALITY_LEVELS_MISSING。
 - id: DATA-14
   category: 数据
   requirement: 审计对象必须是应用正在写的那个库（同名库并存时必须可判别）

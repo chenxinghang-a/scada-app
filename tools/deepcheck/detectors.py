@@ -14,7 +14,7 @@ import sqlite3
 from datetime import datetime, timedelta
 from pathlib import Path
 
-from . import coverage, physical, pointtable, subject
+from . import coverage, physical, pointtable, subject, ui_contract
 from .common import (FAIL, INSUFFICIENT, PASS, REPO, Finding, Result,
                      connect_ro, say)
 
@@ -604,4 +604,5 @@ REGISTRY = {
     'sec_chain': (det_sec_chain, 'db'),
     'anchor': (det_anchor, 'db_anchor'),
     'clock_lint': (det_clock_lint, 'none'),
+    'ui_quality': (ui_contract.det_ui_quality, 'ui_root'),
 }

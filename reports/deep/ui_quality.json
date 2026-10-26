@@ -1,0 +1,24 @@
+{
+  "id": "ui_quality",
+  "title": "坏值的视觉可辨性（人机界面契约）",
+  "claim": "DATA-15",
+  "verdict": "pass",
+  "metrics": {
+    "levels_found": 4,
+    "levels_expected": 4,
+    "distinct_styles": 4,
+    "value_degraded": false,
+    "scanned": "C:\\Users\\cxx\\scada-app\\src"
+  },
+  "findings": [
+    {
+      "code": "UI_VALUE_NOT_DEGRADED",
+      "message": "坏值只靠 8px 圆点区分，数值本身仍以正常样式显示 —— 操作员扫一眼表格时容易把 Bad 当 Good 读",
+      "severity": "warning",
+      "count": 1,
+      "detail": {}
+    }
+  ],
+  "ground_truth": "OPC UA 质量码分档 + ISA-18.2 人机界面要求（外部标准，非本项目约定）",
+  "sample": 4
+}

@@ -1,7 +1,7 @@
 {
-  "generated_at": "2026-10-26T13:08:17",
-  "git_head": "f0804fd828b7f58a19981e8a85a99e00621ac614",
-  "git_dirty": false,
+  "generated_at": "2026-10-26T13:10:02",
+  "git_head": "ec78e70f5c66be177f0e64dda0c828d0c4840bc6",
+  "git_dirty": true,
   "python": "3.14.3",
   "platform": "win32",
   "files": {
@@ -42,8 +42,8 @@
       "size": 13731
     },
     "tools/deep-verify.py": {
-      "sha256": "ede723317914a381cfd5116a59e885b3cd82fa11664896c06729f0ecaf8b7fab",
-      "size": 11768
+      "sha256": "d7b3ce132f6c3a45b2f4e2f5ae75b7f293525384dd8a74f1f3286abf19362b1a",
+      "size": 11834
     },
     "tools/make-evidence-fixture.py": {
       "sha256": "b2aac59610746fe655dc670c2541f0f03b974542798d163a876386e7014940c8",
@@ -94,16 +94,16 @@
       "size": 11861
     },
     "tools/deepcheck/detectors.py": {
-      "sha256": "0d2f92856b24a40b5f2d7ff14ca184d67544e60d23a8d25fc2068318600c3f43",
-      "size": 28260
+      "sha256": "825865b6d1b4de3717eaac0939ae680d09eb434a5f7d8458ab972e1a8a7cb889",
+      "size": 28333
     },
     "tools/deepcheck/fixtures.py": {
       "sha256": "5091f7ffc1e34dbfc95bf3810aec3481d2e39bd7f9fc13d6c635a14950bda967",
       "size": 4123
     },
     "tools/deepcheck/negative_control.py": {
-      "sha256": "091b78352d77dc5bfacdc134c96c8e777a3e833fc5007254880313762625ef63",
-      "size": 30072
+      "sha256": "e09aab9253f70980584d6549dc6fa63aedc4af050072bbef08d47cf461d9cbdf",
+      "size": 31557
     },
     "tools/deepcheck/physical.py": {
       "sha256": "5b253d400c38213afc779cf016967d8b4300ec58a69efad7de841bb7599bb3ee",
@@ -121,20 +121,24 @@
       "sha256": "391f9a95b1a388bc6a986e2009da5aa5271a91e21d0c7bb58df2cf094b4d95f5",
       "size": 6736
     },
+    "tools/deepcheck/ui_contract.py": {
+      "sha256": "58bd0257462b58e62cd76904fe34aad6c027e45c987f4685ad407cf3db4668de",
+      "size": 4517
+    },
     "tools/deepcheck/timebase.py": {
       "sha256": "271c811eb43d1b1a6b9d55b072ddae44efaa41600d608c23c28c710db4be57e2",
       "size": 4238
     },
     "docs/traceability.yaml": {
-      "sha256": "a2abf43d5354e90a8dbc873faaa0b439a5ece784b79b0c6bc300e60b821ae512",
-      "size": 21025
+      "sha256": "51551184a1e4cde1ab08ff7ba1e6a89ec662f44f63f29246715b10357fe8c28d",
+      "size": 22075
     },
     "docs/深度-专家会做什么.md": {
       "sha256": "23925afbc65de4eeee1c45e74b87a6b4ac9ba8766d0401a327cbcfb5247f141b",
       "size": 30164
     }
   },
-  "file_count": 32,
+  "file_count": 33,
   "missing": [],
   "reproduce": [
     "python tools/make-evidence-fixture.py",

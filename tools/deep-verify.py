@@ -114,6 +114,8 @@ def _run(name: str, db: Path):
         return fn(db, None)
     if kind == 'none':
         return fn(None)
+    if kind == 'ui_root':
+        return fn(None)
     raise ValueError(f'{name}: 不支持的类型 {kind}')
 
 
@@ -145,7 +147,7 @@ def cmd_all(args) -> dict:
         write_json(OUT_DIR / f'{name}.json', res.to_dict())
 
     # 静态口径门禁 + 外部锚点
-    for name in ('clock_lint', 'anchor'):
+    for name in ('clock_lint', 'ui_quality', 'anchor'):
         res = _run(name, db)
         say(f'[{name}] {res.verdict.upper()}  '
             f'{json.dumps(res.metrics, ensure_ascii=False)[:160]}')

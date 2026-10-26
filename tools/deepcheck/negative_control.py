@@ -371,6 +371,27 @@ def seed_subject_mismatch(ctx: dict) -> dict:
     return {'seeded': 'runtime.json mode: simulated -> real（应写的库变成 scada_real.db）'}
 
 
+def _prep_ui_tree(db: Path, ctx: dict) -> dict:
+    """把前端两个关键文件复制到临时目录，作为静态扫描根。"""
+    import shutil
+    d = ctx['dir'] / 'ui'
+    (d / 'views').mkdir(parents=True, exist_ok=True)
+    (d / 'utils').mkdir(parents=True, exist_ok=True)
+    shutil.copy2(REPO / 'src' / 'views' / 'Dashboard.vue', d / 'views' / 'Dashboard.vue')
+    shutil.copy2(REPO / 'src' / 'utils' / 'dashboard.ts', d / 'utils' / 'dashboard.ts')
+    ctx['ui_root'] = d
+    return {'ui_root': str(d)}
+
+
+def seed_ui_level_dropped(ctx: dict) -> dict:
+    """删掉 Bad 那一档的样式 —— 质量退化成"好/不确定/未知"三档，坏的看不见了。"""
+    p = Path(ctx['ui_root']) / 'views' / 'Dashboard.vue'
+    lines = p.read_text(encoding='utf-8').splitlines(keepends=True)
+    kept = [l for l in lines if 'quality-dot--bad' not in l or ':class' in l]
+    p.write_text(''.join(kept), encoding='utf-8')
+    return {'seeded': '删掉 .quality-dot--bad 样式（Bad 与其它档无法区分）'}
+
+
 # ---------------------------------------------------------------- 用例表
 
 CASES = [
@@ -469,6 +490,14 @@ CASES = [
         'prepare': 'physical_cfg',
         'seed': 'db',
         'seed_fn': seed_physical_domain,
+    },
+    {
+        'detector': 'ui_quality',
+        'defect': 'Bad 质量档的样式被删（坏的看不出来）',
+        'expect_code': 'UI_QUALITY_LEVELS_MISSING',
+        'prepare': 'ui_tree',
+        'seed': 'ctx',
+        'seed_fn': seed_ui_level_dropped,
     },
     {
         'detector': 'subject',
@@ -591,6 +620,7 @@ PREPARES = {
     'alarm_cfg': _prep_alarm_cfg,
     'physical_cfg': _prep_physical_cfg,
     'subject_fixture': _prep_subject_fixture,
+    'ui_tree': _prep_ui_tree,
     'backup_fixture': _prep_backup_fixture,
     'chain_fixture': _prep_chain_fixture,
 }
@@ -600,6 +630,8 @@ PREPARES = {
 
 def _run_detector(name: str, ctx: dict):
     fn, kind = detectors.REGISTRY[name]
+    if kind == 'ui_root':
+        return fn(ctx.get('ui_root'))
     if kind == 'db_subject':
         return fn(ctx.get('subject_db') or ctx['db'])
     if kind == 'db':
@@ -614,6 +646,8 @@ def _run_detector(name: str, ctx: dict):
         return fn(ctx.get('lint_root'))
     if kind == 'db_dev':
         return fn(ctx['db'], ctx.get('devices_cfg'))
+    if kind == 'ui_root':
+        return fn(ctx.get('ui_root'))
     if kind == 'db_subject':
         return fn(ctx.get('subject_db') or ctx['db'])
     if kind == 'db_alarm':

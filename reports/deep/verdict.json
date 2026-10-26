@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-10-26T13:08:10",
+  "generated_at": "2026-10-26T13:09:52",
   "checks": {
     "timebase": "pass",
     "pointtable": "pass",
@@ -16,14 +16,15 @@
     "mass_balance": "insufficient",
     "subject": "insufficient",
     "clock_lint": "pass",
+    "ui_quality": "pass",
     "anchor": "insufficient"
   },
   "field_checks_pass": 4,
   "audit_chain_selftest": "9/9",
   "audit_chain_field_entries": 0,
   "anchor_status": "UNANCHORED",
-  "negative_control_discriminating": 16,
-  "negative_control_total": 16,
+  "negative_control_discriminating": 17,
+  "negative_control_total": 17,
   "field_verdict": "PASS",
   "field_failed_checks": [],
   "mechanism_certified": true,
