@@ -232,10 +232,16 @@ def main():
     ap.add_argument('--config', default=str(REPO / 'backend' / 'src' / '配置' /
                                             'devices_modbus_sim.yaml'))
     ap.add_argument('--keep', action='store_true', help='保留负向控制的工作目录')
+    ap.add_argument('--window', type=int, default=None,
+                    help='观察窗（分钟）。默认用各检测器自己的值；'
+                         '刚部署完时用它看"自部署以来"，避免窗口里混进部署前样本')
     ap.add_argument('--skip-negctl', action='store_true',
                     help='all 时跳过负向控制（复用上次结果）')
     ap.add_argument('--json', default=None)
     args = ap.parse_args()
+    if args.window:
+        import os
+        os.environ['SCADA_DEEP_WINDOW_MIN'] = str(args.window)
 
     fn = {'all': cmd_all, 'negative-control': cmd_negative_control,
           'timebase': cmd_timebase, 'pointtable': cmd_pointtable,

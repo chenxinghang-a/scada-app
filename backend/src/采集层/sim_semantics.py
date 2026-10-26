@@ -64,10 +64,16 @@ NAME_BAND = [
 
 #: 物理硬边界（与 tools/deepcheck/physical.py 同源，但这里用于**生成时就夹住**）。
 #: 生成端夹住比事后检测更好：检测只能告诉你"数据坏了"，夹住能让数据一开始就不坏。
+#: ⚠️ 顺序敏感：**窄范围在前**。首条命中即返回，把宽松的"非负"放在前面，
+#: 功率因数就会被放到 0~1e6 的区间里去，等于没夹。
 CLAMP = [
     (re.compile(r'power_factor|cos_?phi', re.I), 0.0, 1.0),
     (re.compile(r'(oxygen|(^|_)o2($|_))', re.I), 0.0, 21.0),
     (re.compile(r'(^|_)ph($|_)|ph_value', re.I), 0.0, 14.0),
+    # 速度/流量/液位/计数/功率是**幅值**，不可能为负。
+    # 实测：设备停机时模型给接近 0 的值再叠高斯噪声，出现 -2.39 m/min 的传送带速度。
+    (re.compile(r'(speed|flow|level|count|volume|weight|power|total)$|'
+                r'(speed|_flow|_level|_count|_power)', re.I), 0.0, 1e6),
 ]
 
 

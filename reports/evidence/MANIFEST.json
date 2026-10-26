@@ -1,6 +1,6 @@
 {
-  "generated_at": "2026-10-26T12:40:30",
-  "git_head": "7bcf0c916551e16878f8211afd717dfcf07391cf",
+  "generated_at": "2026-10-26T12:59:07",
+  "git_head": "fcdb5bf4a292438970b2b49369bc28110d443155",
   "git_dirty": true,
   "python": "3.14.3",
   "platform": "win32",
@@ -30,8 +30,8 @@
       "size": 40234
     },
     "backend/src/采集层/sim_semantics.py": {
-      "sha256": "d02b5fd14756df271e777db37919843c8948111e87756778f05e9bd497ac6f62",
-      "size": 5349
+      "sha256": "8bf7ae831c5d5b318a69fe23680b96153e480b82b2f0741bbea189208970bf55",
+      "size": 5869
     },
     "backend/src/用户层/auth.py": {
       "sha256": "94ec3a2af2bc5d68b44335b1aba0d92df13d9124a3d8ee78f97abf6a8ee63b43",
@@ -42,8 +42,8 @@
       "size": 13731
     },
     "tools/deep-verify.py": {
-      "sha256": "ca320b5fe23c307c313a6e414bc9476023a26db06b9b1829eda09960ee2e03c5",
-      "size": 11344
+      "sha256": "64133abc5b3c76f0df596e36ca7b5371042aa614b088f20a5e56229ba9d7763d",
+      "size": 11704
     },
     "tools/make-evidence-fixture.py": {
       "sha256": "b2aac59610746fe655dc670c2541f0f03b974542798d163a876386e7014940c8",
@@ -86,16 +86,16 @@
       "size": 4734
     },
     "tools/deepcheck/common.py": {
-      "sha256": "0be377b30d434c00cd1fb481d8f25b013ef2ac0ad822ba2306a6ff3b7aa0e67d",
-      "size": 4672
+      "sha256": "2c60fda289ea89aafb7f83ff58ac7683a1a67a7d1256c256b799eaaca8fe85cd",
+      "size": 5370
     },
     "tools/deepcheck/coverage.py": {
-      "sha256": "a1e700860676c4e634c152c191f22abbc386b3976b5d338ac02656b81556ad41",
-      "size": 11685
+      "sha256": "eb88fcf33ebb4604a97107c6c335cc351ed00a032ed4bb6d1c1a314eb7877034",
+      "size": 11861
     },
     "tools/deepcheck/detectors.py": {
-      "sha256": "c249a148507cf1a3f8321928f03466600ccc83c1736f22a42154a07d159cdbaf",
-      "size": 28096
+      "sha256": "fbe8467f51ba506aa4fa118fcb4bd1bb5ee84e6d09ac65545fa7f36ecc74dead",
+      "size": 28204
     },
     "tools/deepcheck/fixtures.py": {
       "sha256": "5091f7ffc1e34dbfc95bf3810aec3481d2e39bd7f9fc13d6c635a14950bda967",
@@ -106,8 +106,8 @@
       "size": 28031
     },
     "tools/deepcheck/physical.py": {
-      "sha256": "c50d584ffceda92e05fdf4b5a35578ab59e219dfb551439443c016de81415286",
-      "size": 13235
+      "sha256": "5b253d400c38213afc779cf016967d8b4300ec58a69efad7de841bb7599bb3ee",
+      "size": 13343
     },
     "tools/deepcheck/pointtable.py": {
       "sha256": "b9dff4698b31c433b8277e88b23b288747cc3c09d9440d33a3891c21bfc2f36a",

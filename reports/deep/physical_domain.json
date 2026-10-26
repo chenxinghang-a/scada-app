@@ -1,15 +1,121 @@
 {
   "id": "physical_domain",
-  "title": "物理与语义域",
+  "title": "物理与语义域（量纲 / 整数语义 / 状态是否在变）",
   "claim": "DATA-12",
-  "verdict": "insufficient",
+  "verdict": "fail",
   "metrics": {
-    "reason": "库里能对上配置的点不足一半（不是同一套数据）",
-    "points_checked": 5,
-    "configured_points": 201,
-    "match_ratio": 0.025
+    "window_minutes": 15,
+    "anchor": "2026-10-26 04:51:57",
+    "points_checked": 201,
+    "out_of_domain": 4,
+    "suspect_range": 1,
+    "non_integer": 0,
+    "frozen_status": 1
   },
-  "findings": [],
-  "ground_truth": "SI 单位制 / 量纲 / 工程语义",
-  "sample": 0
+  "findings": [
+    {
+      "code": "PHYS_OUT_OF_DOMAIN",
+      "message": "4 个点的取值超出物理可能区间",
+      "severity": "critical",
+      "count": 4,
+      "detail": {
+        "points": [
+          {
+            "device": "mitsubishi_fx5u_01",
+            "point": "injection_speed",
+            "unit": "mm/s",
+            "observed": [
+              -2.39,
+              84.68
+            ],
+            "allowed": [
+              0.0,
+              500.0
+            ],
+            "why": "单位 mm/s 的物理可能区间"
+          },
+          {
+            "device": "delta_dvp_01",
+            "point": "conveyor_speed",
+            "unit": "m/min",
+            "observed": [
+              -1.17,
+              12.97
+            ],
+            "allowed": [
+              0.0,
+              3000.0
+            ],
+            "why": "单位 m/min 的物理可能区间"
+          },
+          {
+            "device": "inovance_h5u_01",
+            "point": "spray_speed",
+            "unit": "m/min",
+            "observed": [
+              -0.55,
+              8.77
+            ],
+            "allowed": [
+              0.0,
+              3000.0
+            ],
+            "why": "单位 m/min 的物理可能区间"
+          },
+          {
+            "device": "inovance_h5u_01",
+            "point": "conveyor_speed",
+            "unit": "m/min",
+            "observed": [
+              -1.17,
+              12.97
+            ],
+            "allowed": [
+              0.0,
+              3000.0
+            ],
+            "why": "单位 m/min 的物理可能区间"
+          }
+        ]
+      }
+    },
+    {
+      "code": "PHYS_SUSPECT_RANGE",
+      "message": "1 个百分比点位实测超出 0~100（物理上可能是过载，但更像是标定/量纲错）",
+      "severity": "warning",
+      "count": 1,
+      "detail": {
+        "points": [
+          {
+            "device": "cnc_mazak_01",
+            "point": "feed_override",
+            "observed": [
+              60.0,
+              119.99
+            ],
+            "why": "% 类点位实测超出 0~100（过载还是标定错？需要工艺确认）"
+          }
+        ]
+      }
+    },
+    {
+      "code": "PHYS_STATUS_FROZEN",
+      "message": "1 个状态量在整段数据里只有一个取值 —— OEE 可用率没有输入",
+      "severity": "warning",
+      "count": 1,
+      "detail": {
+        "points": [
+          {
+            "device": "delta_dvp_01",
+            "point": "packing_status",
+            "constant": 2.0,
+            "rows_seen": 278,
+            "varying_points_on_device": 4
+          }
+        ]
+      }
+    }
+  ],
+  "ground_truth": "SI 单位制 / 量纲定义 / 工程语义；不依赖项目自身的阈值配置",
+  "sample": 201
 }

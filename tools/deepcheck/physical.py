@@ -21,7 +21,8 @@ import re
 import sqlite3
 from pathlib import Path
 
-from .common import FAIL, INSUFFICIENT, PASS, REPO, Finding, Result, connect_ro
+from .common import (FAIL, INSUFFICIENT, PASS, REPO, Finding, Result,
+                     connect_ro, default_window)
 from .coverage import _load, _points_of, _window_bounds
 
 DEFAULT_DEVICES = REPO / 'backend' / 'src' / '配置' / 'devices_simulated.yaml'
@@ -73,7 +74,8 @@ SOFT_RANGE = [(re.compile(r'.'), (0.0, 100.0), '% 类点位超出 0~100，疑似
 
 
 def det_physical_domain(db: Path, config_path: Path | None = None,
-                        window_minutes: int = 15) -> Result:
+                        window_minutes: int | None = None) -> Result:
+    window_minutes = window_minutes or default_window(15)
     cfg_path = Path(config_path) if config_path else DEFAULT_DEVICES
     points = []
     for dev in (_load(cfg_path).get('devices') or []):

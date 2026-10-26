@@ -312,7 +312,7 @@ def det_data_io(config_path: Path, out_csv: Path | None = None) -> Result:
     return pointtable.run(Path(config_path), out_csv)
 
 
-def det_write_path(db: Path, window_minutes: int = 30) -> Result:
+def det_write_path(db: Path, window_minutes: int | None = None) -> Result:
     """写入路径体检：**最近写进来的**行，携带的时间对不对。
 
     为什么必须有这一项：迁移能把历史行回填得很漂亮，但回填掩盖了写入路径的
@@ -324,6 +324,8 @@ def det_write_path(db: Path, window_minutes: int = 30) -> Result:
     这条检测器只看"最近 N 分钟由应用写入的行"，因此回填无法掩盖它。
     没有近期数据时判 insufficient（而不是 pass）——"没跑"不等于"对"。
     """
+    from .common import default_window
+    window_minutes = window_minutes or default_window(30)
     cutoff_minus = window_minutes
     with connect_ro(db) as conn:
         row = conn.execute(f'''

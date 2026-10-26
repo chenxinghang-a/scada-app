@@ -19,7 +19,8 @@ from __future__ import annotations
 import sqlite3
 from pathlib import Path
 
-from .common import FAIL, INSUFFICIENT, PASS, REPO, Finding, Result, connect_ro
+from .common import (FAIL, INSUFFICIENT, PASS, REPO, Finding, Result,
+                     connect_ro, default_window)
 
 DEFAULT_DEVICES = REPO / 'backend' / 'src' / '配置' / 'devices_simulated.yaml'
 DEFAULT_ALARMS = REPO / 'backend' / 'src' / '配置' / 'alarms.yaml'
@@ -59,7 +60,8 @@ def _window_bounds(conn: sqlite3.Connection, window_minutes: int):
 
 
 def det_point_coverage(db: Path, config_path: Path | None = None,
-                       window_minutes: int = 10) -> Result:
+                       window_minutes: int | None = None) -> Result:
+    window_minutes = window_minutes or default_window(10)
     cfg_path = Path(config_path) if config_path else DEFAULT_DEVICES
     cfg = _load(cfg_path)
     devices = [d for d in (cfg.get('devices') or []) if d.get('enabled', True)]
@@ -138,7 +140,8 @@ def det_point_coverage(db: Path, config_path: Path | None = None,
 
 
 def det_alarm_coverage(db: Path, alarms_path: Path | None = None,
-                       window_minutes: int = 30) -> Result:
+                       window_minutes: int | None = None) -> Result:
+    window_minutes = window_minutes or default_window(30)
     """报警规则有效性：能不能响、有没有漏报、阈值离工况多远。"""
     cfg_path = Path(alarms_path) if alarms_path else DEFAULT_ALARMS
     rules = [r for r in (_load(cfg_path).get('alarm_rules') or []) if r.get('enabled', True)]

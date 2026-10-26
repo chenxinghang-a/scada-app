@@ -139,6 +139,20 @@ def cleanup(d: Path) -> None:
     shutil.rmtree(d, ignore_errors=True)
 
 
+def default_window(k: int) -> int:
+    """检测器的默认观察窗，可被 ``deep-verify --window N`` 覆盖。
+
+    为什么需要：滚动窗口是"最近 N 分钟"，刚部署完时窗口里必然还留着
+    **部署前**的样本。把窗口写死会让人误以为"修完还是坏的"，
+    显式声明窗口长度则诚实得多——报告里会写清这次的窗口是几分钟。
+    """
+    import os
+    try:
+        return int(os.environ.get('SCADA_DEEP_WINDOW_MIN', k))
+    except ValueError:
+        return k
+
+
 def now_utc_str() -> str:
     return datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')
 

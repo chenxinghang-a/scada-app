@@ -4,11 +4,11 @@
   "claim": "ALM-02",
   "verdict": "pass",
   "metrics": {
-    "alarms_total": 200,
+    "alarms_total": 2,
     "chattering_buckets": 0,
     "scope": "触发跨度 ≤1 小时的行参与分桶（累计计数不可按小时摊）"
   },
   "findings": [],
   "ground_truth": "ISA-18.2：Top10 频繁报警应 < 总报警的 10%",
-  "sample": 200
+  "sample": 2
 }
