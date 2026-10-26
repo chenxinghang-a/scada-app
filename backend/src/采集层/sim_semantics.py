@@ -94,3 +94,22 @@ def plausible(name: str, unit: str = '', seed_phase: float | None = None):
         lo, hi = UNIT_BAND.get((unit or '').strip(), (40.0, 80.0))
 
     return round(lo + (hi - lo) * wobble, 2)
+
+
+#: 物理硬边界（与 tools/deepcheck/physical.py 同源，但这里用于**生成时就夹住**）。
+#: 生成端夹住比事后检测更好：检测只能告诉你"数据坏了"，夹住能让数据一开始就不坏。
+CLAMP = [
+    (re.compile(r'power_factor|cos_?phi', re.I), 0.0, 1.0),
+    (re.compile(r'(oxygen|(^|_)o2($|_))', re.I), 0.0, 21.0),
+    (re.compile(r'(^|_)ph($|_)|ph_value', re.I), 0.0, 14.0),
+]
+
+
+def clamp_value(name: str, value):
+    """把生成值夹进物理硬边界。只夹**确定无疑**的边界，不做"合理范围"修剪。"""
+    if not isinstance(value, (int, float)):
+        return value
+    for rx, lo, hi in CLAMP:
+        if rx.search(name or ''):
+            return round(min(max(float(value), lo), hi), 4)
+    return value

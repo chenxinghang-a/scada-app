@@ -1412,6 +1412,26 @@ class DeviceBehaviorSimulator:
             '_timestamp': datetime.now().isoformat()
         }
         
+        # ===== 语义收口：整数取整 + 设备特有状态量从状态机推导 =====
+        # 两件事：
+        #   ① 整数语义的点位（程序号/报警码/计数）必须取整——程序号 51.19 不存在；
+        #   ② 设备特有的状态/模式量若模型没覆盖，就从状态机推导。留 0 的后果是
+        #      "永远停机却一直在出过程数据"，OEE 的可用率分母恒定、等于没算。
+        if self._device_param_names:
+            from 采集层.sim_semantics import ENUM_RE, INT_RE, clamp_value
+            for nm in self._device_param_names:
+                if nm in all_params:
+                    cur = all_params[nm]
+                    if isinstance(cur, (int, float)) and (INT_RE.search(nm) or ENUM_RE.search(nm)):
+                        all_params[nm] = int(round(float(cur)))
+                    else:
+                        # 生成端就夹进物理硬边界（功率因数 ≤1、含氧量 ≤21%、pH ≤14）
+                        all_params[nm] = clamp_value(nm, cur)
+                elif ENUM_RE.search(nm):
+                    all_params[nm] = int(self.state.value)
+                elif INT_RE.search(nm):
+                    all_params[nm] = int(100 + (abs(hash(nm)) % 800))
+
         # ===== 过滤：只返回该设备拥有的参数 + 元数据 =====
         if self._device_param_names:
             filtered = {}

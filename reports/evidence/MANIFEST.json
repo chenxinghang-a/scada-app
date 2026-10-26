@@ -1,7 +1,7 @@
 {
-  "generated_at": "2026-10-26T12:27:47",
-  "git_head": "e8cf8ba4500de2be1b50c69052d2404ebc42598d",
-  "git_dirty": false,
+  "generated_at": "2026-10-26T12:35:00",
+  "git_head": "40da8a0d4bf528cb2f038881c803accd2d1568cb",
+  "git_dirty": true,
   "python": "3.14.3",
   "platform": "win32",
   "files": {
@@ -30,8 +30,8 @@
       "size": 40234
     },
     "backend/src/采集层/sim_semantics.py": {
-      "sha256": "f250fa36b236be54b2c89c1c1077ed8f4039bc8992e161b42c33ff537411f3ba",
-      "size": 4010
+      "sha256": "f17c620bcfa2b25c6ab9589febdc262c08fd3cd9e4fef7311458501ff0a683e8",
+      "size": 4803
     },
     "backend/src/用户层/auth.py": {
       "sha256": "94ec3a2af2bc5d68b44335b1aba0d92df13d9124a3d8ee78f97abf6a8ee63b43",
@@ -98,8 +98,8 @@
       "size": 27029
     },
     "tools/deepcheck/physical.py": {
-      "sha256": "527f849d0d12d3593a9b695c4a064a305507c6985c13db0d7e224871e244ff8a",
-      "size": 11594
+      "sha256": "2475e6f867fec9a8391e76fcd6aa9ea8322105a34a8695c3fbb40aecca1fc765",
+      "size": 12478
     },
     "tools/deepcheck/pointtable.py": {
       "sha256": "b9dff4698b31c433b8277e88b23b288747cc3c09d9440d33a3891c21bfc2f36a",
@@ -118,8 +118,8 @@
       "size": 20126
     },
     "docs/深度-专家会做什么.md": {
-      "sha256": "3fb846b6e7c3e34dea7847905ceefcb36ffaa846d9f21a32476a4d1c5c9053ad",
-      "size": 25631
+      "sha256": "1321540efec72c4a6f8f7cec095afa8ae59a0e0c6eb1890d27ba179f1a58fcaa",
+      "size": 27110
     }
   },
   "file_count": 29,

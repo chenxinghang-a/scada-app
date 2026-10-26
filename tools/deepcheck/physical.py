@@ -140,8 +140,20 @@ def det_physical_domain(db: Path, config_path: Path | None = None,
                                     'why': f"枚举量出现 {s['d']} 种取值（应 ≤16）"})
 
         if STATUS_NAMES.search(p['name']) and s['d'] == 1:
-            frozen.append({'device': p['device'], 'point': p['name'],
-                           'constant': round(mn, 3)})
+            # 窗口内不变**不算**缺陷：设备可能真的稳定运行着。
+            # 只有"整段历史里始终一个值、而同设备的过程量一直在变"才是死信号。
+            with connect_ro(db) as c2:
+                full = c2.execute(
+                    'SELECT COUNT(DISTINCT value), COUNT(*) FROM history_data '
+                    'WHERE register_name = ?', (p['name'],)).fetchone()
+                others = c2.execute(
+                    'SELECT COUNT(*) FROM (SELECT register_name, COUNT(DISTINCT value) d '
+                    'FROM history_data WHERE device_id = ? AND register_name != ? '
+                    'GROUP BY 1 HAVING d > 1)', (p['device'], p['name'])).fetchone()[0]
+            if full and full[0] == 1 and others >= 1:
+                frozen.append({'device': p['device'], 'point': p['name'],
+                               'constant': round(mn, 3),
+                               'rows_seen': full[1], 'varying_points_on_device': others})
 
     findings = []
     if out_of_domain:

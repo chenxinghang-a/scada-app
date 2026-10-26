@@ -5,12 +5,12 @@
   "verdict": "fail",
   "metrics": {
     "window_minutes": 15,
-    "anchor": "2026-10-26 04:26:44",
+    "anchor": "2026-10-26 04:34:39",
     "points_checked": 201,
     "out_of_domain": 1,
-    "suspect_range": 3,
-    "non_integer": 3,
-    "frozen_status": 16
+    "suspect_range": 1,
+    "non_integer": 1,
+    "frozen_status": 1
   },
   "findings": [
     {
@@ -21,39 +21,29 @@
       "detail": {
         "points": [
           {
-            "device": "delta_dvp_01",
-            "point": "sealing_temperature",
-            "unit": "°C",
+            "device": "power_meter_sub_01",
+            "point": "power_factor_total",
+            "unit": "",
             "observed": [
-              30.8,
-              5242.9
+              0.0,
+              791.0
             ],
             "allowed": [
-              -273.15,
-              2000.0
+              0.0,
+              1.0
             ],
-            "why": "单位 °C 的物理可能区间"
+            "why": "功率因数定义域 0~1"
           }
         ]
       }
     },
     {
       "code": "PHYS_NON_INTEGER_ENUM",
-      "message": "3 个整数/枚举语义的点出现小数或取值过多",
+      "message": "1 个整数/枚举语义的点出现小数或取值过多",
       "severity": "critical",
-      "count": 3,
+      "count": 1,
       "detail": {
         "points": [
-          {
-            "device": "cnc_mazak_01",
-            "point": "program_number",
-            "observed": [
-              52.68,
-              998.0
-            ],
-            "distinct": 251,
-            "why": "语义为整数/枚举，实测带小数"
-          },
           {
             "device": "cnc_mazak_01",
             "point": "alarm_code",
@@ -61,53 +51,25 @@
               27.0,
               998.0
             ],
-            "distinct": 254,
-            "why": "枚举量出现 254 种取值（应 ≤16）"
-          },
-          {
-            "device": "cnc_mazak_01",
-            "point": "machine_mode",
-            "observed": [
-              3.0,
-              149.0
-            ],
-            "distinct": 29,
-            "why": "枚举量出现 29 种取值（应 ≤16）"
+            "distinct": 96,
+            "why": "枚举量出现 96 种取值（应 ≤16）"
           }
         ]
       }
     },
     {
       "code": "PHYS_SUSPECT_RANGE",
-      "message": "3 个百分比点位实测超出 0~100（物理上可能是过载，但更像是标定/量纲错）",
+      "message": "1 个百分比点位实测超出 0~100（物理上可能是过载，但更像是标定/量纲错）",
       "severity": "warning",
-      "count": 3,
+      "count": 1,
       "detail": {
         "points": [
           {
             "device": "cnc_mazak_01",
-            "point": "spindle_load",
-            "observed": [
-              20.01,
-              149.0
-            ],
-            "why": "% 类点位实测超出 0~100（过载还是标定错？需要工艺确认）"
-          },
-          {
-            "device": "cnc_mazak_01",
             "point": "feed_override",
             "observed": [
-              62.54,
-              149.0
-            ],
-            "why": "% 类点位实测超出 0~100（过载还是标定错？需要工艺确认）"
-          },
-          {
-            "device": "cnc_mazak_01",
-            "point": "tool_life",
-            "observed": [
-              5.0,
-              149.0
+              60.0,
+              120.0
             ],
             "why": "% 类点位实测超出 0~100（过载还是标定错？需要工艺确认）"
           }
@@ -116,60 +78,17 @@
     },
     {
       "code": "PHYS_STATUS_FROZEN",
-      "message": "16 个状态量在整段数据里只有一个取值 —— OEE 可用率没有输入",
+      "message": "1 个状态量在整段数据里只有一个取值 —— OEE 可用率没有输入",
       "severity": "warning",
-      "count": 16,
+      "count": 1,
       "detail": {
         "points": [
           {
-            "device": "siemens_web_01",
-            "point": "line_status",
-            "constant": 2.0
-          },
-          {
             "device": "delta_dvp_01",
             "point": "packing_status",
-            "constant": 2.0
-          },
-          {
-            "device": "hvac_ahu_01",
-            "point": "ahu_status",
-            "constant": 0.0
-          },
-          {
-            "device": "compressor_01",
-            "point": "compressor_status",
-            "constant": 0.0
-          },
-          {
-            "device": "compressor_01",
-            "point": "dryer_status",
-            "constant": 0.0
-          },
-          {
-            "device": "warehouse_plc_01",
-            "point": "conveyor_status",
-            "constant": 0.0
-          },
-          {
-            "device": "warehouse_plc_01",
-            "point": "door_status",
-            "constant": 0.0
-          },
-          {
-            "device": "cems_01",
-            "point": "cems_status",
-            "constant": 0.0
-          },
-          {
-            "device": "fire_alarm_01",
-            "point": "sprinkler_status",
-            "constant": 0.0
-          },
-          {
-            "device": "fire_alarm_01",
-            "point": "fire_door_status",
-            "constant": 0.0
+            "constant": 2.0,
+            "rows_seen": 101,
+            "varying_points_on_device": 4
           }
         ]
       }
