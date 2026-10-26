@@ -1,7 +1,7 @@
 {
-  "generated_at": "2026-10-26T12:22:02",
-  "git_head": "6d9319b8e7c822b5f94ddd0f572ce0c4eb2c7d7e",
-  "git_dirty": true,
+  "generated_at": "2026-10-26T12:22:09",
+  "git_head": "9de9a54a777998cfb3e96a2aa6fc22246bfc28eb",
+  "git_dirty": false,
   "python": "3.14.3",
   "platform": "win32",
   "files": {
