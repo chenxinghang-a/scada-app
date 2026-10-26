@@ -1,0 +1,87 @@
+{
+  "generated_at": "2026-10-26T11:49:58",
+  "git_head": "009411fdd67089955b688c82c55dba854af200d6",
+  "git_dirty": true,
+  "python": "3.14.3",
+  "platform": "win32",
+  "files": {
+    "backend/src/core/timebase.py": {
+      "sha256": "73dcc74bfdf84149690584fd315af542984ac1640212e40cffd65dd40fdb0c6e",
+      "size": 4823
+    },
+    "backend/src/core/audit_chain.py": {
+      "sha256": "ef2e096991162b13e6cc2a636ecaba43b482ef76289b9a2e9e1446fad97fce70",
+      "size": 7107
+    },
+    "backend/src/存储层/database.py": {
+      "sha256": "812de3833f06a88fc94acc825b33e1c9db8a39613a22daf938700038ab2f8822",
+      "size": 67161
+    },
+    "backend/src/展示层/api/api_system.py": {
+      "sha256": "dd8b1ac912ac2510e83b7b356d28974df6cdbd95afbb71b08743a84da6b06a42",
+      "size": 9831
+    },
+    "backend/src/采集层/base_client.py": {
+      "sha256": "2bb37a613bf63c1209fe9a49c52f98458b32b03c042276990020bfbe98aa77a6",
+      "size": 9806
+    },
+    "backend/src/配置/devices_modbus_sim.yaml": {
+      "sha256": "1030219b8c20c7a79f51153194bf07473158c9218685e393493d3e5c5fc27eb9",
+      "size": 13731
+    },
+    "tools/deep-verify.py": {
+      "sha256": "5ab23ee03d2368cb876924325ea8b66338274a7306e24c0ca45e8141c5ea1fef",
+      "size": 9057
+    },
+    "tools/make-evidence-fixture.py": {
+      "sha256": "b2aac59610746fe655dc670c2541f0f03b974542798d163a876386e7014940c8",
+      "size": 8353
+    },
+    "tools/migrate-timebase.py": {
+      "sha256": "3ea82f0a1a7622241cd0f7e127cc156ea20844efea6084f3026d32e50c36b296",
+      "size": 4581
+    },
+    "tools/audit-chain-selftest.py": {
+      "sha256": "7775481bbad3027d93bfccb9e1685dfc6be95efd08695654931f77eb297be4c8",
+      "size": 8614
+    },
+    "tools/deepcheck/common.py": {
+      "sha256": "0be377b30d434c00cd1fb481d8f25b013ef2ac0ad822ba2306a6ff3b7aa0e67d",
+      "size": 4672
+    },
+    "tools/deepcheck/detectors.py": {
+      "sha256": "bccc75dad080413109963c43c0616037239ba535d2bcf6b60c76b9f00b6281f2",
+      "size": 17463
+    },
+    "tools/deepcheck/fixtures.py": {
+      "sha256": "8904fd39d7ff1851cb75964dc4244cc7b1cc9a20ea512e4b1d5771c59d4fefaa",
+      "size": 3668
+    },
+    "tools/deepcheck/negative_control.py": {
+      "sha256": "e82d695403733a8c4d0bbfd0cc24b80a9dc77bb376d2df7d0ce9f5d003a83d15",
+      "size": 13960
+    },
+    "tools/deepcheck/pointtable.py": {
+      "sha256": "b9dff4698b31c433b8277e88b23b288747cc3c09d9440d33a3891c21bfc2f36a",
+      "size": 13748
+    },
+    "tools/deepcheck/timebase.py": {
+      "sha256": "271c811eb43d1b1a6b9d55b072ddae44efaa41600d608c23c28c710db4be57e2",
+      "size": 4238
+    },
+    "docs/traceability.yaml": {
+      "sha256": "b67731e592b8ffc6339c8522c3043c9584ff5263f9ebd83e45e010e3928cbb8d",
+      "size": 13580
+    }
+  },
+  "file_count": 17,
+  "missing": [],
+  "reproduce": [
+    "python tools/make-evidence-fixture.py",
+    "python tools/deep-verify.py all",
+    "python tools/audit-chain-selftest.py",
+    "python tools/migrate-timebase.py            # 只出计划",
+    "python tools/evidence-manifest.py --verify"
+  ],
+  "scope_note": "清单锚定「代码+配置+文档」；运行库与产物不入清单（每次运行都会变）"
+}

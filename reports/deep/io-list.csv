@@ -1,0 +1,70 @@
+﻿device_id,device_name,device_model,protocol,address,length,register,description,data_type,unit,scale,offset,byte_order,manual_order,conform
+siemens_1500_01,西门子S7-1500 PLC,S7-1516-3 PN/DP,modbus_tcp,0,2,boiler_temperature,锅炉出口温度,float32,°C,1.0,0,ABCD,ABCD,PASS
+siemens_1500_01,西门子S7-1500 PLC,S7-1516-3 PN/DP,modbus_tcp,2,2,boiler_pressure,锅炉压力,float32,MPa,1.0,0,ABCD,ABCD,PASS
+siemens_1500_01,西门子S7-1500 PLC,S7-1516-3 PN/DP,modbus_tcp,4,2,heat_exchanger_temperature,换热器出口温度,float32,°C,1.0,0,ABCD,ABCD,PASS
+siemens_1500_01,西门子S7-1500 PLC,S7-1516-3 PN/DP,modbus_tcp,6,2,steam_flow,蒸汽流量,float32,t/h,1.0,0,ABCD,ABCD,PASS
+siemens_1500_01,西门子S7-1500 PLC,S7-1516-3 PN/DP,modbus_tcp,8,2,feed_water_level,给水液位,float32,mm,1.0,0,ABCD,ABCD,PASS
+siemens_1500_01,西门子S7-1500 PLC,S7-1516-3 PN/DP,modbus_tcp,10,2,flue_gas_temperature,排烟温度,float32,°C,1.0,0,ABCD,ABCD,PASS
+siemens_1500_01,西门子S7-1500 PLC,S7-1516-3 PN/DP,modbus_tcp,12,2,oxygen_content,烟气含氧量,float32,%,1.0,0,ABCD,ABCD,PASS
+siemens_1500_01,西门子S7-1500 PLC,S7-1516-3 PN/DP,modbus_tcp,14,1,boiler_status,锅炉状态 0=停炉/1=运行/2=故障,uint16,,1,0,ABCD,ABCD,PASS
+mitsubishi_fx5u_01,三菱FX5U PLC,FX5U-64M,modbus_tcp,0,2,mold_temperature,模具温度,float32,°C,1.0,0,ABCD,ABCD,PASS
+mitsubishi_fx5u_01,三菱FX5U PLC,FX5U-64M,modbus_tcp,2,2,injection_pressure,注射压力,float32,MPa,1.0,0,ABCD,ABCD,PASS
+mitsubishi_fx5u_01,三菱FX5U PLC,FX5U-64M,modbus_tcp,4,2,injection_speed,注射速度,float32,mm/s,1.0,0,ABCD,ABCD,PASS
+mitsubishi_fx5u_01,三菱FX5U PLC,FX5U-64M,modbus_tcp,6,2,cushion_position,保压位置,float32,mm,1.0,0,ABCD,ABCD,PASS
+mitsubishi_fx5u_01,三菱FX5U PLC,FX5U-64M,modbus_tcp,8,2,cycle_time,成型周期,float32,s,1.0,0,ABCD,ABCD,PASS
+mitsubishi_fx5u_01,三菱FX5U PLC,FX5U-64M,modbus_tcp,10,1,shot_count,注射计数,uint16,个,1,0,ABCD,ABCD,PASS
+mitsubishi_fx5u_01,三菱FX5U PLC,FX5U-64M,modbus_tcp,11,2,clamping_force,锁模力,float32,kN,1.0,0,ABCD,ABCD,PASS
+mitsubishi_fx5u_01,三菱FX5U PLC,FX5U-64M,modbus_tcp,13,2,barrel_temperature,料筒温度,float32,°C,1.0,0,ABCD,ABCD,PASS
+delta_dvp_01,台达DVP PLC,DVP32EH00T3,modbus_tcp,0,1,conveyor_speed,输送带速度,uint16,m/min,0.1,0,ABCD,ABCD,PASS
+delta_dvp_01,台达DVP PLC,DVP32EH00T3,modbus_tcp,1,1,sealing_temperature,封箱温度,uint16,°C,0.1,0,ABCD,ABCD,PASS
+delta_dvp_01,台达DVP PLC,DVP32EH00T3,modbus_tcp,2,1,label_count,贴标计数,uint16,个,1,0,ABCD,ABCD,PASS
+delta_dvp_01,台达DVP PLC,DVP32EH00T3,modbus_tcp,3,1,palletizing_count,码垛计数,uint16,个,1,0,ABCD,ABCD,PASS
+delta_dvp_01,台达DVP PLC,DVP32EH00T3,modbus_tcp,4,1,reject_count,剔除计数,uint16,个,1,0,ABCD,ABCD,PASS
+delta_dvp_01,台达DVP PLC,DVP32EH00T3,modbus_tcp,5,1,packing_status,包装线状态 0=停机/1=运行/2=换料/3=故障,uint16,,1,0,ABCD,ABCD,PASS
+inovance_h5u_01,汇川H5U PLC,H5U-3232MT,modbus_tcp,0,2,spray_pressure,喷涂压力,float32,MPa,1.0,0,ABCD,ABCD,PASS
+inovance_h5u_01,汇川H5U PLC,H5U-3232MT,modbus_tcp,2,2,oven_temperature,烘干炉温度,float32,°C,1.0,0,ABCD,ABCD,PASS
+inovance_h5u_01,汇川H5U PLC,H5U-3232MT,modbus_tcp,4,2,spray_speed,喷涂速度,float32,m/min,1.0,0,ABCD,ABCD,PASS
+inovance_h5u_01,汇川H5U PLC,H5U-3232MT,modbus_tcp,6,2,coating_thickness,涂层厚度,float32,μm,1.0,0,ABCD,ABCD,PASS
+inovance_h5u_01,汇川H5U PLC,H5U-3232MT,modbus_tcp,8,2,conveyor_speed,输送链速度,float32,m/min,1.0,0,ABCD,ABCD,PASS
+inovance_h5u_01,汇川H5U PLC,H5U-3232MT,modbus_tcp,10,1,painted_count,喷涂计数,uint16,个,1,0,ABCD,ABCD,PASS
+schneider_m340_01,施耐德M340 PLC,BMX P34 2020,modbus_tcp,0,2,inlet_flow,进水流量,float32,m³/h,1.0,0,ABCD,ABCD,PASS
+schneider_m340_01,施耐德M340 PLC,BMX P34 2020,modbus_tcp,2,2,outlet_flow,出水流量,float32,m³/h,1.0,0,ABCD,ABCD,PASS
+schneider_m340_01,施耐德M340 PLC,BMX P34 2020,modbus_tcp,4,2,water_level,沉淀池液位,float32,m,1.0,0,ABCD,ABCD,PASS
+schneider_m340_01,施耐德M340 PLC,BMX P34 2020,modbus_tcp,6,2,ph_value,出水pH值,float32,1,1.0,0,ABCD,ABCD,PASS
+schneider_m340_01,施耐德M340 PLC,BMX P34 2020,modbus_tcp,8,2,turbidity,出水浊度,float32,NTU,1.0,0,ABCD,ABCD,PASS
+schneider_m340_01,施耐德M340 PLC,BMX P34 2020,modbus_tcp,10,2,dissolved_oxygen,溶解氧,float32,mg/L,1.0,0,ABCD,ABCD,PASS
+schneider_m340_01,施耐德M340 PLC,BMX P34 2020,modbus_tcp,12,2,conductivity,电导率,float32,μS/cm,1.0,0,ABCD,ABCD,PASS
+schneider_m340_01,施耐德M340 PLC,BMX P34 2020,modbus_tcp,14,1,pump_speed,进水泵转速,uint16,RPM,1,0,ABCD,ABCD,PASS
+abb_m4m_01,ABB M4M电力分析仪,M4M 20,modbus_tcp,0,2,voltage_a,A相电压,float32,V,1.0,0,ABCD,ABCD,PASS
+abb_m4m_01,ABB M4M电力分析仪,M4M 20,modbus_tcp,2,2,voltage_b,B相电压,float32,V,1.0,0,ABCD,ABCD,PASS
+abb_m4m_01,ABB M4M电力分析仪,M4M 20,modbus_tcp,4,2,voltage_c,C相电压,float32,V,1.0,0,ABCD,ABCD,PASS
+abb_m4m_01,ABB M4M电力分析仪,M4M 20,modbus_tcp,6,2,current_a,A相电流,float32,A,1.0,0,ABCD,ABCD,PASS
+abb_m4m_01,ABB M4M电力分析仪,M4M 20,modbus_tcp,8,2,current_b,B相电流,float32,A,1.0,0,ABCD,ABCD,PASS
+abb_m4m_01,ABB M4M电力分析仪,M4M 20,modbus_tcp,10,2,current_c,C相电流,float32,A,1.0,0,ABCD,ABCD,PASS
+abb_m4m_01,ABB M4M电力分析仪,M4M 20,modbus_tcp,12,2,active_power,总有功功率,float32,kW,1.0,0,ABCD,ABCD,PASS
+abb_m4m_01,ABB M4M电力分析仪,M4M 20,modbus_tcp,14,2,frequency,电网频率,float32,Hz,1.0,0,ABCD,ABCD,PASS
+abb_m4m_01,ABB M4M电力分析仪,M4M 20,modbus_tcp,16,2,thd_voltage,电压总谐波畸变率,float32,%,1.0,0,ABCD,ABCD,PASS
+abb_m4m_01,ABB M4M电力分析仪,M4M 20,modbus_tcp,18,2,power_factor,功率因数,float32,1,1.0,0,ABCD,ABCD,PASS
+turck_iolink_01,图尔克IO-Link主站,TBEN-L4-8IOL,modbus_tcp,0,2,iol_pressure_1,IO-Link压力传感器1,float32,MPa,1.0,0,ABCD,ABCD,PASS
+turck_iolink_01,图尔克IO-Link主站,TBEN-L4-8IOL,modbus_tcp,2,2,iol_flow_1,IO-Link流量传感器1,float32,L/min,1.0,0,ABCD,ABCD,PASS
+turck_iolink_01,图尔克IO-Link主站,TBEN-L4-8IOL,modbus_tcp,4,2,iol_temperature_1,IO-Link温度传感器1,float32,°C,1.0,0,ABCD,ABCD,PASS
+turck_iolink_01,图尔克IO-Link主站,TBEN-L4-8IOL,modbus_tcp,6,2,iol_distance_1,IO-Link距离传感器1,float32,mm,1.0,0,ABCD,ABCD,PASS
+turck_iolink_01,图尔克IO-Link主站,TBEN-L4-8IOL,modbus_tcp,8,2,iol_pressure_2,IO-Link压力传感器2,float32,MPa,1.0,0,ABCD,ABCD,PASS
+turck_iolink_01,图尔克IO-Link主站,TBEN-L4-8IOL,modbus_tcp,10,2,iol_vacuum,IO-Link真空传感器,float32,Pa,1.0,0,ABCD,ABCD,PASS
+signal_tower_01,Patlite LR7信号灯塔 — 1号线,LR7-302NWFB,modbus_tcp,0,1,red_light,红色灯,uint16,,1,0,ABCD,ABCD,PASS
+signal_tower_01,Patlite LR7信号灯塔 — 1号线,LR7-302NWFB,modbus_tcp,1,1,yellow_light,黄色灯,uint16,,1,0,ABCD,ABCD,PASS
+signal_tower_01,Patlite LR7信号灯塔 — 1号线,LR7-302NWFB,modbus_tcp,2,1,green_light,绿色灯,uint16,,1,0,ABCD,ABCD,PASS
+signal_tower_01,Patlite LR7信号灯塔 — 1号线,LR7-302NWFB,modbus_tcp,3,1,blue_light,蓝色灯,uint16,,1,0,ABCD,ABCD,PASS
+signal_tower_01,Patlite LR7信号灯塔 — 1号线,LR7-302NWFB,modbus_tcp,4,1,white_light,白色灯,uint16,,1,0,ABCD,ABCD,PASS
+signal_tower_01,Patlite LR7信号灯塔 — 1号线,LR7-302NWFB,modbus_tcp,5,1,buzzer,蜂鸣器,uint16,,1,0,ABCD,ABCD,PASS
+relay_output_01,研华ADAM-6060继电器模块,ADAM-6060-AE,modbus_tcp,0,1,relay_1,继电器1,uint16,,1,0,ABCD,ABCD,PASS
+relay_output_01,研华ADAM-6060继电器模块,ADAM-6060-AE,modbus_tcp,1,1,relay_2,继电器2,uint16,,1,0,ABCD,ABCD,PASS
+relay_output_01,研华ADAM-6060继电器模块,ADAM-6060-AE,modbus_tcp,2,1,relay_3,继电器3,uint16,,1,0,ABCD,ABCD,PASS
+relay_output_01,研华ADAM-6060继电器模块,ADAM-6060-AE,modbus_tcp,3,1,relay_4,继电器4,uint16,,1,0,ABCD,ABCD,PASS
+relay_output_01,研华ADAM-6060继电器模块,ADAM-6060-AE,modbus_tcp,4,1,relay_5,继电器5,uint16,,1,0,ABCD,ABCD,PASS
+relay_output_01,研华ADAM-6060继电器模块,ADAM-6060-AE,modbus_tcp,5,1,relay_6,继电器6,uint16,,1,0,ABCD,ABCD,PASS
+hollysys_lk_01,和利时LK PLC,LK210,modbus_tcp,0,2,distill_temperature,蒸馏塔顶温度,float32,°C,1.0,0,ABCD,ABCD,PASS
+hollysys_lk_01,和利时LK PLC,LK210,modbus_tcp,2,2,distill_pressure,蒸馏塔压力,float32,kPa,1.0,0,ABCD,ABCD,PASS
+hollysys_lk_01,和利时LK PLC,LK210,modbus_tcp,4,2,dryer_temperature,干燥机温度,float32,°C,1.0,0,ABCD,ABCD,PASS
+hollysys_lk_01,和利时LK PLC,LK210,modbus_tcp,6,2,dryer_humidity,干燥机湿度,float32,%,1.0,0,ABCD,ABCD,PASS
+hollysys_lk_01,和利时LK PLC,LK210,modbus_tcp,8,2,reflux_ratio,回流比,float32,1,1.0,0,ABCD,ABCD,PASS

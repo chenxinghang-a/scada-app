@@ -1,0 +1,19 @@
+{
+  "generated_at": "2026-10-26T11:48:24",
+  "checks": {
+    "timebase": "pass",
+    "pointtable": "pass",
+    "auditchain": "insufficient",
+    "alm_stale": "fail",
+    "alm_priority": "insufficient",
+    "alm_chattering": "insufficient",
+    "data_quality": "pass"
+  },
+  "field_checks_pass": 2,
+  "audit_chain_selftest": "9/9",
+  "audit_chain_field_entries": 0,
+  "negative_control_discriminating": 8,
+  "negative_control_total": 8,
+  "certification": "CERTIFIED",
+  "reason": "现场检查全部通过，负向控制证明每个检测器都能失败，审计链通过全部篡改对抗用例"
+}

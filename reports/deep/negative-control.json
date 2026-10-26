@@ -1,0 +1,314 @@
+{
+  "generated_at": "2026-10-26T11:48:24",
+  "source_db": "C:\\Users\\cxx\\scada-app\\tests\\fixtures\\evidence.db",
+  "snapshot_size_mb": 2.3,
+  "cases": 8,
+  "discriminating": 8,
+  "all_ok": true,
+  "principle": "检测器未能在播种后报错 = 该检测器的\"通过\"无效",
+  "rows": [
+    {
+      "detector": "alm_stale",
+      "title": "陈旧报警（ISA-18.2）",
+      "claim": "ALM-03",
+      "defect": "一条报警未确认且搁置 48 小时",
+      "expect_code": "STALE_ALARM",
+      "clean_verdict": "pass",
+      "clean_codes": [],
+      "clean_sample": 200,
+      "seeded_verdict": "fail",
+      "seeded_codes": [
+        "STALE_ALARM"
+      ],
+      "seeded_metrics": {
+        "alarms_total": 200,
+        "stale": 1,
+        "stale_hours": 24
+      },
+      "prepare": {
+        "total": 200,
+        "critical": 4,
+        "critical_share": 0.02,
+        "unacknowledged": 10,
+        "stale": 0,
+        "chattering": 0
+      },
+      "seed": {
+        "seeded": "1 条报警改为未确认且 48h 前触发",
+        "id": 201
+      },
+      "discriminating": true,
+      "verdict": "OK"
+    },
+    {
+      "detector": "alm_priority",
+      "title": "报警优先级分布",
+      "claim": "ALM-01",
+      "defect": "critical 占比从 2% 抬到 30%",
+      "expect_code": "ALM_CRITICAL_SHARE_EXCEEDED",
+      "clean_verdict": "pass",
+      "clean_codes": [],
+      "clean_sample": 200,
+      "seeded_verdict": "fail",
+      "seeded_codes": [
+        "ALM_CRITICAL_SHARE_EXCEEDED"
+      ],
+      "seeded_metrics": {
+        "total": 200,
+        "distribution": {
+          "critical": 64,
+          "info": 106,
+          "warning": 30
+        },
+        "critical_share": 0.32,
+        "min_sample": 30
+      },
+      "prepare": {
+        "total": 200,
+        "critical": 4,
+        "critical_share": 0.02,
+        "unacknowledged": 10,
+        "stale": 0,
+        "chattering": 0
+      },
+      "seed": {
+        "seeded": "critical 占比抬到 30% 以上",
+        "critical_now": 64
+      },
+      "discriminating": true,
+      "verdict": "OK"
+    },
+    {
+      "detector": "alm_chattering",
+      "title": "抖动报警",
+      "claim": "ALM-02",
+      "defect": "同一报警号 1 小时内触发 8 次",
+      "expect_code": "ALARM_CHATTERING",
+      "clean_verdict": "pass",
+      "clean_codes": [],
+      "clean_sample": 200,
+      "seeded_verdict": "fail",
+      "seeded_codes": [
+        "ALARM_CHATTERING"
+      ],
+      "seeded_metrics": {
+        "alarms_total": 208,
+        "chattering_buckets": 1
+      },
+      "prepare": {
+        "total": 200,
+        "critical": 4,
+        "critical_share": 0.02,
+        "unacknowledged": 10,
+        "stale": 0,
+        "chattering": 0
+      },
+      "seed": {
+        "seeded": "ALM001 在 1 小时内新增 8 行"
+      },
+      "discriminating": true,
+      "verdict": "OK"
+    },
+    {
+      "detector": "data_quality",
+      "title": "数据质量戳覆盖",
+      "claim": "DATA-01",
+      "defect": "20% 实时点质量为 Bad",
+      "expect_code": "QUALITY_BAD_PRESENT",
+      "clean_verdict": "pass",
+      "clean_codes": [],
+      "clean_sample": 50,
+      "seeded_verdict": "fail",
+      "seeded_codes": [
+        "QUALITY_BAD_PRESENT"
+      ],
+      "seeded_metrics": {
+        "points": 50,
+        "distribution": {
+          "0": 10,
+          "192": 40
+        },
+        "bad": 10,
+        "unknown": 0,
+        "bad_share": 0.2
+      },
+      "prepare": null,
+      "seed": {
+        "seeded": "20% 实时点质量置为 Bad(0)",
+        "bad_now": 10
+      },
+      "discriminating": true,
+      "verdict": "OK"
+    },
+    {
+      "detector": "data_time",
+      "title": "时间基准一致性",
+      "claim": "DATA-03",
+      "defect": "500 行 ts_utc 偏移 1 小时（写入路径漏换算）",
+      "expect_code": "TIME_INSERT_LAG",
+      "clean_verdict": "pass",
+      "clean_codes": [],
+      "clean_sample": 20000,
+      "seeded_verdict": "fail",
+      "seeded_codes": [
+        "TIME_INSERT_LAG"
+      ],
+      "seeded_metrics": {
+        "rows": 20000,
+        "ts_utc_null": 0,
+        "mean_lag_seconds": 180.0,
+        "min_lag_seconds": 0.0,
+        "max_lag_seconds": 7200.0,
+        "sampled_in_future": 0,
+        "over_insert_lag": 500,
+        "lag_max_seconds": 3600,
+        "lag_min_seconds": -60,
+        "local_offset_hours": 8.05,
+        "future_rows": 0
+      },
+      "prepare": {
+        "applied": true,
+        "rows": 0,
+        "offset_hours": 8.0,
+        "column_added": false,
+        "modifier": "-8 hours",
+        "invariant": {
+          "ok": true,
+          "rows": 20000,
+          "nulls": 0,
+          "mean_delta_seconds": 0.0,
+          "max_delta_seconds": 0.0,
+          "tol_seconds": 120.0
+        }
+      },
+      "seed": {
+        "seeded": "500 行 ts_utc 多减 2 小时",
+        "over_lag_rows": 500
+      },
+      "discriminating": true,
+      "verdict": "OK"
+    },
+    {
+      "detector": "data_io",
+      "title": "点表一致性（字节序 / 长度 / 地址 / 单位）",
+      "claim": "DATA-06",
+      "defect": "设备字节序配错（ABCD → BADC）",
+      "expect_code": "IO_BYTE_ORDER_MISMATCH",
+      "clean_verdict": "pass",
+      "clean_codes": [],
+      "clean_sample": 69,
+      "seeded_verdict": "fail",
+      "seeded_codes": [
+        "IO_BYTE_ORDER_MISMATCH"
+      ],
+      "seeded_metrics": {
+        "points": 69,
+        "devices": 10,
+        "orders_tested": [
+          "ABCD",
+          "BADC",
+          "CDAB",
+          "DCBA"
+        ],
+        "sentinels": [
+          "1.0",
+          "0.1",
+          "25.3",
+          "-273.15",
+          "1234.5678",
+          "-0.0625"
+        ],
+        "decoder_cases": 24,
+        "order_mismatch": 7,
+        "decoder_divergence": 0,
+        "address_overlap": 0,
+        "length_mismatch": 0,
+        "missing_unit": 0,
+        "duplicate": 0,
+        "io_list": null
+      },
+      "prepare": null,
+      "seed": {
+        "seeded": "siemens_1500_01 byte_order 继承全局 -> BADC"
+      },
+      "discriminating": true,
+      "verdict": "OK"
+    },
+    {
+      "detector": "ops_backup",
+      "title": "备份可恢复性",
+      "claim": "DATA-07",
+      "defect": "备份中部 512 字节被写坏（可打开、可 count，但页已损坏）",
+      "expect_code": "BACKUP_CORRUPT",
+      "clean_verdict": "pass",
+      "clean_codes": [],
+      "clean_sample": 20270,
+      "seeded_verdict": "fail",
+      "seeded_codes": [
+        "BACKUP_CORRUPT"
+      ],
+      "seeded_metrics": {
+        "file": "C:\\Users\\cxx\\AppData\\Local\\Temp\\scada-negctl-5dbugepw\\ops_backup\\backup.db",
+        "size": 2396160,
+        "integrity": "*** in database main ***\nTree 5 page 293 cell 18: invalid page number 1208614937\nTree 5 page 293 cell 17: Rowid 6555972108016934573 out of order\nTree 5 page 293 cell 17: invalid page number 842411313\nTree 5 page 293 cell 16: Rowid 9060946509237792190 out of order\nTree 5 page 293 cell 16: invalid page number 1702256432\nTree 5 page 293 cell 15: invalid page number 908931376\nTree 5 page 293 cell 14: Rowid -2343723461264359697 out of order\nTree 5 page 293 cell 14: invalid page number 908931376\nTree 5 page 293 cell 13: Rowid 9928 out of order\nMultiple uses for byte 2184 of page 293",
+        "counts": {
+          "history_data": 20000,
+          "realtime_data": 50,
+          "alarm_records": 200,
+          "operation_logs": 20
+        },
+        "baseline": {
+          "history_data": 20000,
+          "realtime_data": 50,
+          "alarm_records": 200,
+          "operation_logs": 20
+        }
+      },
+      "prepare": {
+        "backup": "C:\\Users\\cxx\\AppData\\Local\\Temp\\scada-negctl-5dbugepw\\ops_backup\\backup.db",
+        "counts": {
+          "history_data": 20000,
+          "realtime_data": 50,
+          "alarm_records": 200,
+          "operation_logs": 20
+        },
+        "integrity": "ok"
+      },
+      "seed": {
+        "seeded": "备份文件中部 512 字节被写坏（文件仍可打开）",
+        "size": 2396160,
+        "offset": 1198080
+      },
+      "discriminating": true,
+      "verdict": "OK"
+    },
+    {
+      "detector": "sec_chain",
+      "title": "配置变更审计链",
+      "claim": "SEC-03",
+      "defect": "事后篡改审计日志中间一条",
+      "expect_code": "CHAIN_BROKEN",
+      "clean_verdict": "pass",
+      "clean_codes": [],
+      "clean_sample": 5,
+      "seeded_verdict": "fail",
+      "seeded_codes": [
+        "CHAIN_BROKEN"
+      ],
+      "seeded_metrics": {
+        "entries": 5,
+        "head_hash": "cfdc78affebd52d8c8b27e8a379002d077309efea4e56a1be4e3dccd7f016f39"
+      },
+      "prepare": {
+        "entries": 5,
+        "ok": true,
+        "head": "cfdc78affebd52d8c8b27e8a379002d077309efea4e56a1be4e3dccd7f016f39"
+      },
+      "seed": {
+        "seeded": "篡改 seq=8 的 diff_json（after 值被改写）"
+      },
+      "discriminating": true,
+      "verdict": "OK"
+    }
+  ]
+}

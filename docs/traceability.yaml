@@ -60,14 +60,19 @@ requirements:
   note: 实测 kill -9：3029 → 3063（末批已提交 WAL）→ 重启 4419，零丢失
 - id: DATA-03
   category: 数据
-  requirement: 同一条记录里的多个时间字段必须指向同一时刻
+  requirement: 同一条记录里的多个时间字段必须指向同一时刻；跨表可直接按时间关联
   source: 时钟一致性（工业系统通用要求）
-  implementation: 展示层/routes.py 的 _ScadaJSONProvider（第 1 项补丁）
-  verification: python tools/clock-audit.py --limit 50000
-  evidence: reports/clock.json
-  status: partial
-  note: 不是一个表的问题：全库 5 张表（history_data / users / operation_logs / alarm_records / device_status）都用 SQLite CURRENT_TIMESTAMP（UTC），而业务代码大量用 datetime.now()（本地）。只改 history_data 会造成「有的表 UTC、有的表本地」——比现在更糟。正确做法是统一时间基准
-    + 在 API 层统一转换，属架构决策，需主仓确认。本次只修了「接口输出」这一层（_ScadaJSONProvider 让 datetime 带偏移），没动库内存储。
+  implementation: core/timebase.py（存储=UTC 朴素，输出=ISO+偏移）+ history_data.ts_utc 权威列双写
+    + tools/migrate-timebase.py 存量回填（幂等）
+  verification: python tools/deep-verify.py timebase  →  tools/deepcheck/detectors.py:det_data_time
+  evidence: reports/deep/timebase.json、reports/deep/timebase-migration.json
+  status: verified
+  note: 实测库内 timestamp 与 created_at 恒定相差 8.000031 小时（315146 行样本，标准差≈0）
+    —— 不是时钟漂移，是「本地时间 vs UTC」的基准混用。迁移后 ts_utc 与 created_at 平均
+    相差 0.4 秒、99.995% 完全同秒，另 17 行系队列缓冲（最大 628 秒）。
+    判据用「入库延迟 lag 的双边界」而不是平均差：2 万行里 500 行偏 2 小时，均值只动 180 秒，
+    会被平均抹平——负向控制第 5 项即用此手法验证。
+    未覆盖：users/device_status 等表仍混用 CURRENT_TIMESTAMP，已列入 open_findings。
 - id: DATA-04
   category: 数据
   requirement: 历史查询的时间范围参数应正确映射（不能整体偏移时区）
@@ -177,22 +182,44 @@ requirements:
   note: 30 台设备的模拟数据之间没有真实物料流关系，算出来的"平衡"是编的。 这种证据比没有更糟 —— 会给评审一个"看起来专业但其实是假"的印象。
 - id: SEC-03
   category: 安全
-  requirement: 配置变更应记录 diff（谁把哪个键从什么改成什么）
-  source: GB/T 22239 安全审计
-  implementation: 无
-  verification: 无
-  evidence: ''
-  status: not_done
-  note: 需要改 operation_logs 的表结构与写入路径，属后端主仓并行开发区域，补丁层做会冲突。
+  requirement: 配置变更应记录 diff（谁把哪个键从什么改成什么），且日志本身被改动要能发现
+  source: GB/T 22239-2019 8.1.4.3 安全审计（审计记录应受到保护，避免未预期的删除、修改或覆盖）
+  implementation: core/audit_chain.py（before/after diff + SHA-256 哈希链）+ PUT /api/config 接入
+  verification: python tools/audit-chain-selftest.py（9 个篡改对抗用例）+
+    python tools/deep-verify.py auditchain
+  evidence: reports/deep/audit-chain-selftest.json、reports/deep/auditchain.json
+  status: verified
+  note: 不只记 diff，还让"改了日志"这件事可被发现 —— 改值/改操作人/删中间/调顺序 4 类
+    篡改全部被抓到。已知局限：**尾部截断在链内自洽**（删掉最后几条不会断链），
+    只能靠 head_hash 与外部锚点（git / MANIFEST）比对发现；该局限写成对应用例而非隐瞒。
+    现场链为空（尚无配置变更），故 auditchain 判 INSUFFICIENT，机制有效性由自证承担。
 - id: DATA-06
   category: 数据
-  requirement: 点表逐点核对（配置的寄存器 vs 设备手册）
-  source: 交付规范（IO List）
-  implementation: 部分（模拟器内部一致性可查）
-  verification: 需现场比对设备手册
-  evidence: ''
-  status: not_done
-  note: 真实设备的点表必须现场核对，这一步谁也代替不了。
+  requirement: 点表逐点核对（地址/长度/数据类型/字节序/量程/单位）
+  source: 交付规范（IO List）；Modbus 协议规范的字节序定义
+  implementation: tools/deepcheck/pointtable.py（独立参考解码器 + 应用解码器差分）
+  verification: python tools/deep-verify.py pointtable → reports/deep/io-list.csv
+  evidence: reports/deep/pointtable.json、reports/deep/io-list.csv
+  status: verified
+  note: 69 个点 / 10 台设备 / 4 种字节序 × 6 个哨兵值 = 24 组差分用例全部一致。
+    哨兵值选 1.0/0.1/25.3/-273.15/1234.5678/-0.0625（字节不对称），
+    0x00000000 这类值在四种字节序下都一样，用它测等于没测。
+    顺带修掉 3 个模拟量缺单位（pH/功率因数/回流比，无量纲须显式写 '1'）。
+    仍未覆盖：真实设备手册的寄存器表（现场比对，脚本可直接复用同一套）。
+- id: DATA-08
+  category: 数据
+  requirement: 证据必须能被第三方独立复现，而不是"我跑过了"
+  source: 科学方法底线（可复现性）；负向控制（negative control）
+  implementation: tools/deepcheck/negative_control.py（8 个检测器 × 播种缺陷）、
+    tools/make-evidence-fixture.py（可复现夹具）、tools/evidence-manifest.py（哈希清单）
+  verification: python tools/deep-verify.py negative-control → 8/8；
+    python tools/evidence-manifest.py --verify
+  evidence: reports/deep/negative-control.json、reports/evidence/MANIFEST.json
+  status: verified
+  note: 核心判据：**检测器不能失败，它的通过就不算证据**。每个检测器必须在
+    「干净快照=PASS / 播种后=FAIL 且报出预期 finding code」两个方向上都对，
+    才计 1 分。8 个全过。运行库被 .gitignore 排除，故另做 2.3MB 夹具，
+    保证任何人克隆仓库后一条命令即可重算。
 - id: DATA-07
   category: 数据
   requirement: 备份必须验证「能恢复」，而不只是「生成了文件」

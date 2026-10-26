@@ -1,0 +1,22 @@
+{
+  "id": "data_time",
+  "title": "时间基准一致性",
+  "claim": "DATA-03",
+  "verdict": "pass",
+  "metrics": {
+    "rows": 315146,
+    "ts_utc_null": 0,
+    "mean_lag_seconds": 0.4,
+    "min_lag_seconds": 0.0,
+    "max_lag_seconds": 628.0,
+    "sampled_in_future": 0,
+    "over_insert_lag": 0,
+    "lag_max_seconds": 3600,
+    "lag_min_seconds": -60,
+    "local_offset_hours": 8.0,
+    "future_rows": 0
+  },
+  "findings": [],
+  "ground_truth": "created_at = SQLite CURRENT_TIMESTAMP(UTC)，与 ts_utc 独立同源",
+  "sample": 315146
+}

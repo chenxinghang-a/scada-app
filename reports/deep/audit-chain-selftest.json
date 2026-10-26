@@ -1,0 +1,72 @@
+{
+  "generated_at": "2026-10-26T11:48:23",
+  "cases": 9,
+  "passed": 9,
+  "all_ok": true,
+  "known_limitation": "尾部截断在链内自洽 —— 必须靠外部锚点（git / MANIFEST）发现",
+  "rows": [
+    {
+      "case": "未篡改：链应通过",
+      "detected": true,
+      "expected": true,
+      "ok": true,
+      "reason": "entries=5, head=4417f7bb1035"
+    },
+    {
+      "case": "篡改第 2 条的值（仅追加一个空格）：应报「记录被修改」",
+      "detected": true,
+      "expected": true,
+      "ok": true,
+      "reason": "entry_hash 与内容不符（记录被修改）"
+    },
+    {
+      "case": "篡改第 3 条的操作人：应被抓到",
+      "detected": true,
+      "expected": true,
+      "ok": true,
+      "reason": "entry_hash 与内容不符（记录被修改）"
+    },
+    {
+      "case": "删除中间一条：应报断号/前哈希不连续",
+      "detected": true,
+      "expected": true,
+      "ok": true,
+      "reason": "prev_hash 不连续（此前的记录被删除或替换）"
+    },
+    {
+      "case": "调换两条的内容：应被抓到",
+      "detected": true,
+      "expected": true,
+      "ok": true,
+      "reason": "entry_hash 与内容不符（记录被修改）"
+    },
+    {
+      "case": "截断最后两条：链内**抓不到**（已知局限，靠外部锚点）",
+      "detected": false,
+      "expected": false,
+      "ok": true,
+      "reason": "链内自洽=True（所以链自己抓不到）；head 从 4417f7bb1035 变为 0b090971fff7，头部哈希变化只能被 git/MANIFEST 这类外部锚点发现"
+    },
+    {
+      "case": "canonical_json 键序无关（否则链会无故断裂）",
+      "detected": true,
+      "expected": true,
+      "ok": true,
+      "reason": "两种键序输出一致=True"
+    },
+    {
+      "case": "同一内容重复保存不产生审计噪音",
+      "detected": true,
+      "expected": true,
+      "ok": true,
+      "reason": "写入=0 条（应为 0）"
+    },
+    {
+      "case": "PUT /api/config 确实带 before/after 调用了审计记录",
+      "detected": true,
+      "expected": true,
+      "ok": true,
+      "reason": "update_config 中 record_config_change 调用参数: [{'before', 'section', 'actor', 'after', 'ip'}]"
+    }
+  ]
+}

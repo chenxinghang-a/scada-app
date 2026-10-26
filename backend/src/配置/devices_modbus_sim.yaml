@@ -290,7 +290,9 @@ devices:
     length: 2
     name: ph_value
     scale: 1.0
-    unit: ''
+    # 无量纲量显式写 '1'（SI 惯例），而不是留空 —— 留空无法区分
+    # "本来就是无量纲" 和 "点表漏填单位"，后者会被点表核对工具放过。
+    unit: '1'
   - address: 8
     data_type: float32
     description: 出水浊度
@@ -400,7 +402,8 @@ devices:
     length: 2
     name: power_factor
     scale: 1.0
-    unit: ''
+    # 无量纲（cosφ），显式声明见 ph_value 处说明
+    unit: '1'
   slave_id: 6
   vendor: ABB
 - collection_interval: 2
@@ -615,6 +618,7 @@ devices:
     length: 2
     name: reflux_ratio
     scale: 1.0
-    unit: ''
+    # 无量纲（回流比），显式声明见 ph_value 处说明
+    unit: '1'
   slave_id: 10
   vendor: 和利时

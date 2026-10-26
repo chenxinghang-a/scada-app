@@ -12,6 +12,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from contextlib import contextmanager
 import paths
+from core.timebase import to_utc_naive
 
 logger = logging.getLogger(__name__)
 
@@ -258,9 +259,22 @@ class Database:
                     value REAL,
                     unit TEXT,
                     timestamp DATETIME NOT NULL,
-                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    ts_utc DATETIME
                 )
             ''')
+
+            # 时间基准统一（DATA-03）：timestamp 是"现场本地时间"语义，created_at
+            # 是 SQLite CURRENT_TIMESTAMP（UTC）—— 两者混在同一张表里，跨表关联时
+            # 必然错开一个时区却不会报错。新增 ts_utc 作为**权威 UTC 时间**，
+            # 与 timestamp 双写；不变量 ts_utc == timestamp - 本地偏移 由
+            # tools/deep-verify.py timebase 逐行校验，任何写入路径忘了带
+            # ts_utc 都会立刻变成可测量的 NULL/偏差，而不是安静的 8 小时错位。
+            # 旧库（已存在但无该列）在这里补列，幂等。
+            cols = {r[1] for r in cursor.execute('PRAGMA table_info(history_data)')}
+            if 'ts_utc' not in cols:
+                cursor.execute('ALTER TABLE history_data ADD COLUMN ts_utc DATETIME')
+                logger.info("history_data 补列 ts_utc（时间基准统一迁移的存储侧）")
 
             # 创建报警记录表
             cursor.execute('''
@@ -315,6 +329,13 @@ class Database:
             cursor.execute('''
                 CREATE INDEX IF NOT EXISTS idx_history_register 
                 ON history_data(device_id, register_name, timestamp)
+            ''')
+
+            # 跨表按"真实时刻"关联走这条索引：历史曲线对照报警时刻，
+            # 用 timestamp 会差 8 小时，用 ts_utc 才是同一时刻。
+            cursor.execute('''
+                CREATE INDEX IF NOT EXISTS idx_history_ts_utc
+                ON history_data(ts_utc)
             ''')
 
             cursor.execute('''
@@ -443,9 +464,10 @@ class Database:
             ''', (device_id, register_name, value, unit, timestamp))
 
             cursor.execute('''
-                INSERT INTO history_data (device_id, register_name, value, unit, timestamp)
-                VALUES (?, ?, ?, ?, ?)
-            ''', (device_id, register_name, value, unit, timestamp))
+                INSERT INTO history_data (device_id, register_name, value, unit, timestamp, ts_utc)
+                VALUES (?, ?, ?, ?, ?, ?)
+            ''', (device_id, register_name, value, unit, timestamp,
+                  to_utc_naive(timestamp)))
 
     def insert_data_batch(self, batch: list[dict]):
         """批量插入数据（单事务，性能比逐条快 10-50 倍）。
@@ -497,6 +519,10 @@ class Database:
                 valid_rows.append((
                     d['device_id'], d['register_name'], d['value'],
                     d.get('unit', ''), d['timestamp'], q,
+                    # ts_utc：权威 UTC 时间，与 timestamp（现场本地时间）双写。
+                    # 在**写入点**换算而不是在查询点换算，是因为查询点太多、
+                    # 漏一处就是一处静默错位；写入点只有一个。
+                    to_utc_naive(d['timestamp']),
                 ))
             except (KeyError, TypeError) as e:
                 logger.warning(f"跳过无效记录: {e}")
@@ -516,11 +542,11 @@ class Database:
                     timestamp = excluded.timestamp, quality = excluded.quality
             ''', valid_rows)
 
-            # history_data: 批量INSERT
+            # history_data: 批量INSERT（timestamp 保留本地语义，ts_utc 为权威 UTC）
             cursor.executemany('''
-                INSERT INTO history_data (device_id, register_name, value, unit, timestamp)
-                VALUES (?, ?, ?, ?, ?)
-            ''', [row[:5] for row in valid_rows])
+                INSERT INTO history_data (device_id, register_name, value, unit, timestamp, ts_utc)
+                VALUES (?, ?, ?, ?, ?, ?)
+            ''', [(r[0], r[1], r[2], r[3], r[4], r[6]) for r in valid_rows])
 
     def delete_device_data(self, device_id: str):
         """

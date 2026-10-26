@@ -161,6 +161,10 @@ def update_config():
         return api_error('请提供配置数据')
 
     config = load_yaml_config('配置/system.yaml')
+    # 深拷贝"改之前"的快照。diff 必须基于旧值，不能基于 config 对象引用——
+    # 下面 update() 是原地改，拷引用等于 after==before，diff 永远是空的。
+    import copy as _copy
+    before_snapshot = _copy.deepcopy(config or {})
 
     section = data.get('section')
     if section and section in config and isinstance(config[section], dict):
@@ -178,9 +182,42 @@ def update_config():
     if not save_yaml_config('配置/system.yaml', config):
         return jsonify({'success': False, 'message': '配置保存失败'}), 500
 
+    # ---- 变更审计（SEC-03 / GB/T 22239-2019 8.1.4.3）----------------------
+    # 只记"更新了系统配置"是不够的：出了事要能回答「谁把报警阈值从 180 改成 200」。
+    # 这里落 before/after diff，并写入哈希链（core/audit_chain.py），
+    # 使日志本身被改动也能被 verify_chain 抓出来。
+    audit_state = 'recorded'
+    audit_entries = []
+    try:
+        from core.audit_chain import record_config_change
+        actor = request.current_user['username']
+        ip = request.remote_addr
+        scopes = [section] if section else sorted(filtered.keys())
+        with current_app.database.get_connection() as conn:
+            for sc in scopes:
+                rec = record_config_change(
+                    conn, actor=actor, section=sc,
+                    before=before_snapshot.get(sc) or {},
+                    after=config.get(sc) or {},
+                    ip=ip,
+                )
+                if rec:
+                    audit_entries.append({'section': sc, **rec})
+        if not audit_entries:
+            # 请求成功但没有任何键变化：不写空记录（否则日志被噪音灌满），
+            # 但要如实告诉调用方"这次没有变更"，而不是假装记了一笔。
+            audit_state = 'no_change'
+    except Exception as e:  # 审计失败不能让配置保存回滚，但绝不能静默
+        audit_state = 'degraded'
+        logger.error(f"配置变更审计写入失败（配置已保存，审计缺失）: {e}")
+
     get_auth_manager().log_operation(
         request.current_user['username'], 'update_config', f"更新系统配置: {section or 'global'}")
-    return jsonify({'success': True, 'message': '配置已保存'})
+
+    detail = {'sections': [e['section'] for e in audit_entries],
+              'changes': sum(e['changes'] for e in audit_entries)}
+    return jsonify({'success': True, 'message': '配置已保存',
+                    'audit': audit_state, 'audit_detail': detail})
 
 
 # ==================== 前端错误日志上报 ====================

@@ -1,0 +1,35 @@
+{
+  "id": "data_io",
+  "title": "点表一致性（字节序 / 长度 / 地址 / 单位）",
+  "claim": "DATA-06",
+  "verdict": "pass",
+  "metrics": {
+    "points": 69,
+    "devices": 10,
+    "orders_tested": [
+      "ABCD",
+      "BADC",
+      "CDAB",
+      "DCBA"
+    ],
+    "sentinels": [
+      "1.0",
+      "0.1",
+      "25.3",
+      "-273.15",
+      "1234.5678",
+      "-0.0625"
+    ],
+    "decoder_cases": 24,
+    "order_mismatch": 0,
+    "decoder_divergence": 0,
+    "address_overlap": 0,
+    "length_mismatch": 0,
+    "missing_unit": 0,
+    "duplicate": 0,
+    "io_list": "C:\\Users\\cxx\\scada-app\\reports\\deep\\io-list.csv"
+  },
+  "findings": [],
+  "ground_truth": "IPC-4 字节序定义 + 设备手册（devices_modbus_sim.yaml 声明 ABCD）+ 参考实现独立复算",
+  "sample": 69
+}

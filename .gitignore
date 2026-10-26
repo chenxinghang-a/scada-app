@@ -47,3 +47,6 @@ backend/prev-*/
 
 # asar 解包检查目录（tools/prod-audit.js 用）
 .prod-check/
+
+# 证据夹具与临时用例库（可用 tools/make-evidence-fixture.py 重建，不入库）
+tests/fixtures/
