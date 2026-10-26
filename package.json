@@ -28,6 +28,10 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "verify:version": "node tools/verify-version-coherence.js",
+    "verify:deep": "python tools/deep-verify.py all",
+    "verify:deep:fixture": "python tools/make-evidence-fixture.py && python tools/deep-verify.py all --db tests/fixtures/evidence.db",
+    "verify:audit-chain": "python tools/audit-chain-selftest.py",
+    "verify:evidence": "python tools/evidence-manifest.py --verify",
     "verify:version:packaged": "node tools/verify-version-coherence.js --packaged release/win-unpacked --source backend --require-source"
   },
   "dependencies": {
