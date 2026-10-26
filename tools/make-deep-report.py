@@ -84,6 +84,8 @@ def main():
     lint = load('clock_lint.json')
     an = load('anchor.json')
     wp = load('write_path.json')
+    pc = load('point_coverage.json')
+    alc = load('alarm_coverage.json')
     pt = load('pointtable.json')
     ac = load('audit-chain-selftest.json')
     man_path = REPO / 'reports' / 'evidence' / 'MANIFEST.json'
@@ -156,6 +158,7 @@ def main():
   <div><b>{esc(pt_m.get('points', '—'))}</b><span>点表已核对（4 字节序 × 6 哨兵值）</span></div>
   <div><b>{esc(tball.get('metrics', {}).get('columns_checked', '—'))}</b><span>列时间口径已登记并逐行校验</span></div>
   <div><b>{esc(wp.get('metrics', {}).get('recent_rows', '—'))}</b><span>最近 30 分钟写入的行<br>（ts_utc 空值 {esc(wp.get('metrics', {}).get('null_ts_utc', '—'))}）</span></div>
+  <div><b>{esc(pc.get('metrics', {}).get('collected_points', '—'))}/{esc(pc.get('metrics', {}).get('configured_points', '—'))}</b><span>点位实际入库 / 配置<br>（覆盖率 {esc(round((pc.get('metrics', {}).get('coverage') or 0) * 100, 1))}%）</span></div>
   <div><b>{esc(cert)}</b><span>机器判定结论<br><code>reports/deep/verdict.json</code></span></div>
 </div>
 
@@ -265,7 +268,33 @@ integrity_check / backup、<code>hashlib</code>、<code>importlib</code>、<code
 <code>exempt</code> 并写明理由（账号簿记、令牌回收、TTL 缓存，不参与工艺时间关联）——
 "不处理"也要有理由，否则下次没人知道为什么。</p>
 
-<h2>五、点表：用哨兵值证明字节序没错位</h2>
+<h2>五、点位覆盖与报警有效性：系统其实"少了一只眼"</h2>
+<p>把后端按源码模式真跑起来之后，两条检查给出了本轮最重要的发现：
+<b>配置了 {esc(pc.get('metrics', {}).get('configured_points', '—'))} 个点位，
+实际只有 55 个进过库（27%）</b>——所有 Modbus 设备只入库第一个点，
+而 REST / MQTT / OPC-UA 设备是全量的。</p>
+<table>
+<tr><th style="width:38%">阶段</th><th>Modbus 设备入库点数</th><th>整体覆盖率</th></tr>
+<tr><td>修复前（实测）</td><td>hvac 1/12、abb 1/10、siemens 1/8、signal_tower 2/6</td><td><b>27%</b>（55/201）</td></tr>
+<tr><td>修复后（实测）</td><td>hvac 12/12、abb 10/10、siemens 8/8、signal_tower 6/6</td><td><b>100%</b>（201/201）</td></tr>
+</table>
+<p>根因：模拟客户端 <code>read_holding_registers(address, count)</code> 只按 <code>address</code>
+取了<b>一个</b>寄存器就返回 1~2 个字，完全忽略 <code>count</code>；采集器那句
+<code>if len(raw) &lt; size: continue</code> 把剩下的点静默跳过了。
+<b>不报错、不告警</b>，只是大屏上大部分点是空的。</p>
+<p><b>报警有效性</b>（{tag(alc.get('verdict'))}）：{esc(alc.get('metrics', {}).get('rules', '—'))} 条启用规则中
+{esc(alc.get('metrics', {}).get('alive', '—'))} 条会响、
+{esc(alc.get('metrics', {}).get('missed', '—'))} 条漏报、
+{esc(alc.get('metrics', {}).get('unreachable', '—'))} 条在当前工况下<b>永远碰不到阈值</b>。
+碰不到不一定错（保护性阈值本就该远），但差值必须能被量化——最离谱的是
+<code>current_high</code>：阈值 100A，实测 10~17A，差 <b>11.7 个包络跨度</b>，
+说明这个阈值没有工艺依据。</p>
+<p class="small">原始记录：<code>reports/deep/point_coverage.json</code>、
+<code>reports/deep/alarm_coverage.json</code>。两条都是"能失败"的检测器：
+负向控制第 10 项删掉一台设备的全部数据、第 11 项删掉一条越限报警记录，
+分别验证了 <code>POINT_COVERAGE_GAP</code> 与 <code>ALARM_MISSED</code> 会被抓到。</p>
+
+<h2>六、点表：用哨兵值证明字节序没错位</h2>
 <p>被测实现是采集层真实的 <code>ByteOrderCapableDecoder</code>（<code>importlib</code> 直接加载，
 不复制代码）；参考实现是按 Modbus 规范另写的 <code>decode_words</code>。
 两者对 {esc(pt_m.get('decoder_cases', '—'))} 组用例（4 种字节序 × 6 个哨兵值）结果全部一致。</p>
@@ -280,7 +309,7 @@ integrity_check / backup、<code>hashlib</code>、<code>importlib</code>、<code
 </table>
 <p class="small">IO List（可直接给现场）：<code>reports/deep/io-list.csv</code>。结论 {tag(pt.get('verdict'))}。</p>
 
-<h2>六、审计链：改了日志也要被发现</h2>
+<h2>七、审计链：改了日志也要被发现</h2>
 <table>
 <tr><th style="width:44%">篡改手法</th><th>预期</th><th>实际</th><th>说明</th></tr>
 {ac_rows or '<tr><td colspan=4>未运行</td></tr>'}
@@ -294,7 +323,7 @@ integrity_check / backup、<code>hashlib</code>、<code>importlib</code>、<code
 ——"没有内容可锚"不是缺陷，机制有效性由对抗用例承担。
 仍然存在的边界：能重写整个 git 历史的人可以伪造，这一类只能靠 WORM 存储。</p>
 
-<h2>七、未关闭的发现（不藏）</h2>
+<h2>八、未关闭的发现（不藏）</h2>
 <table>
 <tr><th style="width:26%">检查项</th><th>判定</th><th>finding</th></tr>
 {grade_rows or '<tr><td colspan=3>无</td></tr>'}
@@ -302,7 +331,7 @@ integrity_check / backup、<code>hashlib</code>、<code>importlib</code>、<code
 <p class="small">1 条报警自 2026-10-23 18:40 起未确认、已陈旧 3 天；报警 KPI 在 24 小时窗口内
 0 条样本，<b>统计上不可判定</b>（不是"达标"）。二者均未代为处理——代签等于伪造运行记录。</p>
 
-<h2>八、复现方式（这是本报告唯一的"证据"）</h2>
+<h2>九、复现方式（这是本报告唯一的"证据"）</h2>
 <pre><code>python tools/make-evidence-fixture.py        # 2.3MB 夹具，固定种子
 python tools/deep-verify.py all              # 全部检查 → reports/deep/verdict.json
 python tools/audit-chain-selftest.py         # 9 个篡改对抗用例

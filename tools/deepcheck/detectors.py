@@ -14,7 +14,7 @@ import sqlite3
 from datetime import datetime, timedelta
 from pathlib import Path
 
-from . import pointtable
+from . import coverage, pointtable
 from .common import (FAIL, INSUFFICIENT, PASS, REPO, Finding, Result,
                      connect_ro, say)
 
@@ -591,6 +591,8 @@ REGISTRY = {
     'data_quality': (det_data_quality, 'db'),
     'data_time': (det_data_time, 'db'),
     'write_path': (det_write_path, 'db'),
+    'point_coverage': (coverage.det_point_coverage, 'db_dev'),
+    'alarm_coverage': (coverage.det_alarm_coverage, 'db_alarm'),
     'timebase_all': (det_timebase_all, 'db'),
     'data_io': (det_data_io, 'config'),
     'ops_backup': (det_ops_backup, 'file'),

@@ -227,6 +227,31 @@ requirements:
     「干净快照=PASS / 播种后=FAIL 且报出预期 finding code」两个方向上都对，
     才计 1 分。8 个全过。运行库被 .gitignore 排除，故另做 2.3MB 夹具，
     保证任何人克隆仓库后一条命令即可重算。
+- id: DATA-11
+  category: 数据
+  requirement: 配置的每个点位都必须真的被采集入库（覆盖率可量化）
+  source: 交付验收（IO List 与运行时点表必须一致）
+  implementation: tools/deepcheck/coverage.py:det_point_coverage（配置 ↔ history_data 差集）
+  verification: python tools/deep-verify.py all → det_point_coverage
+  evidence: reports/deep/point_coverage.json
+  status: verified
+  note: 修复前实测 55/201（27%）—— 所有 Modbus 设备只入库第一个点，REST/MQTT/OPC-UA 全量。
+    根因：EnhancedSimulatedClient.read_holding_registers 只按起始地址取一个寄存器、忽略 count，
+    采集器的「切片不足就跳过」把其余点静默丢弃。修复后 201/201（100%）。
+    ⚠️ 该缺陷不会报错、不会告警，只能靠"配置 ↔ 入库"差集发现。
+- id: ALM-06
+  category: 报警
+  requirement: 每条启用规则都必须能响；数据越限而未产生报警必须为零（漏报率）
+  source: ISA-18.2 报警合理化（alarm rationalization）
+  implementation: tools/deepcheck/coverage.py:det_alarm_coverage
+    （规则阈值 × history_data 值域 × alarm_records 是否存在）
+  verification: python tools/deep-verify.py all → det_alarm_coverage
+  evidence: reports/deep/alarm_coverage.json
+  status: verified
+  note: 10 条启用规则：2 条会响、0 条漏报、8 条当前工况永不触发。
+    最离谱 current_high 阈值 100A 而实测 10~17A（差 11.7 个包络跨度）——
+    保护性阈值可以远，但差值必须能量化并给出工艺出处。
+    漏报（ALARM_MISSED）为硬指标：一旦出现即判 FAIL。
 - id: DATA-10
   category: 数据
   requirement: 写入路径必须携带权威时间；不得靠"迁移回填"证明写入正确

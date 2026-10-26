@@ -1,9 +1,9 @@
 {
-  "generated_at": "2026-10-26T12:11:42",
+  "generated_at": "2026-10-26T12:17:32",
   "source_db": "C:\\Users\\cxx\\scada-app\\tests\\fixtures\\evidence.db",
   "snapshot_size_mb": 2.3,
-  "cases": 12,
-  "discriminating": 12,
+  "cases": 14,
+  "discriminating": 14,
   "all_ok": true,
   "principle": "检测器未能在播种后报错 = 该检测器的\"通过\"无效",
   "rows": [
@@ -250,7 +250,7 @@
         "BACKUP_SCHEMA_DRIFT"
       ],
       "seeded_metrics": {
-        "file": "C:\\Users\\cxx\\AppData\\Local\\Temp\\scada-negctl-mrv5nwal\\ops_backup\\backup.db",
+        "file": "C:\\Users\\cxx\\AppData\\Local\\Temp\\scada-negctl-wv29mh2p\\ops_backup\\backup.db",
         "size": 2412544,
         "integrity": "*** in database main ***\nTree 5 page 295 cell 17: Rowid 6555972108016934573 out of order\nTree 5 page 295 cell 17: invalid page number 862217590\nTree 5 page 295 cell 16: Rowid 6555972108016934573 out of order\nTree 5 page 295 cell 16: invalid page number 862217590\nTree 5 page 295 cell 15: Rowid 6555972108016934573 out of order\nTree 5 page 295 cell 15: invalid page number 862217590\nTree 5 page 295 cell 14: Rowid 6555972108016934573 out of order\nTree 5 page 295 cell 14: invalid page number 862217590\nTree 5 page 295 cell 13: Rowid 6555972108016934573 out of order\nTree 5 page 295 cell 13: invalid page number 862217590\nMultiple uses for byte 2176 of page 295",
         "counts": {
@@ -272,7 +272,7 @@
         "quality_bad_points": 0
       },
       "prepare": {
-        "backup": "C:\\Users\\cxx\\AppData\\Local\\Temp\\scada-negctl-mrv5nwal\\ops_backup\\backup.db",
+        "backup": "C:\\Users\\cxx\\AppData\\Local\\Temp\\scada-negctl-wv29mh2p\\ops_backup\\backup.db",
         "counts": {
           "history_data": 20000,
           "realtime_data": 50,
@@ -304,13 +304,13 @@
       ],
       "seeded_metrics": {
         "entries": 5,
-        "head_hash": "24d51dc7d99b430fbc5ced4f224e3fb76276afdfa80616033caa56699c2e4d29"
+        "head_hash": "06e662f638c9bf05e44d7d01f981d8eba1170ff5f7387af8050cf8f556323bcf"
       },
       "prepare": {
         "entries": 5,
         "ok": true,
-        "head": "24d51dc7d99b430fbc5ced4f224e3fb76276afdfa80616033caa56699c2e4d29",
-        "anchor": "7269c0cd4d88"
+        "head": "06e662f638c9bf05e44d7d01f981d8eba1170ff5f7387af8050cf8f556323bcf",
+        "anchor": "0d5660b62344"
       },
       "seed": {
         "seeded": "篡改 seq=8 的 diff_json（after 值被改写）"
@@ -336,13 +336,105 @@
         "recent_rows": 6,
         "null_ts_utc": 1,
         "skewed_rows": 0,
-        "max_skew_seconds": 0.5
+        "max_skew_seconds": 0.2
       },
       "prepare": {
         "recent_rows": 5
       },
       "seed": {
         "seeded": "新增 1 行 ts_utc 为 NULL 的近期数据"
+      },
+      "discriminating": true,
+      "verdict": "OK"
+    },
+    {
+      "detector": "point_coverage",
+      "title": "点位采集覆盖率（配置 vs 实际入库）",
+      "claim": "DATA-11",
+      "defect": "一台设备配了 2 个点却只采到 0 个（历史上的\"只入库第一个点\"）",
+      "expect_code": "POINT_COVERAGE_GAP",
+      "clean_verdict": "pass",
+      "clean_codes": [],
+      "clean_sample": 6,
+      "seeded_verdict": "fail",
+      "seeded_codes": [
+        "POINT_COVERAGE_GAP"
+      ],
+      "seeded_metrics": {
+        "window_minutes": 10,
+        "anchor": "2026-10-26 04:17:29",
+        "devices": 3,
+        "configured_points": 6,
+        "collected_points": 4,
+        "coverage": 0.6667,
+        "min_ratio": 0.9,
+        "by_device": [
+          {
+            "device": "cov_dev0",
+            "protocol": "modbus_tcp",
+            "configured": 2,
+            "collected": 0,
+            "ratio": 0.0
+          },
+          {
+            "device": "cov_dev1",
+            "protocol": "modbus_tcp",
+            "configured": 2,
+            "collected": 2,
+            "ratio": 1.0
+          },
+          {
+            "device": "cov_dev2",
+            "protocol": "modbus_tcp",
+            "configured": 2,
+            "collected": 2,
+            "ratio": 1.0
+          }
+        ]
+      },
+      "prepare": {
+        "devices_cfg": "C:\\Users\\cxx\\AppData\\Local\\Temp\\scada-negctl-wv29mh2p\\point_coverage\\devices_cov.yaml",
+        "points": 6
+      },
+      "seed": {
+        "seeded": "cov_dev0 的 2 个点全部删除",
+        "left": 0
+      },
+      "discriminating": true,
+      "verdict": "OK"
+    },
+    {
+      "detector": "alarm_coverage",
+      "title": "报警规则有效性（能响 / 漏报 / 不可达）",
+      "claim": "ALM-06",
+      "defect": "数据越限但报警表里没有对应记录（漏报）",
+      "expect_code": "ALARM_MISSED",
+      "clean_verdict": "pass",
+      "clean_codes": [],
+      "clean_sample": 1,
+      "seeded_verdict": "fail",
+      "seeded_codes": [
+        "ALARM_MISSED"
+      ],
+      "seeded_metrics": {
+        "window_minutes": 30,
+        "anchor": "2026-10-26 04:17:29",
+        "rules": 1,
+        "alive": 0,
+        "missed": 1,
+        "no_data": 0,
+        "unreachable": 0,
+        "alive_rules": [],
+        "unreachable_rules": []
+      },
+      "prepare": {
+        "alarms_cfg": "C:\\Users\\cxx\\AppData\\Local\\Temp\\scada-negctl-wv29mh2p\\alarm_coverage\\alarms_cov.yaml",
+        "data": "cov_dev0/r0a = 150 (阈值 100)",
+        "alarm_seeded": true
+      },
+      "seed": {
+        "seeded": "cov_rule 报警记录被删除（数据仍越限）",
+        "alarms_left": 200
       },
       "discriminating": true,
       "verdict": "OK"
@@ -559,7 +651,7 @@
         "utc": 1
       },
       "prepare": {
-        "scanned_root": "C:\\Users\\cxx\\AppData\\Local\\Temp\\scada-negctl-mrv5nwal\\clock_lint\\src_copy"
+        "scanned_root": "C:\\Users\\cxx\\AppData\\Local\\Temp\\scada-negctl-wv29mh2p\\clock_lint\\src_copy"
       },
       "seed": {
         "seeded": "新增 新增_未登记时间口径.py（batch_runs.finished_at 未登记）"
@@ -589,8 +681,8 @@
       "prepare": {
         "entries": 5,
         "ok": true,
-        "head": "c80d595d8b076b6e45944313cf13b1bdd3da145d4b2428ed63035603218d7447",
-        "anchor": "f012b37a9b1b"
+        "head": "6def46785705cb5f9a3f9be9deb6d7c86993ac1aa81ba07655d5ba1912e7e4a4",
+        "anchor": "f7cef2d4914f"
       },
       "seed": {
         "seeded": "删除 seq=[9, 10]，剩 3 条"

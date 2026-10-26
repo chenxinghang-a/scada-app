@@ -1,0 +1,123 @@
+{
+  "id": "alarm_coverage",
+  "title": "报警规则有效性（能响 / 漏报 / 不可达）",
+  "claim": "ALM-06",
+  "verdict": "pass",
+  "metrics": {
+    "window_minutes": 30,
+    "anchor": "2026-10-26 04:17:27",
+    "rules": 10,
+    "alive": 2,
+    "missed": 0,
+    "no_data": 0,
+    "unreachable": 8,
+    "alive_rules": [
+      "temp_high",
+      "pressure_high"
+    ],
+    "unreachable_rules": [
+      "temp_low",
+      "env_temp_high",
+      "pressure_low",
+      "voltage_high",
+      "voltage_low",
+      "current_high",
+      "ph_low",
+      "ph_high"
+    ]
+  },
+  "findings": [
+    {
+      "code": "ALARM_RULE_UNREACHABLE",
+      "message": "8 条规则的阈值在窗口内从未触及（最远 3.3 倍包络）—— 需要工艺依据说明是\"保护性阈值\"还是\"拍的\"",
+      "severity": "warning",
+      "count": 8,
+      "detail": {
+        "rules": [
+          {
+            "rule": "temp_low",
+            "threshold": 50.0,
+            "envelope": [
+              168.86,
+              204.54
+            ],
+            "gap_in_spans": 3.3,
+            "level": "warning"
+          },
+          {
+            "rule": "env_temp_high",
+            "threshold": 120.0,
+            "envelope": [
+              47.18,
+              75.83
+            ],
+            "gap_in_spans": 1.5,
+            "level": "warning"
+          },
+          {
+            "rule": "pressure_low",
+            "threshold": 0.2,
+            "envelope": [
+              0.79,
+              1.2
+            ],
+            "gap_in_spans": 1.4,
+            "level": "warning"
+          },
+          {
+            "rule": "voltage_high",
+            "threshold": 242.0,
+            "envelope": [
+              218.9,
+              227.2
+            ],
+            "gap_in_spans": 1.8,
+            "level": "critical"
+          },
+          {
+            "rule": "voltage_low",
+            "threshold": 198.0,
+            "envelope": [
+              218.9,
+              227.2
+            ],
+            "gap_in_spans": 2.5,
+            "level": "warning"
+          },
+          {
+            "rule": "current_high",
+            "threshold": 100.0,
+            "envelope": [
+              10.08,
+              17.17
+            ],
+            "gap_in_spans": 11.7,
+            "level": "critical"
+          },
+          {
+            "rule": "ph_low",
+            "threshold": 6.5,
+            "envelope": [
+              6.91,
+              7.31
+            ],
+            "gap_in_spans": 1.0,
+            "level": "warning"
+          },
+          {
+            "rule": "ph_high",
+            "threshold": 8.5,
+            "envelope": [
+              6.91,
+              7.31
+            ],
+            "gap_in_spans": 3.0,
+            "level": "warning"
+          }
+        ]
+      }
+    }
+  ],
+  "ground_truth": "alarms.yaml 阈值 × history_data 值域 × alarm_records 是否存在",
+  "sample": 10
+}

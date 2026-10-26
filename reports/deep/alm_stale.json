@@ -4,11 +4,11 @@
   "claim": "ALM-03",
   "verdict": "pass",
   "metrics": {
-    "alarms_total": 1,
+    "alarms_total": 2,
     "stale": 0,
     "stale_hours": 24
   },
   "findings": [],
   "ground_truth": "ANSI/ISA-18.2-2016：陈旧报警数应为 0",
-  "sample": 1
+  "sample": 2
 }

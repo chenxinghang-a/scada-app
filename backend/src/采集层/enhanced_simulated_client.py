@@ -216,9 +216,54 @@ class EnhancedSimulatedModbusClient(ModbusClientInterface):
                 logger.error(f"[增强模拟] 更新异常: {e}")
                 time.sleep(1)
     
+    # ---------------------------------------------------------------- 编码
+    def _words_for_register(self, reg_cfg: dict, value) -> list[int]:
+        """把一个寄存器按配置编成它占用的若干 16 位字（**按 byte_order**）。
+
+        这是 ``decode_*`` 的逆运算。原实现无论配置哪种字节序都按大端返回，
+        于是 BADC/CDAB/DCBA 设备在模拟模式下解出来的值整体错位 ——
+        真机上表现为"温度 -1.2e38"，而模拟模式下永远复现不出来。
+        """
+        scale = reg_cfg.get('scale', 1.0) or 1.0
+        offset = reg_cfg.get('offset', 0) or 0
+        raw_value = (value - offset) / scale
+        dt = str(reg_cfg.get('data_type', 'uint16')).lower()
+
+        if dt == 'float32':
+            b = struct.pack('>f', float(raw_value))
+            words = [struct.unpack('>H', b[0:2])[0], struct.unpack('>H', b[2:4])[0]]
+        elif dt in ('int32', 'uint32'):
+            fmt = '>i' if dt == 'int32' else '>I'
+            b = struct.pack(fmt, int(round(raw_value)))
+            words = [struct.unpack('>H', b[0:2])[0], struct.unpack('>H', b[2:4])[0]]
+        else:
+            words = [int(round(raw_value)) & 0xFFFF]
+
+        order = getattr(self, 'byte_order', None)
+        name = getattr(order, 'value', 'ABCD')
+        if len(words) >= 2 and name != 'ABCD':
+            w1, w2 = words[0], words[1]
+            if name == 'BADC':      # 字内字节交换
+                words[0] = ((w1 & 0xFF) << 8) | ((w1 >> 8) & 0xFF)
+                words[1] = ((w2 & 0xFF) << 8) | ((w2 >> 8) & 0xFF)
+            elif name == 'CDAB':    # 字交换
+                words[0], words[1] = w2, w1
+            elif name == 'DCBA':    # 完全小端
+                words[0] = ((w2 & 0xFF) << 8) | ((w2 >> 8) & 0xFF)
+                words[1] = ((w1 & 0xFF) << 8) | ((w1 >> 8) & 0xFF)
+        return words
+
     def read_holding_registers(self, address: int, count: int,
                                slave_id: Optional[int] = None) -> Optional[List[int]]:
-        """读取保持寄存器 — 支持写入值回读和通信故障模拟"""
+        """读取保持寄存器 — 支持写入值回读和通信故障模拟。
+
+        ⚠️ 必须**按 count 铺满整段地址**。原实现只 ``_register_map.get(address)``
+        取起始地址那**一个**寄存器、返回 1~2 个字就结束了：采集器请求
+        「从 0 读 24 个寄存器」也只拿回 2 个字，剩下的点被
+        ``len(raw) < size → continue`` 静默丢掉。
+        实测后果：配置 201 个点位，只有 55 个进过库（27%），
+        所有 Modbus 设备都只入库第一个点，而 REST/MQTT/OPC-UA 是全量。
+        """
         if not self.connected:
             return None
 
@@ -227,26 +272,22 @@ class EnhancedSimulatedModbusClient(ModbusClientInterface):
         estop_active = _ESTOP_ACTIVE
         if device_stopped or estop_active:
             results = []
-            for i in range(count):
-                reg_addr = address + i
-                reg_cfg = self._register_map.get(reg_addr, {})
+            addr, end = address, address + count
+            while addr < end and len(results) < count:
+                reg_cfg = self._register_map.get(addr, {})
                 reg_name = reg_cfg.get('name', '')
                 is_mach = self._is_machinery(reg_name)
                 if device_stopped or (estop_active and is_mach):
-                    results.append(0)
+                    words = self._words_for_register(reg_cfg, 0)
                 else:
                     # 传感器：从缓存读取（行为模拟器仍在更新环境值）
-                    val = self._latest_data.get(reg_name)
+                    with self._data_lock:
+                        val = self._latest_data.get(reg_name)
                     if val is None:
                         val = 25.0
-                    scale = reg_cfg.get('scale', 1.0)
-                    raw = val / scale if scale != 0 else val
-                    dt = reg_cfg.get('data_type', 'uint16')
-                    if dt == 'float32':
-                        b = struct.pack('>f', float(raw))
-                        results.extend([struct.unpack('>H', b[0:2])[0], struct.unpack('>H', b[2:4])[0]])
-                    else:
-                        results.append(int(round(raw)) & 0xFFFF)
+                    words = self._words_for_register(reg_cfg, val)
+                results.extend(words)
+                addr += max(1, len(words))
             return results[:count]
 
         # 模拟通信延迟
@@ -279,41 +320,25 @@ class EnhancedSimulatedModbusClient(ModbusClientInterface):
         if written_value is not None and count == 1:
             return [written_value & 0xFFFF]
         
-        # 获取寄存器配置
-        reg_config = self._register_map.get(address)
-        if not reg_config:
-            # 未知寄存器，返回随机值
-            if count >= 2:
-                raw = struct.pack('>f', float(50 + 30 * time.time() % 100))
-                return [struct.unpack('>H', raw[0:2])[0], struct.unpack('>H', raw[2:4])[0]]
-            return [100]
-        
-        # 从缓存获取数据（None保护：行为模拟器边界条件下可能返回None）
-        with self._data_lock:
-            value = self._latest_data.get(reg_config['name'])
+        # 获取寄存器配置：按地址逐段铺满 [address, address+count)
+        results: list[int] = []
+        addr, end = address, address + count
+        while addr < end and len(results) < count:
+            reg_cfg = self._register_map.get(addr)
+            if not reg_cfg:
+                # 未配置地址按 0 返回。**不要编造随机值**：编造会让
+                # "点表配错/地址算错"这类缺陷永远表现不出来。
+                results.append(0)
+                addr += 1
+                continue
+            with self._data_lock:
+                value = self._latest_data.get(reg_cfg.get('name'))
             if value is None:
                 value = 0
-
-        # 应用缩放和偏移
-        scale = reg_config.get('scale', 1.0)
-        offset = reg_config.get('offset', 0) or 0
-        raw_value = (value - offset) / scale if scale != 0 else value
-        
-        # 根据数据类型编码
-        data_type = reg_config.get('data_type', 'uint16')
-        
-        if data_type == 'float32':
-            raw = struct.pack('>f', float(raw_value))
-            return [struct.unpack('>H', raw[0:2])[0], struct.unpack('>H', raw[2:4])[0]]
-        elif data_type in ('int32', 'uint32'):
-            int_val = int(round(raw_value))
-            raw = struct.pack('>i' if data_type == 'int32' else '>I', int_val)
-            return [struct.unpack('>H', raw[0:2])[0], struct.unpack('>H', raw[2:4])[0]]
-        elif count >= 2:
-            raw = struct.pack('>f', float(raw_value))
-            return [struct.unpack('>H', raw[0:2])[0], struct.unpack('>H', raw[2:4])[0]]
-        else:
-            return [int(round(raw_value)) & 0xFFFF]
+            words = self._words_for_register(reg_cfg, value)
+            results.extend(words)
+            addr += max(1, len(words))
+        return results[:count]
     
     def read_input_registers(self, address: int, count: int,
                              slave_id: Optional[int] = None) -> Optional[List[int]]:

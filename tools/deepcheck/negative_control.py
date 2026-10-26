@@ -208,6 +208,80 @@ def _prep_recent_rows(db: Path, ctx: dict) -> dict:
         conn.close()
 
 
+def _write_recent(conn, rows):
+    """rows: [(device, register, value)] → 以"现在"为时间写入 history_data。"""
+    now = datetime.now()
+    utc = now - timedelta(hours=8)
+    conn.executemany('''
+        INSERT INTO history_data (device_id, register_name, value, unit, timestamp, ts_utc, created_at)
+        VALUES (?,?,?,?,?,?,?)
+    ''', [(d, r, v, 'x', now.strftime('%Y-%m-%d %H:%M:%S.%f'),
+            utc.strftime('%Y-%m-%d %H:%M:%S.%f'), utc.strftime('%Y-%m-%d %H:%M:%S'))
+           for d, r, v in rows])
+    conn.commit()
+
+
+def _prep_coverage_cfg(db: Path, ctx: dict) -> dict:
+    import yaml
+    devs = {'devices': [
+        {'id': f'cov_dev{i}', 'protocol': 'modbus_tcp', 'enabled': True,
+         'registers': [{'name': f'r{i}a'}, {'name': f'r{i}b'}]} for i in range(3)]}
+    cfg = ctx['dir'] / 'devices_cov.yaml'
+    cfg.write_text(yaml.safe_dump(devs, allow_unicode=True, sort_keys=False), encoding='utf-8')
+    conn = connect_rw(db)
+    try:
+        _write_recent(conn, [(f'cov_dev{i}', f'r{i}{s}', 1.0)
+                             for i in range(3) for s in ('a', 'b')])
+    finally:
+        conn.close()
+    ctx['devices_cfg'] = cfg
+    return {'devices_cfg': str(cfg), 'points': 6}
+
+
+def seed_coverage_gap(conn: sqlite3.Connection) -> dict:
+    """删掉一台设备的全部近期数据 —— 模拟"这台设备只采到第一个点"。"""
+    conn.execute("DELETE FROM history_data WHERE device_id = 'cov_dev0'")
+    conn.commit()
+    left = conn.execute("SELECT COUNT(DISTINCT register_name) FROM history_data "
+                        "WHERE device_id='cov_dev0'").fetchone()[0]
+    return {'seeded': 'cov_dev0 的 2 个点全部删除', 'left': left}
+
+
+def _prep_alarm_cfg(db: Path, ctx: dict) -> dict:
+    import yaml
+    alarms = {'alarm_rules': [
+        {'id': 'cov_rule', 'device_id': 'cov_dev0', 'register_name': 'r0a',
+         'condition': 'greater_than', 'threshold': 100.0,
+         'level': 'warning', 'enabled': True, 'description': '负向控制夹具'}]}
+    cfg = ctx['dir'] / 'alarms_cov.yaml'
+    cfg.write_text(yaml.safe_dump(alarms, allow_unicode=True, sort_keys=False), encoding='utf-8')
+    conn = connect_rw(db)
+    try:
+        _write_recent(conn, [('cov_dev0', 'r0a', 150.0)])     # 越限：150 > 100
+        now = datetime.now()
+        conn.execute("DELETE FROM alarm_records WHERE alarm_id='cov_rule'")
+        conn.execute('''
+            INSERT INTO alarm_records
+            (alarm_id, device_id, register_name, alarm_level, alarm_message, threshold,
+             actual_value, timestamp, trigger_count, last_trigger_time, last_value,
+             acknowledged)
+            VALUES ('cov_rule','cov_dev0','r0a','warning','夹具',100.0,150.0,?,1,?,150.0,0)
+        ''', (now.strftime('%Y-%m-%d %H:%M:%S'), now.strftime('%Y-%m-%d %H:%M:%S')))
+        conn.commit()
+    finally:
+        conn.close()
+    ctx['alarms_cfg'] = cfg
+    return {'alarms_cfg': str(cfg), 'data': 'cov_dev0/r0a = 150 (阈值 100)', 'alarm_seeded': True}
+
+
+def seed_alarm_missed(conn: sqlite3.Connection) -> dict:
+    """删掉那条报警记录 —— 数据仍然越限，但报警没了 = 漏报。"""
+    conn.execute("DELETE FROM alarm_records WHERE alarm_id='cov_rule'")
+    conn.commit()
+    n = conn.execute("SELECT COUNT(*) FROM alarm_records").fetchone()[0]
+    return {'seeded': 'cov_rule 报警记录被删除（数据仍越限）', 'alarms_left': n}
+
+
 # ---------------------------------------------------------------- 用例表
 
 CASES = [
@@ -282,6 +356,22 @@ CASES = [
         'prepare': 'recent_rows',
         'seed': 'db',
         'seed_fn': seed_write_path_null,
+    },
+    {
+        'detector': 'point_coverage',
+        'defect': '一台设备配了 2 个点却只采到 0 个（历史上的"只入库第一个点"）',
+        'expect_code': 'POINT_COVERAGE_GAP',
+        'prepare': 'coverage_cfg',
+        'seed': 'db',
+        'seed_fn': seed_coverage_gap,
+    },
+    {
+        'detector': 'alarm_coverage',
+        'defect': '数据越限但报警表里没有对应记录（漏报）',
+        'expect_code': 'ALARM_MISSED',
+        'prepare': 'alarm_cfg',
+        'seed': 'db',
+        'seed_fn': seed_alarm_missed,
     },
     {
         'detector': 'timebase_all',
@@ -392,6 +482,8 @@ PREPARES = {
     'timebase_twins': _prep_timebase_twins,
     'lint_tree': _prep_lint_tree,
     'recent_rows': _prep_recent_rows,
+    'coverage_cfg': _prep_coverage_cfg,
+    'alarm_cfg': _prep_alarm_cfg,
     'backup_fixture': _prep_backup_fixture,
     'chain_fixture': _prep_chain_fixture,
 }
@@ -411,6 +503,10 @@ def _run_detector(name: str, ctx: dict):
         return fn(ctx['db'], ctx.get('anchor_path'))
     if kind == 'none':
         return fn(ctx.get('lint_root'))
+    if kind == 'db_dev':
+        return fn(ctx['db'], ctx.get('devices_cfg'))
+    if kind == 'db_alarm':
+        return fn(ctx['db'], ctx.get('alarms_cfg'))
     raise ValueError(name)
 
 

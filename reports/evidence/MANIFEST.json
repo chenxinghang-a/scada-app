@@ -1,6 +1,6 @@
 {
-  "generated_at": "2026-10-26T12:12:39",
-  "git_head": "a638a252b968e2c1a4e446ac7072f20c2a9fc038",
+  "generated_at": "2026-10-26T12:18:12",
+  "git_head": "c71e33749ba11d8884a620f9c2fef24037b7e747",
   "git_dirty": true,
   "python": "3.14.3",
   "platform": "win32",
@@ -25,13 +25,17 @@
       "sha256": "2bb37a613bf63c1209fe9a49c52f98458b32b03c042276990020bfbe98aa77a6",
       "size": 9806
     },
+    "backend/src/采集层/enhanced_simulated_client.py": {
+      "sha256": "2cfbd7bc1c816eb15e1010ae920861bf2a23e40cddfd5bb9876e53151fd54e8b",
+      "size": 38528
+    },
     "backend/src/配置/devices_modbus_sim.yaml": {
       "sha256": "1030219b8c20c7a79f51153194bf07473158c9218685e393493d3e5c5fc27eb9",
       "size": 13731
     },
     "tools/deep-verify.py": {
-      "sha256": "922b2daa682a97a8caf8858218cf3cf7e475743d609b44fa7bf497992022d486",
-      "size": 10996
+      "sha256": "c8ac857b386292e531f549fb8efaf735311463ba0fadf8f142b84160b6895ade",
+      "size": 11254
     },
     "tools/make-evidence-fixture.py": {
       "sha256": "b2aac59610746fe655dc670c2541f0f03b974542798d163a876386e7014940c8",
@@ -50,8 +54,8 @@
       "size": 2746
     },
     "tools/make-deep-report.py": {
-      "sha256": "1645dac0428ff522128d1d17c111d10fd001e917d51ea97627b9893653fb21b0",
-      "size": 20013
+      "sha256": "9ea199da47738fbcadaa12c3a5b167ba2871aa7402f74549ab741034f6c25ef5",
+      "size": 22518
     },
     "tools/deepcheck/anchor.py": {
       "sha256": "e85f9c87e0704d484e1a0d7afdbb4b2e5012cf57066b9f652b4dc9d40c033283",
@@ -65,17 +69,21 @@
       "sha256": "0be377b30d434c00cd1fb481d8f25b013ef2ac0ad822ba2306a6ff3b7aa0e67d",
       "size": 4672
     },
+    "tools/deepcheck/coverage.py": {
+      "sha256": "7705f07090690ba998f4106912fdc1afcb72ebd1c03cc947434f8e6b1f967b59",
+      "size": 9835
+    },
     "tools/deepcheck/detectors.py": {
-      "sha256": "f1716869b27c87fad99d1e859c0720eb805a437b8e3b939cd5142030b593603f",
-      "size": 27224
+      "sha256": "3952295f1ca8d3b9385e61bbf74296a6ee0a47eb13dbe1088187a8a3c711ea6c",
+      "size": 27964
     },
     "tools/deepcheck/fixtures.py": {
       "sha256": "5091f7ffc1e34dbfc95bf3810aec3481d2e39bd7f9fc13d6c635a14950bda967",
       "size": 4123
     },
     "tools/deepcheck/negative_control.py": {
-      "sha256": "261c03d61e4bb321afc98dec4542f33d620044931718d279f7933fa154be9244",
-      "size": 20351
+      "sha256": "0e8c9e4c66d504d095e8657bdcd97af3c7280ebccb686497fc06bbdccf9419b0",
+      "size": 24641
     },
     "tools/deepcheck/pointtable.py": {
       "sha256": "b9dff4698b31c433b8277e88b23b288747cc3c09d9440d33a3891c21bfc2f36a",
@@ -90,15 +98,15 @@
       "size": 4238
     },
     "docs/traceability.yaml": {
-      "sha256": "a42d5ab8d8138d0ab6b591697e3f930fb714411e0729faa9b4d1a8f16789de68",
-      "size": 15952
+      "sha256": "fcf178bf249f9ec59e44d2a9732549c41174a47dc8d0fd127e1cb56ac301c2eb",
+      "size": 17642
     },
     "docs/深度-专家会做什么.md": {
-      "sha256": "2e2cd5189e65541abe93715b748097c116480a31348bfaccfdec7e948194d849",
-      "size": 19963
+      "sha256": "6d7d42b3827ebe71ec3b9eab88ce340be440b3b55e3917e6bb8fa9c1bfd581db",
+      "size": 21838
     }
   },
-  "file_count": 23,
+  "file_count": 25,
   "missing": [],
   "reproduce": [
     "python tools/make-evidence-fixture.py",

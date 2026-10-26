@@ -132,7 +132,8 @@ def cmd_all(args) -> dict:
 
     db = find_db(args.db)
     for name in ('alm_stale', 'alm_priority', 'alm_chattering',
-                 'data_quality', 'timebase_all', 'write_path'):
+                 'data_quality', 'timebase_all', 'write_path',
+                 'point_coverage', 'alarm_coverage'):
         fn, _kind = detectors.REGISTRY[name]
         res = fn(db)
         say(f'[{name}] {res.verdict.upper()}  '
@@ -185,7 +186,9 @@ def cmd_all(args) -> dict:
     #   ④ 外部锚点同理：没锚点=INSUFFICIENT（无内容可锚），被截断/重写=FAIL
     certified = bool(nc and nc.get('all_ok')
                      and st.get('all_ok')
-                     and all(v['verdict'] == PASS for v in (sy, io, tb_all, lint))
+                     and all(v['verdict'] == PASS for v in (sy, io, tb_all, lint,
+                                                            out['point_coverage'],
+                                                            out['alarm_coverage']))
                      and out['anchor']['verdict'] in (PASS, INSUFFICIENT)
                      # 写入路径体检：系统没在跑时是 INSUFFICIENT（"没跑"≠"对"），
                      # 但只要它 FAIL 就一票否决 —— 那意味着应用正在丢数据
@@ -200,7 +203,7 @@ def cmd_all(args) -> dict:
         if isinstance(v, dict) and v.get('verdict') in (FAIL, INSUFFICIENT)
         and k in ('alm_stale', 'alm_priority', 'alm_chattering', 'data_quality',
                   'auditchain', 'sec_chain', 'anchor', 'timebase_all', 'clock_lint',
-                  'write_path')
+                  'write_path', 'point_coverage', 'alarm_coverage')
     ]
     verdict['reason'] = ('现场检查全部通过，负向控制证明每个检测器都能失败，'
                         '审计链通过全部篡改对抗用例'

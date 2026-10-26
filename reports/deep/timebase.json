@@ -4,7 +4,7 @@
   "claim": "DATA-03",
   "verdict": "pass",
   "metrics": {
-    "rows": 323059,
+    "rows": 333705,
     "ts_utc_null": 0,
     "mean_lag_seconds": 0.9,
     "min_lag_seconds": -0.9,
@@ -18,5 +18,5 @@
   },
   "findings": [],
   "ground_truth": "created_at = SQLite CURRENT_TIMESTAMP(UTC)，与 ts_utc 独立同源",
-  "sample": 323059
+  "sample": 333705
 }

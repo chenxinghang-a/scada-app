@@ -4,12 +4,26 @@
   "claim": "ALM-01",
   "verdict": "insufficient",
   "metrics": {
-    "total": 0,
-    "distribution": {},
-    "critical_share": 0.0,
+    "total": 1,
+    "distribution": {
+      "critical": 1
+    },
+    "critical_share": 1.0,
     "min_sample": 30
   },
-  "findings": [],
+  "findings": [
+    {
+      "code": "ALM_CRITICAL_SHARE_EXCEEDED",
+      "message": "critical 占比 100.0% 超过 5%（1/1）",
+      "severity": "warning",
+      "count": 1,
+      "detail": {
+        "distribution": {
+          "critical": 1
+        }
+      }
+    }
+  ],
   "ground_truth": "ISA-18.2：critical ≤ 5%；样本 ≥ 30",
-  "sample": 0
+  "sample": 1
 }

@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-10-26T12:11:42",
+  "generated_at": "2026-10-26T12:17:32",
   "checks": {
     "timebase": "pass",
     "pointtable": "pass",
@@ -10,6 +10,8 @@
     "data_quality": "pass",
     "timebase_all": "pass",
     "write_path": "pass",
+    "point_coverage": "pass",
+    "alarm_coverage": "pass",
     "clock_lint": "pass",
     "anchor": "insufficient"
   },
@@ -17,8 +19,8 @@
   "audit_chain_selftest": "9/9",
   "audit_chain_field_entries": 0,
   "anchor_status": "UNANCHORED",
-  "negative_control_discriminating": 12,
-  "negative_control_total": 12,
+  "negative_control_discriminating": 14,
+  "negative_control_total": 14,
   "certification": "CERTIFIED",
   "open_findings": [
     {
@@ -31,7 +33,9 @@
     {
       "check": "alm_priority",
       "verdict": "insufficient",
-      "codes": []
+      "codes": [
+        "ALM_CRITICAL_SHARE_EXCEEDED"
+      ]
     },
     {
       "check": "anchor",
