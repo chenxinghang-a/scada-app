@@ -258,6 +258,22 @@ export function normalizeQuality(raw: unknown): number | null {
   return Number.isFinite(n) ? n : null
 }
 
+/**
+ * 数值的显示文本 —— **坏值不显示数字**。
+ *
+ * OPC UA 客户端的惯例是 Bad 值显示 `???` 而不是最后一次有效值：让操作员看着
+ * 一个"看起来正常"的数字去做决策，比没有数字更危险。所以这里在质量码 < 64 时
+ * 直接返回 `??`，配合红色质量圆点使用。
+ */
+export function displayValue(
+  value: number | undefined,
+  quality: number | null | undefined,
+  digits = 1,
+): string {
+  if (quality != null && quality < 64) return '??'
+  return value !== undefined ? value.toFixed(digits) : '--'
+}
+
 /** 质量码文案（OPC UA 口径）。原 `Dashboard.vue:965-968` 的 `getQualityLabel`。 */
 export function qualityLabel(q: number | null | undefined): string {
   if (q == null) return ''

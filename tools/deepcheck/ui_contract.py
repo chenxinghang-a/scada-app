@@ -76,14 +76,23 @@ def det_ui_quality(root: Path | None = None) -> Result:
             '前端的质量分档没有用 OPC UA 口径（>=192 Good / >=64 Uncertain）',
             'warning', 1))
 
-    # ④ 坏值是否连**数值本身**一起降级 —— 目前没有，如实记录
-    value_degraded = bool(re.search(r'quality-dot--bad[^{]*\{[^}]*text-decoration', vue))
+    # ④ 坏值是否连**数值本身**一起降级 —— 只靠圆点不算
+    #    实现约定：utils/dashboard.ts 的 displayValue() 在 quality < 64 时返回 '??'，
+    #    且组件确实调用了它。两处缺一不可（写了个函数没人用也是白搭）。
+    fn_ok = bool(re.search(r"<\s*64[\s\S]{0,60}return\s*'\?\?'", util))
+    used = 'displayValue' in vue
+    value_degraded = fn_ok and used
     if not value_degraded:
+        missing = []
+        if not fn_ok:
+            missing.append("displayValue() 没有在质量码 <64 时返回 '??'")
+        if not used:
+            missing.append('Dashboard.vue 没有调用 displayValue')
         findings.append(Finding(
             'UI_VALUE_NOT_DEGRADED',
-            '坏值只靠 8px 圆点区分，数值本身仍以正常样式显示 —— '
-            '操作员扫一眼表格时容易把 Bad 当 Good 读',
-            'warning', 1))
+            '坏值没有在**数值**上降级（' + '；'.join(missing) + '）—— '
+            '只靠 8px 圆点区分时，操作员扫一眼表格容易把 Bad 当 Good 读',
+            'critical', 1))
 
     critical = [f for f in findings if f.severity == 'critical']
     return Result(
@@ -91,6 +100,7 @@ def det_ui_quality(root: Path | None = None) -> Result:
         verdict=FAIL if critical else PASS,
         metrics={'levels_found': len(present), 'levels_expected': len(EXPECTED_LEVELS),
                  'distinct_styles': distinct, 'value_degraded': value_degraded,
+                 'bad_placeholder_in_utils': fn_ok, 'used_in_view': used,
                  'scanned': str(base)},
         findings=findings,
         ground_truth='OPC UA 质量码分档 + ISA-18.2 人机界面要求（外部标准，非本项目约定）',

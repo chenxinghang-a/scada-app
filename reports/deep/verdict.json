@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-10-26T13:09:52",
+  "generated_at": "2026-10-26T13:13:37",
   "checks": {
     "timebase": "pass",
     "pointtable": "pass",
@@ -23,8 +23,8 @@
   "audit_chain_selftest": "9/9",
   "audit_chain_field_entries": 0,
   "anchor_status": "UNANCHORED",
-  "negative_control_discriminating": 17,
-  "negative_control_total": 17,
+  "negative_control_discriminating": 18,
+  "negative_control_total": 18,
   "field_verdict": "PASS",
   "field_failed_checks": [],
   "mechanism_certified": true,

@@ -250,11 +250,12 @@ requirements:
   verification: python tools/deep-verify.py all → det_ui_quality（静态契约检查）
   evidence: reports/deep/ui_quality.json
   status: verified
-  note: 实测 4/4 档齐全、4 种独立样式、分档口径与 OPC UA 一致（PASS）。
-    **已知不足**（记成 warning 而非放过）：坏值只靠 8px 圆点区分，数值本身仍以
-    正常样式显示——操作员扫表格时容易把 Bad 当 Good 读。要彻底解决需在数值上做
-    降级（置灰/加删除线/显示 ??），属 UI 改动，未做。
-    负向控制第 14 项：删掉 .quality-dot--bad 样式 → 判 UI_QUALITY_LEVELS_MISSING。
+  note: 实测 4/4 档齐全、4 种独立样式、分档口径与 OPC UA 一致。
+    原先的不足（坏值只靠 8px 圆点、数值照常显示）已修：新增
+    utils/dashboard.ts 的 displayValue()，质量码 <64 时返回 '??'，Dashboard 已调用；
+    `npm run build`（vue-tsc 硬前置）通过。现判 PASS、无遗留 finding。
+    两条负向控制：删 .quality-dot--bad 样式 → UI_QUALITY_LEVELS_MISSING；
+    删 displayValue 的 '??' 分支 → UI_VALUE_NOT_DEGRADED。
 - id: DATA-14
   category: 数据
   requirement: 审计对象必须是应用正在写的那个库（同名库并存时必须可判别）

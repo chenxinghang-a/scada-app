@@ -392,6 +392,16 @@ def seed_ui_level_dropped(ctx: dict) -> dict:
     return {'seeded': '删掉 .quality-dot--bad 样式（Bad 与其它档无法区分）'}
 
 
+def seed_ui_value_not_degraded(ctx: dict) -> dict:
+    """把"坏值显示 ?? "删掉 —— 数字照常显示，只剩一个红点。"""
+    p = Path(ctx['ui_root']) / 'utils' / 'dashboard.ts'
+    src = p.read_text(encoding='utf-8')
+    # 删掉所有含 '??' 的行（即坏值占位分支）
+    kept = [l for l in src.splitlines(keepends=True) if "'??'" not in l]
+    p.write_text(''.join(kept), encoding='utf-8')
+    return {'seeded': "删除 displayValue 里的 '??' 分支（坏值恢复显示数字）"}
+
+
 # ---------------------------------------------------------------- 用例表
 
 CASES = [
@@ -498,6 +508,14 @@ CASES = [
         'prepare': 'ui_tree',
         'seed': 'ctx',
         'seed_fn': seed_ui_level_dropped,
+    },
+    {
+        'detector': 'ui_quality',
+        'defect': "坏值恢复显示数字（'??' 分支被删）",
+        'expect_code': 'UI_VALUE_NOT_DEGRADED',
+        'prepare': 'ui_tree',
+        'seed': 'ctx',
+        'seed_fn': seed_ui_value_not_degraded,
     },
     {
         'detector': 'subject',

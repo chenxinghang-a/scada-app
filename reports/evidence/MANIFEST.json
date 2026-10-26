@@ -1,7 +1,7 @@
 {
-  "generated_at": "2026-10-26T13:10:09",
-  "git_head": "287e3adda365e1f6e21d7181c62a4e63ca39f711",
-  "git_dirty": false,
+  "generated_at": "2026-10-26T13:13:49",
+  "git_head": "c45acac81bf93bc5c862824d49172ea8decf5cd0",
+  "git_dirty": true,
   "python": "3.14.3",
   "platform": "win32",
   "files": {
@@ -102,8 +102,8 @@
       "size": 4123
     },
     "tools/deepcheck/negative_control.py": {
-      "sha256": "e09aab9253f70980584d6549dc6fa63aedc4af050072bbef08d47cf461d9cbdf",
-      "size": 31557
+      "sha256": "02a508724a6442aa9655727d8ba29e3b07619a70dc7868b54a2b546f188c7f0c",
+      "size": 32354
     },
     "tools/deepcheck/physical.py": {
       "sha256": "5b253d400c38213afc779cf016967d8b4300ec58a69efad7de841bb7599bb3ee",
@@ -122,20 +122,20 @@
       "size": 6736
     },
     "tools/deepcheck/ui_contract.py": {
-      "sha256": "58bd0257462b58e62cd76904fe34aad6c027e45c987f4685ad407cf3db4668de",
-      "size": 4517
+      "sha256": "100915f1ef92e399ff44eb76f4a352af89aba2f29ea1ba674e98778e36e939b7",
+      "size": 5183
     },
     "tools/deepcheck/timebase.py": {
       "sha256": "271c811eb43d1b1a6b9d55b072ddae44efaa41600d608c23c28c710db4be57e2",
       "size": 4238
     },
     "docs/traceability.yaml": {
-      "sha256": "51551184a1e4cde1ab08ff7ba1e6a89ec662f44f63f29246715b10357fe8c28d",
-      "size": 22075
+      "sha256": "4cdb9015981593a05f395f47b909d7c6181fb8836e3d9c3fac5fcc3c04864154",
+      "size": 22097
     },
     "docs/深度-专家会做什么.md": {
-      "sha256": "23925afbc65de4eeee1c45e74b87a6b4ac9ba8766d0401a327cbcfb5247f141b",
-      "size": 30164
+      "sha256": "c82280513e57a25d00f7c8acf98f8923317020136dda52cd0b2fc54ad883a82b",
+      "size": 31200
     }
   },
   "file_count": 33,

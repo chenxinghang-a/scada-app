@@ -330,6 +330,7 @@ import {
   realtimeKey,
   normalizeQuality,
   qualityLabel,
+  displayValue,
   parseRealtimeItem,
   parseRealtimePayload,
   pushCapped,
@@ -767,8 +768,10 @@ function getDeviceStatusText(d: DeviceStatus): string {
   return deviceStateText(d, getDeviceAlarm(d))
 }
 function getDeviceValue(deviceId: string, regName: string): string {
-  const v = deviceValues[realtimeKey(deviceId, regName)]
-  return v !== undefined ? v.toFixed(1) : '--'
+  const k = realtimeKey(deviceId, regName)
+  // 坏值不显示数字（见 utils/dashboard.ts 的 displayValue）：
+  // 宁可让操作员看到 ??，也不要让他读一个不可信的数。
+  return displayValue(deviceValues[k], deviceQuality[k])
 }
 // 值超阈值时变色（保留原有语义，颜色改为设计令牌）
 function getDeviceValueColor(deviceId: string, regName: string): string {

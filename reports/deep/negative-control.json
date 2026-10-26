@@ -1,9 +1,9 @@
 {
-  "generated_at": "2026-10-26T13:09:52",
+  "generated_at": "2026-10-26T13:13:37",
   "source_db": "C:\\Users\\cxx\\scada-app\\tests\\fixtures\\evidence.db",
   "snapshot_size_mb": 2.3,
-  "cases": 17,
-  "discriminating": 17,
+  "cases": 18,
+  "discriminating": 18,
   "all_ok": true,
   "principle": "检测器未能在播种后报错 = 该检测器的\"通过\"无效",
   "rows": [
@@ -250,7 +250,7 @@
         "BACKUP_SCHEMA_DRIFT"
       ],
       "seeded_metrics": {
-        "file": "C:\\Users\\cxx\\AppData\\Local\\Temp\\scada-negctl-8wer8wvu\\ops_backup\\backup.db",
+        "file": "C:\\Users\\cxx\\AppData\\Local\\Temp\\scada-negctl-hmx8iy27\\ops_backup\\backup.db",
         "size": 2412544,
         "integrity": "*** in database main ***\nTree 5 page 295 cell 17: Rowid 6555972108016934573 out of order\nTree 5 page 295 cell 17: invalid page number 862217590\nTree 5 page 295 cell 16: Rowid 6555972108016934573 out of order\nTree 5 page 295 cell 16: invalid page number 862217590\nTree 5 page 295 cell 15: Rowid 6555972108016934573 out of order\nTree 5 page 295 cell 15: invalid page number 862217590\nTree 5 page 295 cell 14: Rowid 6555972108016934573 out of order\nTree 5 page 295 cell 14: invalid page number 862217590\nTree 5 page 295 cell 13: Rowid 6555972108016934573 out of order\nTree 5 page 295 cell 13: invalid page number 862217590\nMultiple uses for byte 2176 of page 295",
         "counts": {
@@ -272,7 +272,7 @@
         "quality_bad_points": 0
       },
       "prepare": {
-        "backup": "C:\\Users\\cxx\\AppData\\Local\\Temp\\scada-negctl-8wer8wvu\\ops_backup\\backup.db",
+        "backup": "C:\\Users\\cxx\\AppData\\Local\\Temp\\scada-negctl-hmx8iy27\\ops_backup\\backup.db",
         "counts": {
           "history_data": 20000,
           "realtime_data": 50,
@@ -304,13 +304,13 @@
       ],
       "seeded_metrics": {
         "entries": 5,
-        "head_hash": "a2f4465f0af64f44d508839641b808bf2544d39874a3f1e341f6478e238d51c6"
+        "head_hash": "de72da57ce90c1ade2165b68496fb8722cafbe8c2af79a410efc111e4553355e"
       },
       "prepare": {
         "entries": 5,
         "ok": true,
-        "head": "a2f4465f0af64f44d508839641b808bf2544d39874a3f1e341f6478e238d51c6",
-        "anchor": "d9adb9736f85"
+        "head": "de72da57ce90c1ade2165b68496fb8722cafbe8c2af79a410efc111e4553355e",
+        "anchor": "0b700566cc70"
       },
       "seed": {
         "seeded": "篡改 seq=8 的 diff_json（after 值被改写）"
@@ -336,7 +336,7 @@
         "recent_rows": 6,
         "null_ts_utc": 1,
         "skewed_rows": 0,
-        "max_skew_seconds": 0.3
+        "max_skew_seconds": 0.9
       },
       "prepare": {
         "recent_rows": 5
@@ -362,7 +362,7 @@
       ],
       "seeded_metrics": {
         "window_minutes": 10,
-        "anchor": "2026-10-26 05:09:49",
+        "anchor": "2026-10-26 05:13:33",
         "devices": 3,
         "undeployed_devices": 0,
         "configured_points": 6,
@@ -394,7 +394,7 @@
         ]
       },
       "prepare": {
-        "devices_cfg": "C:\\Users\\cxx\\AppData\\Local\\Temp\\scada-negctl-8wer8wvu\\point_coverage\\devices_cov.yaml",
+        "devices_cfg": "C:\\Users\\cxx\\AppData\\Local\\Temp\\scada-negctl-hmx8iy27\\point_coverage\\devices_cov.yaml",
         "points": 6
       },
       "seed": {
@@ -419,7 +419,7 @@
       ],
       "seeded_metrics": {
         "window_minutes": 30,
-        "anchor": "2026-10-26 05:09:49",
+        "anchor": "2026-10-26 05:13:33",
         "rules": 1,
         "alive": 0,
         "missed": 1,
@@ -430,7 +430,7 @@
         "unreachable_rules": []
       },
       "prepare": {
-        "alarms_cfg": "C:\\Users\\cxx\\AppData\\Local\\Temp\\scada-negctl-8wer8wvu\\alarm_coverage\\alarms_cov.yaml",
+        "alarms_cfg": "C:\\Users\\cxx\\AppData\\Local\\Temp\\scada-negctl-hmx8iy27\\alarm_coverage\\alarms_cov.yaml",
         "data": "cov_dev0/r0a = 150 (阈值 100)",
         "alarm_seeded": true
       },
@@ -456,7 +456,7 @@
       ],
       "seeded_metrics": {
         "window_minutes": 15,
-        "anchor": "2026-10-26 05:09:49",
+        "anchor": "2026-10-26 05:13:34",
         "points_checked": 2,
         "out_of_domain": 1,
         "suspect_range": 0,
@@ -464,7 +464,7 @@
         "frozen_status": 0
       },
       "prepare": {
-        "devices_cfg": "C:\\Users\\cxx\\AppData\\Local\\Temp\\scada-negctl-8wer8wvu\\physical_domain\\devices_phys.yaml",
+        "devices_cfg": "C:\\Users\\cxx\\AppData\\Local\\Temp\\scada-negctl-hmx8iy27\\physical_domain\\devices_phys.yaml",
         "o2": [
           6.5,
           7.1
@@ -487,27 +487,57 @@
       "defect": "Bad 质量档的样式被删（坏的看不出来）",
       "expect_code": "UI_QUALITY_LEVELS_MISSING",
       "clean_verdict": "pass",
-      "clean_codes": [
-        "UI_VALUE_NOT_DEGRADED"
-      ],
+      "clean_codes": [],
       "clean_sample": 4,
       "seeded_verdict": "fail",
       "seeded_codes": [
-        "UI_QUALITY_LEVELS_MISSING",
-        "UI_VALUE_NOT_DEGRADED"
+        "UI_QUALITY_LEVELS_MISSING"
       ],
       "seeded_metrics": {
         "levels_found": 3,
         "levels_expected": 4,
         "distinct_styles": 3,
-        "value_degraded": false,
-        "scanned": "C:\\Users\\cxx\\AppData\\Local\\Temp\\scada-negctl-8wer8wvu\\ui_quality\\ui"
+        "value_degraded": true,
+        "bad_placeholder_in_utils": true,
+        "used_in_view": true,
+        "scanned": "C:\\Users\\cxx\\AppData\\Local\\Temp\\scada-negctl-hmx8iy27\\ui_quality\\ui"
       },
       "prepare": {
-        "ui_root": "C:\\Users\\cxx\\AppData\\Local\\Temp\\scada-negctl-8wer8wvu\\ui_quality\\ui"
+        "ui_root": "C:\\Users\\cxx\\AppData\\Local\\Temp\\scada-negctl-hmx8iy27\\ui_quality\\ui"
       },
       "seed": {
         "seeded": "删掉 .quality-dot--bad 样式（Bad 与其它档无法区分）"
+      },
+      "discriminating": true,
+      "verdict": "OK"
+    },
+    {
+      "detector": "ui_quality",
+      "title": "坏值的视觉可辨性（人机界面契约）",
+      "claim": "DATA-15",
+      "defect": "坏值恢复显示数字（'??' 分支被删）",
+      "expect_code": "UI_VALUE_NOT_DEGRADED",
+      "clean_verdict": "pass",
+      "clean_codes": [],
+      "clean_sample": 4,
+      "seeded_verdict": "fail",
+      "seeded_codes": [
+        "UI_VALUE_NOT_DEGRADED"
+      ],
+      "seeded_metrics": {
+        "levels_found": 4,
+        "levels_expected": 4,
+        "distinct_styles": 4,
+        "value_degraded": false,
+        "bad_placeholder_in_utils": false,
+        "used_in_view": true,
+        "scanned": "C:\\Users\\cxx\\AppData\\Local\\Temp\\scada-negctl-hmx8iy27\\ui_quality\\ui"
+      },
+      "prepare": {
+        "ui_root": "C:\\Users\\cxx\\AppData\\Local\\Temp\\scada-negctl-hmx8iy27\\ui_quality\\ui"
+      },
+      "seed": {
+        "seeded": "删除 displayValue 里的 '??' 分支（坏值恢复显示数字）"
       },
       "discriminating": true,
       "verdict": "OK"
@@ -526,17 +556,17 @@
         "SUBJECT_MISMATCH"
       ],
       "seeded_metrics": {
-        "audited_db": "C:\\Users\\cxx\\AppData\\Local\\Temp\\scada-negctl-8wer8wvu\\subject\\subject\\scada_simulated.db",
+        "audited_db": "C:\\Users\\cxx\\AppData\\Local\\Temp\\scada-negctl-hmx8iy27\\subject\\subject\\scada_simulated.db",
         "audited_latest": "2026-10-24 19:46:35",
-        "runtime_file": "C:\\Users\\cxx\\AppData\\Local\\Temp\\scada-negctl-8wer8wvu\\subject\\subject\\runtime.json",
+        "runtime_file": "C:\\Users\\cxx\\AppData\\Local\\Temp\\scada-negctl-hmx8iy27\\subject\\subject\\runtime.json",
         "runtime_mode": "real",
         "runtime_pid": 4242,
-        "runtime_port": 3089,
-        "expected_db": "C:\\Users\\cxx\\AppData\\Local\\Temp\\scada-negctl-8wer8wvu\\subject\\subject\\scada_real.db"
+        "runtime_port": 8253,
+        "expected_db": "C:\\Users\\cxx\\AppData\\Local\\Temp\\scada-negctl-hmx8iy27\\subject\\subject\\scada_real.db"
       },
       "prepare": {
-        "runtime": "C:\\Users\\cxx\\AppData\\Local\\Temp\\scada-negctl-8wer8wvu\\subject\\subject\\runtime.json",
-        "db": "C:\\Users\\cxx\\AppData\\Local\\Temp\\scada-negctl-8wer8wvu\\subject\\subject\\scada_simulated.db"
+        "runtime": "C:\\Users\\cxx\\AppData\\Local\\Temp\\scada-negctl-hmx8iy27\\subject\\subject\\runtime.json",
+        "db": "C:\\Users\\cxx\\AppData\\Local\\Temp\\scada-negctl-hmx8iy27\\subject\\subject\\scada_simulated.db"
       },
       "seed": {
         "seeded": "runtime.json mode: simulated -> real（应写的库变成 scada_real.db）"
@@ -756,7 +786,7 @@
         "utc": 1
       },
       "prepare": {
-        "scanned_root": "C:\\Users\\cxx\\AppData\\Local\\Temp\\scada-negctl-8wer8wvu\\clock_lint\\src_copy"
+        "scanned_root": "C:\\Users\\cxx\\AppData\\Local\\Temp\\scada-negctl-hmx8iy27\\clock_lint\\src_copy"
       },
       "seed": {
         "seeded": "新增 新增_未登记时间口径.py（batch_runs.finished_at 未登记）"
@@ -786,8 +816,8 @@
       "prepare": {
         "entries": 5,
         "ok": true,
-        "head": "947bbf5a90583bd76225c330a348696f206e46a47430f88363213b66dd348f8c",
-        "anchor": "31946a7f2cc0"
+        "head": "e85b5efe548d6b9b33244156ba4c5d67cdf514d19c38a94a45ff7b2f9c5979af",
+        "anchor": "1499c7177c6b"
       },
       "seed": {
         "seeded": "删除 seq=[9, 10]，剩 3 条"
