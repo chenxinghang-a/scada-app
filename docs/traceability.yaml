@@ -241,6 +241,18 @@ requirements:
     「干净快照=PASS / 播种后=FAIL 且报出预期 finding code」两个方向上都对，
     才计 1 分。8 个全过。运行库被 .gitignore 排除，故另做 2.3MB 夹具，
     保证任何人克隆仓库后一条命令即可重算。
+- id: DATA-14
+  category: 数据
+  requirement: 审计对象必须是应用正在写的那个库（同名库并存时必须可判别）
+  source: 证据有效性前提 —— 审错对象时所有结论都成立且无意义
+  implementation: tools/deepcheck/subject.py:guard（读应用自写的 runtime.json 推算应写库路径）
+  verification: python tools/deep-verify.py all --db <库> → det_subject
+  evidence: reports/deep/subject.json
+  status: verified
+  note: 本项目真实踩到过：后端从源码起在 backend/src/data/scada_simulated.db，
+    而检测器按默认路径读 %LOCALAPPDATA%/.../data/。两份库同名同结构、都很"干净"，
+    差异只有一行日志。守卫直接判 FAIL 并列出两边路径（实测抓到一次）。
+    负向控制第 13 项：把 runtime.json 的 mode 改成 real → 应写库变成 scada_real.db → 判 FAIL。
 - id: DATA-12
   category: 数据
   requirement: 每个测量值必须落在他自己单位所允许的物理区间内；整数/枚举语义不得带小数

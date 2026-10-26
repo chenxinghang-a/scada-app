@@ -4,11 +4,11 @@
   "claim": "DATA-03",
   "verdict": "pass",
   "metrics": {
-    "rows": 444664,
+    "rows": 32469,
     "ts_utc_null": 0,
-    "mean_lag_seconds": 0.7,
+    "mean_lag_seconds": 0.0,
     "min_lag_seconds": -0.9,
-    "max_lag_seconds": 628.0,
+    "max_lag_seconds": 196.5,
     "sampled_in_future": 0,
     "over_insert_lag": 0,
     "lag_max_seconds": 3600,
@@ -18,5 +18,5 @@
   },
   "findings": [],
   "ground_truth": "created_at = SQLite CURRENT_TIMESTAMP(UTC)，与 ts_utc 独立同源",
-  "sample": 444664
+  "sample": 32469
 }

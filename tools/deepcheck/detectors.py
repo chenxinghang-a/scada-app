@@ -14,7 +14,7 @@ import sqlite3
 from datetime import datetime, timedelta
 from pathlib import Path
 
-from . import coverage, physical, pointtable
+from . import coverage, physical, pointtable, subject
 from .common import (FAIL, INSUFFICIENT, PASS, REPO, Finding, Result,
                      connect_ro, say)
 
@@ -593,6 +593,7 @@ REGISTRY = {
     'data_quality': (det_data_quality, 'db'),
     'data_time': (det_data_time, 'db'),
     'write_path': (det_write_path, 'db'),
+    'subject': (subject.guard, 'db_subject'),
     'point_coverage': (coverage.det_point_coverage, 'db_dev'),
     'alarm_coverage': (coverage.det_alarm_coverage, 'db_alarm'),
     'physical_domain': (physical.det_physical_domain, 'db_dev'),

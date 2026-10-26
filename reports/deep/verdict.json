@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-10-26T12:58:57",
+  "generated_at": "2026-10-26T13:03:34",
   "checks": {
     "timebase": "pass",
     "pointtable": "pass",
@@ -12,8 +12,9 @@
     "write_path": "pass",
     "point_coverage": "pass",
     "alarm_coverage": "pass",
-    "physical_domain": "fail",
+    "physical_domain": "pass",
     "mass_balance": "insufficient",
+    "subject": "pass",
     "clock_lint": "pass",
     "anchor": "insufficient"
   },
@@ -21,14 +22,12 @@
   "audit_chain_selftest": "9/9",
   "audit_chain_field_entries": 0,
   "anchor_status": "UNANCHORED",
-  "negative_control_discriminating": 15,
-  "negative_control_total": 15,
-  "field_verdict": "FAIL",
-  "field_failed_checks": [
-    "physical_domain"
-  ],
+  "negative_control_discriminating": 16,
+  "negative_control_total": 16,
+  "field_verdict": "PASS",
+  "field_failed_checks": [],
   "mechanism_certified": true,
-  "certification": "UNCERTIFIED",
+  "certification": "CERTIFIED",
   "open_findings": [
     {
       "check": "auditchain",
@@ -52,5 +51,5 @@
       ]
     }
   ],
-  "reason": "证据链有效，但系统体检未通过：physical_domain"
+  "reason": "证据链有效且系统体检通过"
 }

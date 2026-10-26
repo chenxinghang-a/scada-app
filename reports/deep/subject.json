@@ -1,0 +1,20 @@
+{
+  "id": "subject",
+  "title": "被审对象一致性",
+  "claim": "DATA-14",
+  "verdict": "pass",
+  "metrics": {
+    "audited_db": "C:\\Users\\cxx\\scada-app\\backend\\src\\data\\scada_simulated.db",
+    "audited_latest": "2026-10-26 05:03:30",
+    "audited_rows": 32540,
+    "runtime_file": "C:\\Users\\cxx\\scada-app\\backend\\src\\data\\runtime.json",
+    "runtime_mode": "simulated",
+    "runtime_pid": 41464,
+    "runtime_started_at": "2026-10-26T12:59:53.175092",
+    "runtime_age_minutes": 3.6,
+    "expected_db": "C:\\Users\\cxx\\scada-app\\backend\\src\\data\\scada_simulated.db"
+  },
+  "findings": [],
+  "ground_truth": "应用自写的 runtime.json（port/pid/mode/started_at）",
+  "sample": 32540
+}

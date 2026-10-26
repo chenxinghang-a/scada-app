@@ -5,7 +5,7 @@
   "verdict": "pass",
   "metrics": {
     "window_minutes": 30,
-    "anchor": "2026-10-26 04:51:57",
+    "anchor": "2026-10-26 05:03:29",
     "rules": 10,
     "alive": 2,
     "missed": 0,
@@ -30,7 +30,7 @@
   "findings": [
     {
       "code": "ALARM_RULE_UNREACHABLE",
-      "message": "8 条规则的阈值在窗口内从未触及（最远 2.4 倍包络）—— 需要工艺依据说明是\"保护性阈值\"还是\"拍的\"",
+      "message": "8 条规则的阈值在窗口内从未触及（最远 4.4 倍包络）—— 需要工艺依据说明是\"保护性阈值\"还是\"拍的\"",
       "severity": "warning",
       "count": 8,
       "detail": {
@@ -39,20 +39,20 @@
             "rule": "temp_low",
             "threshold": 50.0,
             "envelope": [
-              166.03,
-              214.5
+              165.83,
+              192.33
             ],
-            "gap_in_spans": 2.4,
+            "gap_in_spans": 4.4,
             "level": "warning"
           },
           {
             "rule": "env_temp_high",
             "threshold": 120.0,
             "envelope": [
-              47.08,
-              88.5
+              47.32,
+              80.06
             ],
-            "gap_in_spans": 0.8,
+            "gap_in_spans": 1.2,
             "level": "warning"
           },
           {
@@ -62,57 +62,57 @@
               0.74,
               1.21
             ],
-            "gap_in_spans": 1.1,
+            "gap_in_spans": 1.2,
             "level": "warning"
           },
           {
             "rule": "voltage_high",
             "threshold": 242.0,
             "envelope": [
-              213.7,
-              227.2
+              217.3,
+              227.6
             ],
-            "gap_in_spans": 1.1,
+            "gap_in_spans": 1.4,
             "level": "critical"
           },
           {
             "rule": "voltage_low",
             "threshold": 198.0,
             "envelope": [
-              213.7,
-              227.2
+              217.3,
+              227.6
             ],
-            "gap_in_spans": 1.2,
+            "gap_in_spans": 1.9,
             "level": "warning"
           },
           {
             "rule": "current_high",
             "threshold": 100.0,
             "envelope": [
-              8.46,
-              18.86
+              8.42,
+              18.9
             ],
-            "gap_in_spans": 7.8,
+            "gap_in_spans": 7.7,
             "level": "critical"
           },
           {
             "rule": "ph_low",
             "threshold": 6.5,
             "envelope": [
-              6.93,
-              7.58
+              6.91,
+              7.36
             ],
-            "gap_in_spans": 0.7,
+            "gap_in_spans": 0.9,
             "level": "warning"
           },
           {
             "rule": "ph_high",
             "threshold": 8.5,
             "envelope": [
-              6.93,
-              7.58
+              6.91,
+              7.36
             ],
-            "gap_in_spans": 1.4,
+            "gap_in_spans": 2.5,
             "level": "warning"
           }
         ]

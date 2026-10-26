@@ -339,6 +339,30 @@ def seed_physical_domain(conn: sqlite3.Connection) -> dict:
     return {'seeded': 'o2_content = 45%（物理上限 21%）'}
 
 
+def _prep_subject_fixture(db: Path, ctx: dict) -> dict:
+    """在库里放一份"与库匹配"的 runtime.json —— 应用自写的就是这种形状。"""
+    import json, shutil
+    d = ctx['dir'] / 'subject'
+    d.mkdir(parents=True, exist_ok=True)
+    target = d / 'scada_simulated.db'
+    shutil.copy2(db, target)
+    rt = {'port': 5000, 'host': '127.0.0.1', 'pid': 4242, 'mode': 'simulated',
+          'started_at': datetime.now().isoformat(timespec='seconds')}
+    (d / 'runtime.json').write_text(json.dumps(rt, ensure_ascii=False), encoding='utf-8')
+    ctx['subject_db'] = target
+    return {'runtime': str(d / 'runtime.json'), 'db': str(target)}
+
+
+def seed_subject_mismatch(ctx: dict) -> dict:
+    """把 runtime.json 的 mode 改成 real —— 应用写到别的库去了。"""
+    import json
+    p = Path(ctx['subject_db']).parent / 'runtime.json'
+    rt = json.loads(p.read_text(encoding='utf-8'))
+    rt['mode'] = 'real'
+    p.write_text(json.dumps(rt, ensure_ascii=False), encoding='utf-8')
+    return {'seeded': 'runtime.json mode: simulated -> real（应写的库变成 scada_real.db）'}
+
+
 # ---------------------------------------------------------------- 用例表
 
 CASES = [
@@ -437,6 +461,14 @@ CASES = [
         'prepare': 'physical_cfg',
         'seed': 'db',
         'seed_fn': seed_physical_domain,
+    },
+    {
+        'detector': 'subject',
+        'defect': 'runtime.json 指向另一个库（审错对象）',
+        'expect_code': 'SUBJECT_MISMATCH',
+        'prepare': 'subject_fixture',
+        'seed': 'ctx',
+        'seed_fn': seed_subject_mismatch,
     },
     {
         'detector': 'timebase_all',
@@ -550,6 +582,7 @@ PREPARES = {
     'coverage_cfg': _prep_coverage_cfg,
     'alarm_cfg': _prep_alarm_cfg,
     'physical_cfg': _prep_physical_cfg,
+    'subject_fixture': _prep_subject_fixture,
     'backup_fixture': _prep_backup_fixture,
     'chain_fixture': _prep_chain_fixture,
 }
@@ -559,6 +592,8 @@ PREPARES = {
 
 def _run_detector(name: str, ctx: dict):
     fn, kind = detectors.REGISTRY[name]
+    if kind == 'db_subject':
+        return fn(ctx.get('subject_db') or ctx['db'])
     if kind == 'db':
         return fn(ctx['db'])
     if kind == 'config':
@@ -571,6 +606,8 @@ def _run_detector(name: str, ctx: dict):
         return fn(ctx.get('lint_root'))
     if kind == 'db_dev':
         return fn(ctx['db'], ctx.get('devices_cfg'))
+    if kind == 'db_subject':
+        return fn(ctx.get('subject_db') or ctx['db'])
     if kind == 'db_alarm':
         return fn(ctx['db'], ctx.get('alarms_cfg'))
     raise ValueError(name)
@@ -617,6 +654,8 @@ def run(src_db: Path, config_path: Path, out_json: Path, keep_dir: bool = False)
                            encoding='utf-8')
         elif case['seed'] == 'file':
             seed_info = case['seed_fn'](ctx['backup_path'])
+        elif case['seed'] == 'ctx':
+            seed_info = case['seed_fn'](ctx)
         elif case['seed'] == 'lint_root':
             seed_info = case['seed_fn'](ctx['lint_root'])
 

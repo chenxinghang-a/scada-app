@@ -61,6 +61,7 @@ INCLUDE = [
     'tools/deepcheck/physical.py',
     'tools/deepcheck/pointtable.py',
     'tools/deepcheck/schema_clock.py',
+    'tools/deepcheck/subject.py',
     'tools/deepcheck/timebase.py',
     'docs/traceability.yaml',
     'docs/深度-专家会做什么.md',

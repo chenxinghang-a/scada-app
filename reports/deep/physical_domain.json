@@ -2,83 +2,17 @@
   "id": "physical_domain",
   "title": "物理与语义域（量纲 / 整数语义 / 状态是否在变）",
   "claim": "DATA-12",
-  "verdict": "fail",
+  "verdict": "pass",
   "metrics": {
     "window_minutes": 15,
-    "anchor": "2026-10-26 04:51:57",
+    "anchor": "2026-10-26 05:03:29",
     "points_checked": 201,
-    "out_of_domain": 4,
+    "out_of_domain": 0,
     "suspect_range": 1,
     "non_integer": 0,
-    "frozen_status": 1
+    "frozen_status": 10
   },
   "findings": [
-    {
-      "code": "PHYS_OUT_OF_DOMAIN",
-      "message": "4 个点的取值超出物理可能区间",
-      "severity": "critical",
-      "count": 4,
-      "detail": {
-        "points": [
-          {
-            "device": "mitsubishi_fx5u_01",
-            "point": "injection_speed",
-            "unit": "mm/s",
-            "observed": [
-              -2.39,
-              84.68
-            ],
-            "allowed": [
-              0.0,
-              500.0
-            ],
-            "why": "单位 mm/s 的物理可能区间"
-          },
-          {
-            "device": "delta_dvp_01",
-            "point": "conveyor_speed",
-            "unit": "m/min",
-            "observed": [
-              -1.17,
-              12.97
-            ],
-            "allowed": [
-              0.0,
-              3000.0
-            ],
-            "why": "单位 m/min 的物理可能区间"
-          },
-          {
-            "device": "inovance_h5u_01",
-            "point": "spray_speed",
-            "unit": "m/min",
-            "observed": [
-              -0.55,
-              8.77
-            ],
-            "allowed": [
-              0.0,
-              3000.0
-            ],
-            "why": "单位 m/min 的物理可能区间"
-          },
-          {
-            "device": "inovance_h5u_01",
-            "point": "conveyor_speed",
-            "unit": "m/min",
-            "observed": [
-              -1.17,
-              12.97
-            ],
-            "allowed": [
-              0.0,
-              3000.0
-            ],
-            "why": "单位 m/min 的物理可能区间"
-          }
-        ]
-      }
-    },
     {
       "code": "PHYS_SUSPECT_RANGE",
       "message": "1 个百分比点位实测超出 0~100（物理上可能是过载，但更像是标定/量纲错）",
@@ -100,17 +34,80 @@
     },
     {
       "code": "PHYS_STATUS_FROZEN",
-      "message": "1 个状态量在整段数据里只有一个取值 —— OEE 可用率没有输入",
+      "message": "10 个状态量在整段数据里只有一个取值 —— OEE 可用率没有输入",
       "severity": "warning",
-      "count": 1,
+      "count": 10,
       "detail": {
         "points": [
+          {
+            "device": "siemens_web_01",
+            "point": "line_status",
+            "constant": 2.0,
+            "rows_seen": 75,
+            "varying_points_on_device": 3
+          },
           {
             "device": "delta_dvp_01",
             "point": "packing_status",
             "constant": 2.0,
-            "rows_seen": 278,
+            "rows_seen": 75,
             "varying_points_on_device": 4
+          },
+          {
+            "device": "compressor_01",
+            "point": "compressor_status",
+            "constant": 2.0,
+            "rows_seen": 75,
+            "varying_points_on_device": 1
+          },
+          {
+            "device": "compressor_01",
+            "point": "dryer_status",
+            "constant": 2.0,
+            "rows_seen": 75,
+            "varying_points_on_device": 1
+          },
+          {
+            "device": "warehouse_plc_01",
+            "point": "conveyor_status",
+            "constant": 2.0,
+            "rows_seen": 75,
+            "varying_points_on_device": 4
+          },
+          {
+            "device": "warehouse_plc_01",
+            "point": "door_status",
+            "constant": 2.0,
+            "rows_seen": 75,
+            "varying_points_on_device": 4
+          },
+          {
+            "device": "cems_01",
+            "point": "cems_status",
+            "constant": 2.0,
+            "rows_seen": 14,
+            "varying_points_on_device": 1
+          },
+          {
+            "device": "flowmeter_01",
+            "point": "meter_status",
+            "constant": 2.0,
+            "rows_seen": 75,
+            "varying_points_on_device": 1
+          },
+          {
+            "device": "soft_starter_01",
+            "point": "starter_status",
+            "constant": 2.0,
+            "rows_seen": 75,
+            "varying_points_on_device": 2
+          },
+          {
+            "device": "welder_01",
+            "point": "welder_status",
+            "constant": 2.0,
+            "rows_seen": 75,
+            "varying_points_on_device": 2
           }
         ]
       }

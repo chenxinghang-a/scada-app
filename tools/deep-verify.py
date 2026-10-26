@@ -108,6 +108,8 @@ def _run(name: str, db: Path):
     fn, kind = detectors.REGISTRY[name]
     if kind == 'db':
         return fn(db)
+    if kind == 'db_subject':
+        return fn(db)
     if kind == 'db_anchor':
         return fn(db, None)
     if kind == 'none':
@@ -134,7 +136,7 @@ def cmd_all(args) -> dict:
     for name in ('alm_stale', 'alm_priority', 'alm_chattering',
                  'data_quality', 'timebase_all', 'write_path',
                  'point_coverage', 'alarm_coverage',
-                 'physical_domain', 'mass_balance'):
+                 'physical_domain', 'mass_balance', 'subject'):
         fn, _kind = detectors.REGISTRY[name]
         res = fn(db)
         say(f'[{name}] {res.verdict.upper()}  '

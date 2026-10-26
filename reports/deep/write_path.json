@@ -5,12 +5,12 @@
   "verdict": "pass",
   "metrics": {
     "window_minutes": 30,
-    "recent_rows": 101486,
+    "recent_rows": 32469,
     "null_ts_utc": 0,
     "skewed_rows": 0,
-    "max_skew_seconds": 169.7
+    "max_skew_seconds": 196.5
   },
   "findings": [],
   "ground_truth": "回填不可作为写入路径的证据；只看最近 N 分钟由应用写入的行",
-  "sample": 101486
+  "sample": 32469
 }
