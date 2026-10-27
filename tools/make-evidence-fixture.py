@@ -39,8 +39,80 @@ REGISTERS = [('boiler_temperature', '°C'), ('boiler_pressure', 'MPa'),
 BASE = datetime(2026, 10, 24, 0, 0, 0)
 
 
+#: 运行库的表由**两个模块**建，不在同一处：
+#:   * `存储层/database.py`   —— realtime_data / history_data / alarm_records /
+#:     device_status / history_archive …（`Database()` 构造时建）
+#:   * `用户层/auth.py`        —— users / operation_logs（要连库鉴权时才建）
+#: 后者需要 bcrypt 等运行期依赖，CI 的"最小依赖"装不起，所以这里只对
+#: **它建的表**保留手写 DDL；其余一律向运行库要。新增表若只写在这里，
+#: `tools/check-fixture-schema.py` 会在有真库的机器上把漂移抓出来。
+EXTRA_DDL = '''
+CREATE TABLE IF NOT EXISTS operation_logs (id INTEGER PRIMARY KEY AUTOINCREMENT,
+    username TEXT NOT NULL, action TEXT NOT NULL, target TEXT, detail TEXT,
+    ip_address TEXT, timestamp DATETIME DEFAULT CURRENT_TIMESTAMP);
+CREATE TABLE IF NOT EXISTS users (id INTEGER PRIMARY KEY AUTOINCREMENT,
+    username TEXT UNIQUE NOT NULL, password_hash TEXT NOT NULL,
+    role TEXT DEFAULT 'viewer', display_name TEXT, is_active INTEGER DEFAULT 1,
+    must_change_password INTEGER DEFAULT 0,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP);
+'''
+
+
+def _apply_extra_schema(conn: sqlite3.Connection) -> int:
+    """补齐**不属于 `Database`** 的表：用户层 + 审计链。
+
+    审计链的 `config_change_log` 有自己的 DDL（带 prev_hash/entry_hash 哈希链列），
+    手抄一份必然对不上（本轮实测就抄漏了 entry_hash）。它由
+    `core/audit_chain.ensure_table()` 负责，纯标准库，可以直接调用。
+    """
+    conn.executescript(EXTRA_DDL)
+    src = REPO / 'backend' / 'src'
+    if str(src) not in sys.path:
+        sys.path.insert(0, str(src))
+    from core.audit_chain import ensure_table      # noqa: PLC0415
+    ensure_table(conn)
+    return 0
+
+
+def _production_ddl() -> list[str]:
+    """从**运行库的建表代码**取 DDL（夹具结构必须等于运行库，不手抄）。"""
+    src = REPO / 'backend' / 'src'
+    if str(src) not in sys.path:
+        sys.path.insert(0, str(src))
+    import tempfile
+
+    import 存储层.database as store          # noqa: PLC0415 —— 只有这条路径需要
+
+    with tempfile.TemporaryDirectory() as td:
+        probe = Path(td) / 'ddl_probe.db'
+        db = store.Database(str(probe))       # 构造时即建表
+        try:
+            conn = sqlite3.connect(str(probe))
+            try:
+                return [r[0] for r in conn.execute(
+                    "SELECT sql FROM sqlite_master WHERE type='table' AND sql IS NOT NULL "
+                    "AND name NOT LIKE 'sqlite_%'")]
+            finally:
+                conn.close()
+        finally:
+            db.close()
+
+
 def create_schema(conn: sqlite3.Connection, source: Path | None) -> list[str]:
-    """优先从真实库复制 DDL —— 夹具的结构必须等于运行库，不能靠手抄。"""
+    """优先从真实库复制 DDL —— 夹具的结构必须等于运行库，不能靠手抄。
+
+    round 292（CI 红）：原先 `source` 为空时退回一份**手抄的 4 张表子集**。
+    dev 机器上总有真实运行库，所以这条兜底路径本地永远走不到；
+    CI 上没有运行库 → 走兜底 → `device_status` 根本不存在 →
+    负向控制用例 `ALTER TABLE device_status DROP COLUMN ts_utc`
+    直接 `sqlite3.OperationalError: no such table` 把整条流水线崩掉。
+
+    手抄子集的根本问题不是"少写了几张表"，而是**它没有任何机制保证跟随运行库**：
+    运行库加一张表、加一列（round 209 的 ts_utc 孪生列就是后加的），
+    兜底不会跟着变，而且只在 CI 上暴露。所以这里直接向建表代码要 DDL，
+    拿不到就**明确失败**，不许退回子集。
+    """
     if source and source.exists():
         src = sqlite3.connect(f'file:{source.as_posix()}?mode=ro', uri=True)
         try:
@@ -55,30 +127,19 @@ def create_schema(conn: sqlite3.Connection, source: Path | None) -> list[str]:
             except sqlite3.Error as e:
                 say(f'  ! 建表跳过（{e}）: {stmt.splitlines()[0][:60]}')
     else:
-        # 没有源库时的兜底 DDL（与 存储层/database.py 保持一致的最小子集）
-        conn.executescript('''
-            CREATE TABLE history_data (id INTEGER PRIMARY KEY AUTOINCREMENT,
-                device_id TEXT NOT NULL, register_name TEXT NOT NULL, value REAL,
-                unit TEXT, timestamp DATETIME NOT NULL,
-                created_at DATETIME DEFAULT CURRENT_TIMESTAMP, ts_utc DATETIME);
-            CREATE TABLE realtime_data (id INTEGER PRIMARY KEY AUTOINCREMENT,
-                device_id TEXT NOT NULL, register_name TEXT NOT NULL, value REAL,
-                unit TEXT, timestamp DATETIME NOT NULL,
-                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-                quality INTEGER DEFAULT 192, UNIQUE(device_id, register_name));
-            CREATE TABLE alarm_records (id INTEGER PRIMARY KEY AUTOINCREMENT,
-                alarm_id TEXT NOT NULL, device_id TEXT NOT NULL,
-                register_name TEXT NOT NULL, alarm_level TEXT NOT NULL,
-                alarm_message TEXT, threshold REAL, actual_value REAL,
-                timestamp DATETIME NOT NULL, trigger_count INTEGER DEFAULT 1,
-                last_trigger_time DATETIME, last_value REAL,
-                acknowledged BOOLEAN DEFAULT 0, acknowledged_at DATETIME,
-                acknowledged_by TEXT, created_at DATETIME DEFAULT CURRENT_TIMESTAMP);
-            CREATE TABLE operation_logs (id INTEGER PRIMARY KEY AUTOINCREMENT,
-                username TEXT NOT NULL, action TEXT NOT NULL, target TEXT,
-                detail TEXT, ip_address TEXT,
-                timestamp DATETIME DEFAULT CURRENT_TIMESTAMP);
-        ''')
+        # 没有源库（CI / 干净克隆）：直接用运行库的建表代码，杜绝"手抄子集"再漂移
+        try:
+            ddl = _production_ddl()
+        except Exception as e:      # noqa: BLE001 —— 取不到就明确失败，不许静默降级
+            raise SystemExit(
+                f'取不到运行库 DDL（{type(e).__name__}: {e}）。\n'
+                '夹具结构必须等于运行库 —— 不接受手抄子集（见 create_schema 的注释）。'
+            ) from e
+        for stmt in ddl:
+            conn.execute(stmt)
+        # 其余归属（用户层 users/operation_logs、审计链 config_change_log）
+        _apply_extra_schema(conn)
+        say(f'  无源库：运行库建表代码 {len(ddl)} 张表 + 用户层/审计链补充')
 
     # ts_utc 是时间基准统一的产物；源库若还没来得及迁移，夹具也要有这一列
     cols = {r[1] for r in conn.execute('PRAGMA table_info(history_data)')}

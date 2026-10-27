@@ -21,6 +21,13 @@ permissions:
 jobs:
   evidence-chain:
     runs-on: ubuntu-latest
+    # 时区必须钉死：夹具里的时间戳固定按 **UTC+8**（见 make-evidence-fixture.py
+    # 的 offset_hours=8，那是为了跨机器可复现）。而 `timebase` 检测器用
+    # `datetime.now().astimezone()` 读**机器时区**——ubuntu runner 默认 UTC，
+    # 于是同一份夹具在 CI 上被判成 `timeback_all: DRIFT`（差 8 小时），
+    # 本地却全绿。这类"只在 CI 红/绿"的判据等于没有判据。
+    env:
+      TZ: Asia/Shanghai
     steps:
       - uses: actions/checkout@v4
 

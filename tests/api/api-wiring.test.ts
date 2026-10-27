@@ -113,7 +113,7 @@ const UNWIRED: Record<string, { reason: string; methods: string[] }> = {
     methods: [
       'eStopStatus', 'getInterlocks', 'requestBypass', 'approveBypass', 'rejectBypass',
       'getPendingBypasses', 'adjustDevice', 'writeEndpoint', 'getDeviceHealth',
-      'getAuditLog', 'getRecipes', 'startRecipe', 'stopRecipe', 'getRecipeStatus',
+      'getAuditLog',
     ],
   },
   devicesApi: {
@@ -141,7 +141,7 @@ const UNWIRED: Record<string, { reason: string; methods: string[] }> = {
       '报警的**细分/配置类**接口：活动报警原始列表、洪水（flood）状态、' +
       '去重配置读写、通知设置更新。界面走汇总统计 + 报警列表接口，这些没有入口。',
     methods: [
-      'getActive', 'getFloodStatus', 'getDedupConfig', 'setDedupConfig', 'updateNotification',
+      'getFloodStatus', 'getDedupConfig', 'setDedupConfig', 'updateNotification',
     ],
   },
   dataApi: {
