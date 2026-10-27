@@ -1,0 +1,36 @@
+{
+  "checks": [
+    {
+      "check": "header_preserved",
+      "title": "注释必须保留",
+      "pass": true,
+      "detail": "注释块 4 行全部保留"
+    },
+    {
+      "check": "injection_not_persisted",
+      "title": "运行期注入不许污染配置",
+      "pass": true,
+      "detail": "注入只写实例属性，配置对象零改动"
+    },
+    {
+      "check": "atomic_on_failure",
+      "title": "写失败不得破坏原文件",
+      "pass": true,
+      "detail": "序列化/替换任一失败：原文件逐字节不变，且无 .tmp 残留"
+    },
+    {
+      "check": "single_implementation",
+      "title": "唯一实现（禁止各管理器自己 dump）",
+      "pass": true,
+      "detail": "三个管理器都不再自己 dump，唯一实现在 config_store"
+    },
+    {
+      "check": "real_config_roundtrip",
+      "title": "真实配置文件保存后逐字不变",
+      "pass": true,
+      "detail": "真实配置（30 台设备）保存后逐字不变"
+    }
+  ],
+  "passed": 5,
+  "total": 5
+}

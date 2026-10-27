@@ -15,6 +15,7 @@ from pathlib import Path
 
 from core.connection_pool import ConnectionPool
 import paths
+from .config_store import save_devices_config
 
 logger = logging.getLogger(__name__)
 
@@ -608,17 +609,16 @@ class DeviceManager:
         return self._connection_pool.get_stats()
 
     def _save_config(self):
-        """保存设备配置到文件（线程安全 + 原子写入）"""
+        """保存设备配置到文件（原子替换 + 保留注释 + 剔除运行期键）。
+
+        round 291：三份 `_save_config` 收口到 `采集层/config_store.py`。
+        这里原本已经原子（临时文件 + replace），但同样**丢注释**、且会把
+        `_simulation_params` 这类运行期键写进被跟踪的配置文件。
+        """
         try:
             with self._lock:
-                config = {'devices': list(self.devices.values())}
-            config_file = paths.resolve(self.config_path)
-            config_file.parent.mkdir(parents=True, exist_ok=True)
-            # 原子写入：先写临时文件再 rename，防止崩溃时配置损坏
-            tmp_file = config_file.with_suffix('.tmp')
-            with open(tmp_file, 'w', encoding='utf-8') as f:
-                yaml.dump(config, f, allow_unicode=True, default_flow_style=False)
-            tmp_file.replace(config_file)
+                snapshot = list(self.devices.values())
+            save_devices_config(paths.resolve(self.config_path), snapshot)
             logger.info("设备配置已保存")
         except Exception as e:
             logger.error(f"保存配置文件异常: {e}")

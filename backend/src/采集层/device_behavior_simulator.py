@@ -199,8 +199,17 @@ class DeviceBehaviorSimulator:
         
         # 根据设备类型配置过程模型
         self._configure_process_model()
-        
-        # 从预设simulation_params注入参数
+
+        #: 外部注入的仿真参数（`SimulationInitializer` 调 `inject_simulation_params`）。
+        #:
+        #: round 291：注入**绝不能写进 `self.device_config`**。那个 dict 与管理器的
+        #: 设备表是同一个对象（构造时直接传引用），写进去以后任何一次设备增删触发的
+        #: `_save_config()` 都会把运行期算出来的参数落盘（实测 +861 行），
+        #: 下次启动又被当配置读回来 —— 仿真状态被冻结在上次运行的那组随机值上，
+        #: 而操作者以为看到的是默认配置。所以存在实例上，和配置彻底分开。
+        self._injected_sim_params: Dict[str, Any] = {}
+
+        # 从预设simulation_params注入参数（配置里手写的那些）
         self._apply_simulation_params()
         
         device_role = "监测" if self._is_monitoring_device else "工作"
@@ -308,10 +317,16 @@ class DeviceBehaviorSimulator:
                 self._device_param_names.add(name)
     
     def _apply_simulation_params(self):
-        """从设备配置中的simulation_params注入参数到过程模型"""
-        # simulation_params通常在SimulationInitializer中设置，
-        # 但也可以从device_config中直接读取
-        sim_params = self.device_config.get('_simulation_params', {})
+        """把仿真参数注入过程模型。
+
+        取值优先级：**运行期注入的 > 配置里手写的**。
+
+        round 291：注入的那份存在 `self._injected_sim_params`（实例属性），
+        不再回写 `self.device_config` —— 详见 `__init__` 里的说明。
+        配置里手写的 `_simulation_params` 仍然照旧生效（锅炉/涂装线/水处理
+        三台设备就是靠它给定基础参数），只是它不会再被运行期值覆盖后写回文件。
+        """
+        sim_params = self._injected_sim_params or self.device_config.get('_simulation_params', {})
         if not sim_params:
             return
         
@@ -357,8 +372,12 @@ class DeviceBehaviorSimulator:
         return any(kw in combined for kw in monitoring_keywords)
     
     def inject_simulation_params(self, sim_params: Dict[str, Any]):
-        """外部注入模拟参数（由SimulationInitializer调用）"""
-        self.device_config['_simulation_params'] = sim_params
+        """外部注入模拟参数（由SimulationInitializer调用）。
+
+        round 291：**只写实例属性，不碰 `self.device_config`**。
+        写进配置 dict 会让运行期参数随下一次保存落盘（见 `__init__` 注释）。
+        """
+        self._injected_sim_params = dict(sim_params or {})
         self._apply_simulation_params()
         logger.info(f"[行为模拟] 设备 {self.device_name} 已注入模拟参数")
     

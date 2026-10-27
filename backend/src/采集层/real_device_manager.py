@@ -10,6 +10,7 @@ import time
 from typing import Any
 from pathlib import Path
 
+from .config_store import save_devices_config
 from .interfaces import IDeviceManager, IDeviceClient
 from .modbus_client import ModbusClient
 from .opcua_client import OPCUAClient
@@ -669,13 +670,18 @@ class RealDeviceManager(IDeviceManager):
         return {'success': True, 'message': '当前已是真实模式'}
 
     def _save_config(self):
-        """保存设备配置到文件"""
+        """保存设备配置到文件（原子替换 + 保留注释 + 剔除运行期键）。
+
+        round 291：与 `simulated_device_manager` 同一收口，见
+        `采集层/config_store.py`。原先这里直接 `open('w')` 覆盖 ——
+        写到一半崩溃就把被跟踪的配置文件留成半截 YAML。
+        """
         try:
-            config = {'devices': list(self.devices.values())}
-            config_file = paths.resolve(self.config_path)
-            config_file.parent.mkdir(parents=True, exist_ok=True)
-            with open(config_file, 'w', encoding='utf-8') as f:
-                yaml.dump(config, f, allow_unicode=True, default_flow_style=False)
+            # 这两个管理器**本来就没有锁**（原实现的 `_save_config` 也不加锁），
+            # 不要凭空 `self._lock` —— 会 AttributeError 并被 except 吞成一行日志，
+            # 保存从此静默失效（本轮实测踩到）。
+            snapshot = list(self.devices.values())
+            save_devices_config(paths.resolve(self.config_path), snapshot)
             logger.info("[真实] 设备配置已保存")
         except Exception as e:
             logger.error(f"保存配置文件异常: {e}")

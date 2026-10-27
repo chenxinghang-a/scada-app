@@ -139,8 +139,22 @@ def main() -> int:
     ap.add_argument('--db-mode', default=None,
                     help='库模式 simulated/real/simulator（默认读 SCADA_DB_MODE，否则 simulated）')
     ap.add_argument('--allow-destructive', action='store_true',
-                    help='连 DELETE 与登出/改密一起测（会改变系统状态）')
+                    help='连 DELETE、登出/改密、预设应用/导入/重置一起测（会改变系统状态）')
+    ap.add_argument('--keep-config', action='store_true',
+                    help='跑完不改回设备配置文件（默认：一旦发现被冒烟改动就还原并告警）')
     args = ap.parse_args()
+
+    # 冒烟是"看看接口能不能用"，不该顺手把被测系统改造一遍。
+    # 实测（round 291）：`/api/simulation/presets/apply` 这类端点一次 POST 就会往
+    # devices_simulated.yaml 里加 20 台设备（+650 行）—— 跑一次冒烟，仓库就脏了，
+    # 而且没人会把"配置变了"联想到"我跑了冒烟"。
+    DESTRUCTIVE_HINTS = ('preset', '/apply', '/import', '/reset', '/seed',
+                         '/restore', '/clear', '/reload')
+
+    # 兜底：跑前存一份配置快照。未命中上面清单的写端点若也改了配置，
+    # 至少能发现并还原（默认还原，`--keep-config` 可关）。
+    config_path = REPO / 'backend' / 'src' / '配置' / 'devices_simulated.yaml'
+    config_before = config_path.read_bytes() if config_path.exists() else None
 
     routes = collect_routes()
     say(f'解析出 {len(routes)} 条路由（{len({r["file"] for r in routes})} 个模块）')
@@ -243,6 +257,11 @@ def main() -> int:
             if m == 'DELETE' and not args.allow_destructive:
                 skips.append(f'{m} {path}')
                 continue
+            if (m != 'GET' and not args.allow_destructive
+                    and any(h in path.lower() for h in DESTRUCTIVE_HINTS)):
+                # 预设应用 / 导入 / 重置 / 重载这类端点：一次调用就能改掉整份设备配置。
+                skips.append(f'{m} {path}')
+                continue
             code, body, ctype = http(m, f'{args.base}{path}', token,
                                      timeout=SLOW_PATHS.get(path, 8.0))
             results.append({'path': path, 'method': m, 'status': code,
@@ -283,6 +302,19 @@ def main() -> int:
         say('⚠️ 未登录（匿名态）：受保护接口实际未被验证，结论降级为 INCOMPLETE')
     verdict = 'FAIL' if (bad5xx or timeouts or unexpected401) else ('PASS' if token else 'INCOMPLETE')
     say(f'结论：{verdict}')
+
+    # 兜底还原：见上面 DESTRUCTIVE_HINTS 的说明。**必须说出来**，不能悄悄还原 ——
+    # 悄悄还原和悄悄改动一样糟：操作者会以为"配置没人动过"。
+    if config_before is not None and config_path.exists():
+        config_after = config_path.read_bytes()
+        if config_after != config_before:
+            if args.keep_config:
+                say(f'⚠️ 冒烟改动了设备配置（{len(config_after) - len(config_before):+d} 字节），'
+                    f'按 --keep-config 保留：{config_path}')
+            else:
+                config_path.write_bytes(config_before)
+                say(f'⚠️ 冒烟改动了设备配置（{len(config_after) - len(config_before):+d} 字节），'
+                    f'已按跑前快照还原：{config_path}')
 
     if temp_user and provision_db is not None:
         conn = sqlite3.connect(str(provision_db))
