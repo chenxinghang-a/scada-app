@@ -30,9 +30,27 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from deepcheck.common import REPO, find_db, say, write_json  # noqa: E402
+from deepcheck.common import REPO, say, write_json  # noqa: E402
 
 API_DIR = REPO / 'backend' / 'src' / '展示层' / 'api'
+
+
+def _server_db(mode: str | None = None) -> Path:
+    """后端**真正在用**的库路径 —— 与后端同一真源（`backend/src/paths.py`）。
+
+    为什么不用 `deepcheck.find_db()`：它只认打包产物
+    `backend/_internal/data/*.db`。开发态后端读的是 `backend/src/data/*.db`，
+    两个库同时存在时 `find_db()` 会安静地指到另一个 —— 临时账号写进去，
+    后端永远认不出来（登录 401），而脚本只会说"未拿到 token，按匿名测"。
+    """
+    src = REPO / 'backend' / 'src'
+    if str(src) not in sys.path:
+        sys.path.insert(0, str(src))
+    import paths as backend_paths
+    resolved_mode = backend_paths.resolve_cli_db_mode(mode)
+    db = Path(backend_paths.get_db_path(resolved_mode))
+    say(f'库：{db}（mode={resolved_mode}）')
+    return db
 BP_RE = re.compile(r"Blueprint\(\s*['\"][\w]+['\"]\s*,.*?url_prefix\s*=\s*['\"]([^'\"]*)['\"]", re.S)
 ROUTE_RE = re.compile(r"@(\w+)\.route\(\s*['\"]([^'\"]+)['\"]"
                       r"(?:\s*,\s*methods\s*=\s*\[([^\]]*)\])?", re.S)
@@ -114,6 +132,14 @@ def main() -> int:
     ap.add_argument('--base', default='http://127.0.0.1:5000')
     ap.add_argument('--user', default='admin')
     ap.add_argument('--password', default='admin123')
+    ap.add_argument('--provision-user', action='store_true',
+                    help='在库里临时建一个测试账号（跑完即删），用于测鉴权后的接口')
+    ap.add_argument('--db', default=None,
+                    help='临时账号写哪个库（默认与**后端同源**：走 paths.get_db_path()）')
+    ap.add_argument('--db-mode', default=None,
+                    help='库模式 simulated/real/simulator（默认读 SCADA_DB_MODE，否则 simulated）')
+    ap.add_argument('--allow-destructive', action='store_true',
+                    help='连 DELETE 与登出/改密一起测（会改变系统状态）')
     args = ap.parse_args()
 
     routes = collect_routes()
@@ -130,6 +156,38 @@ def main() -> int:
         say(f'后端不可达（{body}）。先启动：cd backend/src && python run.py')
         return 2
 
+    temp_user = None
+    provision_db = None
+    if args.provision_user:
+        # admin 被"首次登录必须改密"挡住（GB/T 22239），改它等于伪造运维记录。
+        # 改为临时建一个 engineer 账号，跑完就删 —— 只增不删别人的东西。
+        #
+        # ⚠️ 库路径必须与**后端同源**（round 290 踩过的坑）：
+        #    原先这里用 `find_db()`，它只认打包产物
+        #    `backend/_internal/data/scada_simulated.db`；而开发态后端用的是
+        #    `backend/src/data/scada_simulated.db`。两个库同时存在 →
+        #    临时账号写进了**后端根本不读的那一个** → 登录 401 → 脚本静默降级成
+        #    匿名测试，最后照样印「结论：PASS」（164 次请求里只有 5 次真被验过）。
+        #    检测脚本自己静默假绿，比它要检测的缺陷更危险。
+        import bcrypt, secrets
+        db = Path(args.db) if args.db else _server_db(args.db_mode)
+        provision_db = db
+        temp_user = f'smoke_{secrets.token_hex(3)}'
+        pw = 'Sm0ke!' + secrets.token_urlsafe(9)
+        h = bcrypt.hashpw(pw.encode(), bcrypt.gensalt()).decode()
+        conn = sqlite3.connect(str(db))
+        try:
+            conn.execute('''INSERT INTO users
+                (username, password_hash, role, display_name, is_active,
+                 must_change_password, created_at, updated_at)
+                VALUES (?, ?, 'engineer', '接口冒烟临时账号', 1, 0,
+                        CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)''', (temp_user, h))
+            conn.commit()
+        finally:
+            conn.close()
+        args.user, args.password = temp_user, pw
+        say(f'临时账号：{temp_user}（engineer，写库 {db}，跑完删除）')
+
     token = None
     # 登录需要真实口令，用 json body
     req = urllib.request.Request(f'{args.base}/api/auth/login', method='POST',
@@ -143,19 +201,57 @@ def main() -> int:
                 or payload.get('access_token')
     except Exception as e:
         say(f'登录失败：{type(e).__name__}: {e}')
+
+    if token is None and args.provision_user:
+        # 临时账号都建好了，还是登录不上 → 只能是库指错了或鉴权链路断了。
+        # 此时继续跑只会得到"匿名请求 164 次、5 个 2xx、结论 PASS"的假绿，
+        # 而受保护的那 150+ 个接口**一个都没验过**。宁可红。
+        say('临时账号已创建但登录失败 —— 库路径/鉴权链路有问题。'
+            '继续跑只会得到"全绿但什么都没测"的结论，中止。')
+        return 3
+
     say(f'登录：{"成功" if token else "未拿到 token（后续请求按匿名测，401 不计失败）"}')
 
+    # ⚠️ 冒烟自己会把会话搞没：/api/auth/logout 会把 token 拉黑，
+    # 之后所有请求都 401 —— 第一版就这么"测出 135 个 401"，其实是自己把自己踢了。
+    # 破坏性/改状态的端点默认跳过，要测需显式 --allow-destructive。
+    SKIP_ALWAYS = ('/auth/logout', '/auth/change-password', '/auth/force-change-password',
+                   '/auth/refresh')
+    # 慢接口的单独超时（秒）。默认 8s 是"接口该秒回"的判据，但下面这几个是
+    # **全表操作**：`PRAGMA integrity_check` 在 97 万行的库上实测 ~24s。
+    # 原先一刀切 8s → 它们稳定被判成"5xx/连不上"，把一次真实的全绿染成红，
+    # 而且要等到人工核对日志才发现是客户端超时、服务端其实 200。
+    SLOW_PATHS = {
+        '/api/ops/db/integrity': 120.0,
+        '/api/ops/db/analyze': 120.0,
+        '/api/ops/db/vacuum': 300.0,
+        '/api/ops/db/reindex': 300.0,
+        '/api/ops/diagnostics/export': 120.0,
+        '/api/ops/cleanup/history': 120.0,
+    }
+    skips = []
     params = fixture_params()
-    bad5xx, unexpected401, results = [], [], []
+    bad5xx, timeouts, unexpected401, results = [], [], [], []
     for r in routes:
         path = fill(r['path'], params)
         for m in r['methods']:
             if m not in ('GET', 'POST', 'PUT', 'DELETE', 'PATCH'):
                 continue
-            code, body, ctype = http(m, f'{args.base}{path}', token)
+            if any(k in path for k in SKIP_ALWAYS):
+                skips.append(f'{m} {path}')
+                continue
+            if m == 'DELETE' and not args.allow_destructive:
+                skips.append(f'{m} {path}')
+                continue
+            code, body, ctype = http(m, f'{args.base}{path}', token,
+                                     timeout=SLOW_PATHS.get(path, 8.0))
             results.append({'path': path, 'method': m, 'status': code,
                             'file': r['file'], 'snippet': body[:120].replace('\n', ' ')})
-            if code >= 500 or code == 0:
+            if code == 0:
+                # 超时/连不上：和"服务端 500"是两件事，混在一起会让
+                # "慢"看起来像"崩"，也会让真正的 500 被淹没。
+                timeouts.append(results[-1])
+            elif code >= 500:
                 bad5xx.append(results[-1])
             elif code == 401 and token:
                 unexpected401.append(results[-1])
@@ -167,17 +263,35 @@ def main() -> int:
     public = sorted({f"{r['method']} {r['path']}" for r in results
                      if 200 <= r['status'] < 300 and not token and r.get('json')})
     rep = {'base': args.base, 'routes': len(routes), 'requests': total,
-           'public_2xx': public,
+           'authenticated': bool(token),
+           'skipped': skips, 'public_2xx': public,
            'ok_2xx': ok2xx, 'server_errors': len(bad5xx),
+           'timeouts': len(timeouts),
            'unexpected_401': len(unexpected401),
-           'errors': bad5xx[:20], 'auth_401': unexpected401[:10]}
+           'errors': bad5xx[:20], 'timeout_detail': timeouts[:10],
+           'auth_401': unexpected401[:10]}
     write_json(REPO / 'reports' / 'deep' / 'api-smoke.json', rep)
 
-    say(f'\n请求 {total} 次：2xx {ok2xx}，5xx/连不上 {len(bad5xx)}，已登录但 401 {len(unexpected401)}')
+    say(f'\n请求 {total} 次：2xx {ok2xx}，5xx {len(bad5xx)}，'
+        f'超时/连不上 {len(timeouts)}，已登录但 401 {len(unexpected401)}')
     for e in bad5xx[:12]:
         say(f"  5xx {e['method']:<6}{e['path']:<52} {e['status']}  {e['snippet'][:80]}")
-    verdict = 'PASS' if not bad5xx and not unexpected401 else 'FAIL'
+    for e in timeouts[:12]:
+        say(f"  超时 {e['method']:<6}{e['path']:<52}  {e['snippet'][:60]}")
+    # 没登录却全绿 = 受保护接口一个没验过。这种情况不允许给 PASS。
+    if not token:
+        say('⚠️ 未登录（匿名态）：受保护接口实际未被验证，结论降级为 INCOMPLETE')
+    verdict = 'FAIL' if (bad5xx or timeouts or unexpected401) else ('PASS' if token else 'INCOMPLETE')
     say(f'结论：{verdict}')
+
+    if temp_user and provision_db is not None:
+        conn = sqlite3.connect(str(provision_db))
+        try:
+            conn.execute('DELETE FROM users WHERE username = ?', (temp_user,))
+            conn.commit()
+            say(f'临时账号已删除：{temp_user}')
+        finally:
+            conn.close()
     return 0 if verdict == 'PASS' else 1
 
 

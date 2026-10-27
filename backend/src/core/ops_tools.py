@@ -766,3 +766,46 @@ runtime_config_manager = RuntimeConfigManager()
 db_maintainer = DatabaseMaintainer()
 data_cleaner = DataCleaner()
 diagnostic_exporter = DiagnosticExporter()
+
+
+def db_path_consumers() -> list:
+    """返回**所有**需要数据库路径的单例（按对象身份去重，顺序稳定）。
+
+    为什么不用手写清单
+    ------------------
+    round 162 只把 `data_cleaner` 接上了线，`db_maintainer` 同时也有
+    `set_db_path()` 却**没人调** —— 于是 `/api/ops/db/integrity` 与
+    `/api/ops/db/tables` 100% 回 500「数据库路径未设置」。这个缺口一直活到
+    接口冒烟（`tools/api-smoke.py`）才被抓到：数据层检查永远看不见它。
+
+    手写清单只能保证「写进去的接了线」，保证不了「新加的单例也写进去」——
+    而这正是上述 Bug 的形态。所以这里**从模块命名空间自省**：凡是暴露
+    `set_db_path()` 的实例都算消费者，新增单例自动纳入，漏接接线在结构上不可能。
+    """
+    out, seen = [], set()
+    for name, obj in list(globals().items()):
+        if name.startswith('_') or not hasattr(obj, 'set_db_path'):
+            continue
+        if not callable(getattr(obj, 'set_db_path', None)):
+            continue
+        # `hasattr` 对「类」也成立（方法在类上），只收实例
+        if isinstance(obj, type):
+            continue
+        if id(obj) in seen:
+            continue
+        seen.add(id(obj))
+        out.append((name, obj))
+    return out
+
+
+def wire_db_path(db_path: str) -> list[str]:
+    """把数据库路径接到**全部**运维单例上，返回已接线对象的属性名。
+
+    生产接线见 `run.py` 建库之后（必须在 `Database()` 之后：库文件要先就位）。
+    """
+    path = str(db_path)
+    wired = []
+    for name, obj in db_path_consumers():
+        obj.set_db_path(path)
+        wired.append(name)
+    return wired

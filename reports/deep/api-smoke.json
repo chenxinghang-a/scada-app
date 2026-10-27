@@ -1,11 +1,24 @@
 {
   "base": "http://127.0.0.1:5000",
   "routes": 172,
-  "requests": 172,
+  "requests": 164,
+  "authenticated": true,
+  "skipped": [
+    "DELETE /api/alarm-rules/1",
+    "POST /api/auth/logout",
+    "POST /api/auth/refresh",
+    "POST /api/auth/change-password",
+    "POST /api/auth/force-change-password",
+    "DELETE /api/auth/users/admin",
+    "DELETE /api/devices/siemens_1500_01",
+    "DELETE /api/resilience/fault-injection/1"
+  ],
   "public_2xx": [],
-  "ok_2xx": 5,
+  "ok_2xx": 96,
   "server_errors": 0,
+  "timeouts": 0,
   "unexpected_401": 0,
   "errors": [],
+  "timeout_detail": [],
   "auth_401": []
 }

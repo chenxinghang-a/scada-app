@@ -569,10 +569,13 @@ def update_dedup_config():
 @_require_auth
 @api_error_handler
 def get_escalation_status():
-    """获取告警升级状态"""
-    alarm_manager = current_app.alarm_manager
-    if hasattr(alarm_manager, '_escalation_manager'):
-        return jsonify(alarm_manager._escalation_manager.get_status())
+    """获取告警升级状态。"""
+    # ⚠️ 不能只 `hasattr`：多级升级管理器在未配置时是**存在但为 None** 的属性，
+    # `hasattr` 返回 True → None.get_status() → 500。这个 500 是接口冒烟测出来的
+    # （数据侧检查永远看不到）。判"可用"要判非 None。
+    mgr = getattr(current_app.alarm_manager, '_escalation_manager', None)
+    if mgr is not None:
+        return jsonify(mgr.get_status())
     return jsonify({'running': False, 'message': '升级管理器未初始化'})
 
 
@@ -580,11 +583,11 @@ def get_escalation_status():
 @_require_auth
 @api_error_handler
 def get_escalation_rules():
-    """获取升级规则"""
-    alarm_manager = current_app.alarm_manager
-    if hasattr(alarm_manager, '_escalation_manager'):
-        return jsonify({'rules': alarm_manager._escalation_manager.get_rules()})
-    return jsonify({'rules': []})
+    """获取升级规则。"""
+    mgr = getattr(current_app.alarm_manager, '_escalation_manager', None)
+    if mgr is not None:
+        return jsonify({'rules': mgr.get_rules()})
+    return jsonify({'rules': [], 'message': '升级管理器未初始化'})
 
 
 @alarms_bp.route('/alarms/escalation/rules', methods=['PUT'])
@@ -596,9 +599,9 @@ def update_escalation_rules():
     if not data or 'rules' not in data:
         return api_error('请提供升级规则')
 
-    alarm_manager = current_app.alarm_manager
-    if hasattr(alarm_manager, '_escalation_manager'):
-        alarm_manager._escalation_manager.update_rules(data['rules'])
+    mgr = getattr(current_app.alarm_manager, '_escalation_manager', None)
+    if mgr is not None:
+        mgr.update_rules(data['rules'])
         get_auth_manager().log_operation(
             request.current_user['username'], 'update_escalation_rules',
             f'更新升级规则: {len(data["rules"])} 条')

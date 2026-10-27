@@ -126,15 +126,18 @@ def main():
             len(index_result['failed']),
         )
 
-        # 运维清理工具接线（round 162）。`core/ops_tools.py` 的全局单例 `data_cleaner`
-        # 默认 `_db_path = None`，而 `set_db_path()` 此前**全仓库无任何调用方** ——
-        # 结果是管理端 `POST /api/ops/cleanup/history` 100% 失败：`sqlite3.connect(None)`
-        # 抛 TypeError，被 `except Exception` 收成 `{'status': 'error'}`，
-        # 再被 `success_response` 包成 HTTP 200 → 界面显示"清理成功"，实际一行没删。
-        # 与 ensure_indexes 同理，必须放在建库之后。
-        from core.ops_tools import data_cleaner
-        data_cleaner.set_db_path(str(db_path))
-        logger.info("运维清理工具已接线: %s", db_path)
+        # 运维工具接线（round 162 + 本轮）。
+        # `core/ops_tools.py` 的全局单例默认 `_db_path = None`，需要显式接线：
+        #   * `data_cleaner`   —— round 162 接线；漏接时 `POST /api/ops/cleanup/history`
+        #     100% 失败（`sqlite3.connect(None)`），还被包成 HTTP 200「清理成功」。
+        #   * `db_maintainer`  —— 上轮漏接，`GET /api/ops/db/integrity` 与
+        #     `/api/ops/db/tables` 一直回 500「数据库路径未设置」。数据侧检查看不见，
+        #     是接口冒烟（tools/api-smoke.py）把它抓出来的。
+        # 现在统一走 `wire_db_path()`：它从模块命名空间自省出所有暴露
+        # `set_db_path()` 的单例，**新增单例自动纳入**，不会再出现"接了一个漏一个"。
+        from core.ops_tools import wire_db_path
+        wired = wire_db_path(db_path)
+        logger.info("运维工具已接线(%s): %s", ",".join(wired), db_path)
 
         # 数据保留策略调度接线（round 209）。
         #
